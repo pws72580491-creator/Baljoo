@@ -1,24 +1,21 @@
-export const config = { runtime: 'edge' };
-
-export default async function handler(req) {
+export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   let body;
-  try { body = await req.json(); } catch { return new Response(JSON.stringify({ error: '잘못된 요청' }), { status: 400 }); }
+  try { body = await req.json ? await req.json() : req.body; } catch { body = req.body; }
 
   const { mediaType, b64, isPdf, prompt } = body || {};
   if (!b64 || !prompt) {
-    return new Response(JSON.stringify({ error: '필수 파라미터 누락' }), { status: 400 });
+    return res.status(400).json({ error: '필수 파라미터 누락' });
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return new Response(JSON.stringify({ error: 'GEMINI_API_KEY 환경변수 미설정' }), { status: 500 });
+    return res.status(500).json({ error: 'GEMINI_API_KEY 환경변수 미설정' });
   }
 
-  // 모델 자동 탐색
   let model = 'gemini-2.0-flash';
   try {
     const modelsResp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
@@ -45,17 +42,14 @@ export default async function handler(req) {
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      return new Response(JSON.stringify({ error: err?.error?.message || response.statusText }), { status: response.status });
+      return res.status(response.status).json({ error: err?.error?.message || response.statusText });
     }
 
     const data = await response.json();
     const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
-    return new Response(JSON.stringify({ text }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
+    return res.status(200).json({ text });
 
   } catch (e) {
-    return new Response(JSON.stringify({ error: e.message }), { status: 500 });
+    return res.status(500).json({ error: e.message });
   }
 }
