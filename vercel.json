@@ -1,0 +1,11 @@
+{
+  "functions": {
+    "analyze.js": {
+      "runtime": "edge"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/analyze", "destination": "/analyze.js" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
