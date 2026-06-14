@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>이른아침 · 발주관리</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
@@ -346,6 +347,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     <div class="view" id="v1">
       <div class="ph">
         <div><div class="pt">발주 목록</div><div class="ps" id="o-sub">전체 0건</div></div>
+        <button class="btn btn-g btn-sm" onclick="resetOrders()">목록 초기화</button>
       </div>
       <div class="search-wrap">
         <span class="search-icon">🔍</span>
@@ -363,6 +365,23 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     <!-- ── VIEW 2: UPLOAD ── -->
     <div class="view" id="v2">
       <div class="ph"><div><div class="pt">문서 업로드</div><div class="ps">PDF·이미지·ZIP → AI 자동 분석</div></div></div>
+      <!-- API KEY 입력 -->
+      <div class="form-card" id="apiKeyCard" style="margin-bottom:14px;padding:13px 14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.4px;text-transform:uppercase;">OpenRouter API Key</span>
+          <a href="https://openrouter.ai/keys" target="_blank" style="font-size:11px;color:var(--accent);text-decoration:none;">발급 →</a>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <input class="fi" id="geminiKey" type="password" placeholder="sk-or-v1-..." style="font-size:13px;padding:9px 11px;flex:1;"
+            autocomplete="off"/>
+          <button class="btn btn-g btn-sm" onclick="toggleKeyVisibility()" style="flex-shrink:0;font-size:13px;padding:0 12px;">👁</button>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px;">
+          <button class="btn btn-p btn-sm" onclick="saveApiKey()" style="flex:1;padding:8px 0;">저장</button>
+          <button class="btn btn-g btn-sm" onclick="resetApiKey()" style="flex:1;padding:8px 0;">초기화</button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;">OpenRouter · 기기에만 저장</div>
+      </div>
 
       <div class="upload-zone" id="uploadZone"
         onclick="document.getElementById('fileInput').click()"
@@ -439,10 +458,10 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 <div class="toast" id="toast"></div>
 
 <script>
-// ══════════════════════════════════
-// AI API KEY (공용 키 - 코드에 내장됨)
-// ══════════════════════════════════
-const OPENROUTER_API_KEY = 'YOUR_OPENROUTER_API_KEY_HERE';
+// pdf.js 워커 설정
+if(window.pdfjsLib){
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
 
 // ══════════════════════════════════
 // DATA
@@ -457,17 +476,15 @@ let itemCount = 0;
 
 function save(){ try{sessionStorage.setItem('orders',JSON.stringify(orders));}catch(e){} }
 function load(){ try{const d=sessionStorage.getItem('orders');if(d)orders=JSON.parse(d);}catch(e){} }
+function resetOrders(){
+  if(!confirm('발주 목록 전체를 초기화할까요? 저장된 내역이 모두 삭제됩니다.')) return;
+  orders=[];
+  save();
+  renderAll();
+  toast('🗑️ 목록 초기화 완료');
+}
 
-const SEED = [
-  {id:'HFC-260477114',docNo:'HFC-260477114',date:'2026-04-23',delivery:'2026-05-08',ship:'CELEBRITY MILLENNIUM',poNo:'PO123404CCI',category:'cruise',items:[{desc:'EGG FRESH CAGE FREE BARN CODE 2',code:'020511',qty:1200,unit:'DOZ',price:3120,amount:3744000}],total:3744000,source:'pdf'},
-  {id:'HFC-260555011',docNo:'HFC-260555011',date:'2026-05-14',delivery:'2026-05-22',ship:'CELEBRITY MILLENNIUM',poNo:'PO129714CCI',category:'cruise',items:[{desc:'EGG FRESH CAGE FREE BARN CODE 2',code:'020511',qty:3240,unit:'DOZ',price:3120,amount:10108800}],total:10108800,source:'pdf'},
-  {id:'HFC-260577119',docNo:'HFC-260577119',date:'2026-05-29',delivery:'2026-06-11',ship:'CELEBRITY MILLENNIUM',poNo:'PO134999CCI',category:'cruise',items:[{desc:'EGG FRESH QUAIL FLATS',code:'040290',qty:40,unit:'DOZ',price:800,amount:32000},{desc:'EGG FRESH CAGE FREE BARN CODE 2',code:'020511',qty:2000,unit:'DOZ',price:3120,amount:6240000}],total:6272000,source:'pdf'},
-  {id:'HFC-260607058',docNo:'HFC-260607058',date:'2026-06-13',delivery:'2026-06-16',ship:'CMA CGM NEW JERSEY',poNo:'CNJ0619P0502',category:'cargo',items:[{desc:'EGGS FRESH',code:'020319',qty:30,unit:'DOZ',price:3036,amount:91080}],total:91080,source:'pdf'},
-  {id:'HFC-260647002',docNo:'HFC-260647002',date:'2026-06-13',delivery:'2026-06-15',ship:'SAN FERNANDO',poNo:'PO/SCF/SFO/0051',category:'cargo',items:[{desc:'EGGS FRESH',code:'020319',qty:1440,unit:'PCS',price:253,amount:364320}],total:364320,source:'pdf'},
-  {id:'HFC-260647025',docNo:'HFC-260647025',date:'2026-06-13',delivery:'2026-06-17',ship:'TAIPAN',poNo:'TAIP-260608-V134-PRV',category:'cargo',items:[{desc:'EGGS FRESH',code:'020319',qty:4,unit:'BOX',price:91080,amount:364320}],total:364320,source:'pdf'},
-  {id:'HFC-260647032',docNo:'HFC-260647032',date:'2026-06-13',delivery:'2026-06-17',ship:'CMA CGM EIFFEL',poNo:'PO/SCF/EIF/0018',category:'cargo',items:[{desc:'EGGS FRESH',code:'020319',qty:360,unit:'PCS',price:253,amount:91080}],total:91080,source:'pdf'},
-  {id:'HFC-260656023',docNo:'HFC-260656023',date:'2026-06-13',delivery:'2026-06-16',ship:'UMM AL HANAYA',poNo:'HANAYA0617P0018',category:'cargo',items:[{desc:'EGGS FRESH',code:'020319',qty:210,unit:'DOZ',price:3036,amount:637560}],total:637560,source:'pdf'}
-];
+const SEED = [];
 
 // ══════════════════════════════════
 // SWIPE NAVIGATION
@@ -739,24 +756,29 @@ async function handleFiles(files){
 }
 
 async function analyzeFile(file){
-  const apiKey = OPENROUTER_API_KEY;
-  if(!apiKey || apiKey.includes('YOUR_')){ setStatus('⚠️ API 키가 설정되지 않았습니다.'); throw new Error('no key'); }
+  const apiKey = (document.getElementById('geminiKey').value||'').trim();
+  if(!apiKey){ setStatus('⚠️ OpenRouter API Key를 입력해주세요.'); throw new Error('no key'); }
 
   try{
-    const b64 = await toB64(file);
     const isPdf = file.type==='application/pdf';
-    const mimeType = isPdf ? 'application/pdf' : (file.type||'image/jpeg');
 
     const prompt = `이 발주서 문서를 분석해 아래 JSON 형식으로만 응답하세요. 코드블록 없이 순수 JSON만:
 {"docNo":"","date":"YYYY-MM-DD","delivery":"YYYY-MM-DD","ship":"","poNo":"","category":"cruise or cargo","items":[{"desc":"","code":"","qty":0,"unit":"","price":0,"amount":0}],"total":0}
 규칙: date/delivery는 YYYY-MM-DD, category는 크루즈면 cruise 화물이면 cargo, 모르면 빈값`;
 
-    const content = [
-      {type:'text', text:prompt},
-      isPdf
-        ? {type:'file', file:{filename:file.name, file_data:`data:${mimeType};base64,${b64}`}}
-        : {type:'image_url', image_url:{url:`data:${mimeType};base64,${b64}`}}
-    ];
+    const content = [{type:'text', text:prompt}];
+
+    if(isPdf){
+      // PDF는 클라이언트에서 이미지로 변환 후 전송 (file 엔진 미사용 → 크레딧 요건 없음)
+      const pages = await pdfToImages(file);
+      pages.forEach(dataUrl=>{
+        content.push({type:'image_url', image_url:{url:dataUrl}});
+      });
+    }else{
+      const b64 = await toB64(file);
+      const mimeType = file.type||'image/jpeg';
+      content.push({type:'image_url', image_url:{url:`data:${mimeType};base64,${b64}`}});
+    }
 
     const url = 'https://openrouter.ai/api/v1/chat/completions';
     const resp = await fetch(url,{
@@ -766,7 +788,7 @@ async function analyzeFile(file){
         'Authorization':`Bearer ${apiKey}`
       },
       body:JSON.stringify({
-        model:'google/gemini-2.0-flash-001',
+        model:'google/gemini-2.5-flash',
         messages:[{role:'user', content}],
         temperature:0,
         max_tokens:1500
@@ -780,8 +802,11 @@ async function analyzeFile(file){
 
     const data = await resp.json();
     if(data.error) throw new Error(data.error.message||'API 오류');
-    const txt = (data.choices?.[0]?.message?.content||'').replace(/```json|```/g,'').trim();
+    let txt = (data.choices?.[0]?.message?.content||'').replace(/```json|```/g,'').trim();
     if(!txt) throw new Error('AI 응답 없음');
+    // 응답에 JSON 외 텍스트가 섞여 있을 경우 { ... } 구간만 추출
+    const s = txt.indexOf('{'), e = txt.lastIndexOf('}');
+    if(s!==-1 && e!==-1 && e>s) txt = txt.slice(s, e+1);
 
     const parsed = JSON.parse(txt);
     parsed.id = parsed.docNo||('UP-'+Date.now());
@@ -803,6 +828,27 @@ function toB64(file){
     r.onerror=()=>rej(new Error('read fail'));
     r.readAsDataURL(file);
   });
+}
+
+// PDF 페이지들을 canvas로 렌더링 후 JPEG dataURL 배열로 반환 (최대 MAX_PAGES페이지)
+const PDF_MAX_PAGES = 5;
+async function pdfToImages(file){
+  if(!window.pdfjsLib) throw new Error('PDF 렌더링 라이브러리 로드 실패');
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({data:buf}).promise;
+  const n = Math.min(pdf.numPages, PDF_MAX_PAGES);
+  const images = [];
+  for(let i=1;i<=n;i++){
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({scale:1.8});
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+    await page.render({canvasContext:ctx, viewport}).promise;
+    images.push(canvas.toDataURL('image/jpeg', 0.85));
+  }
+  return images;
 }
 
 function renderPreview(){
@@ -847,6 +893,39 @@ function clearPrev(){
 }
 function setProgress(p){ document.getElementById('progBar').style.width=p+'%'; }
 function setStatus(m){ document.getElementById('upStatus').textContent=m; }
+
+function saveApiKey(){
+  const val=(document.getElementById('geminiKey').value||'').trim();
+  if(!val){ toast('⚠️ 키를 입력해주세요'); return; }
+  try{localStorage.setItem('openrouterApiKey',val);}catch(e){}
+  toast('✅ API 키 저장 완료');
+}
+function loadApiKey(){
+  try{
+    let k=localStorage.getItem('openrouterApiKey');
+    if(!k){
+      // 이전 버전(geminiApiKey)에 저장된 키 마이그레이션
+      const old=localStorage.getItem('geminiApiKey');
+      if(old){ k=old; localStorage.setItem('openrouterApiKey',old); }
+    }
+    if(k) document.getElementById('geminiKey').value=k;
+  }catch(e){}
+}
+function toggleKeyVisibility(){
+  const el=document.getElementById('geminiKey');
+  el.type=el.type==='password'?'text':'password';
+}
+function resetApiKey(){
+  if(!confirm('등록된 API 키를 삭제할까요?')) return;
+  try{
+    localStorage.removeItem('openrouterApiKey');
+    localStorage.removeItem('geminiApiKey');
+  }catch(e){}
+  const el=document.getElementById('geminiKey');
+  el.value='';
+  el.type='password';
+  toast('🗑️ API 키 초기화 완료');
+}
 
 // ══════════════════════════════════
 // MANUAL ENTRY
@@ -939,6 +1018,7 @@ function init(){
   resetManual();
   goTo(0, false);
   renderAll();
+  loadApiKey();
   document.getElementById('tabInk').style.left='0%';
 }
 init();
