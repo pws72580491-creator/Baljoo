@@ -54,12 +54,18 @@ async function handleDeliveryFiles(files) {
     }));
 
     const prompt = `다음은 납품 확인서 또는 납품 리스트 이미지입니다.
-아래 발주 목록과 매칭하여 납품된 항목을 찾아주세요.
+
+⚠️ 중요: 이 이미지에는 여러 업체의 납품 항목이 섞여 있을 수 있습니다.
+반드시 **"이른아침"** 업체(공급자) 항목만 추출하세요.
+"이른아침"이 공급자/납품처/발행처로 표기된 행 또는 섹션만 대상입니다.
+다른 업체 항목은 무시하세요.
+
+아래 발주 목록과 매칭하여 이른아침 납품 항목을 찾아주세요.
 
 발주 목록 (JSON):
 ${JSON.stringify(orderSummary, null, 2)}
 
-이미지에서 납품된 선명(선박명), 서류번호, 발주번호, 날짜, 품목명 등을 추출하고
+이미지에서 이른아침 항목의 선명(선박명), 서류번호, 발주번호, 날짜, 품목명을 추출하고
 위 발주 목록에서 일치하는 항목의 id를 찾아주세요.
 
 응답은 반드시 아래 JSON 형식으로만, 코드블록 없이 순수 JSON만 출력:
@@ -67,10 +73,12 @@ ${JSON.stringify(orderSummary, null, 2)}
   "matched": [
     {"id":"발주ID", "ship":"선명", "reason":"매칭근거(서류번호/선명/품목 등)"}
   ],
-  "unmatched": ["발주목록에 없는 납품 항목 설명"],
-  "summary": "납품 리스트 전체 요약 1-2줄"
+  "unmatched": ["이른아침 항목이지만 발주목록에 없는 경우만 기재"],
+  "skipped_other_vendors": true,
+  "summary": "이른아침 납품 항목 요약 1-2줄"
 }
 
+이른아침 항목이 전혀 없으면 matched는 빈 배열, summary에 '이른아침 항목 없음' 표기.
 매칭이 전혀 없으면 matched는 빈 배열로.`;
 
     const content = [{ type: 'text', text: prompt }, ...imageContents];
@@ -118,7 +126,7 @@ function renderDeliveryResult(result) {
   sec.innerHTML = `
     ${result.summary ? `<div style="font-size:12px;color:var(--muted);margin-bottom:10px;padding:8px 10px;background:var(--bg);border-radius:8px;">📋 ${result.summary}</div>` : ''}
     ${matchedOrders.length ? `
-      <div class="sdiv" style="margin-top:0;">매칭된 발주 (${matchedOrders.length}건)</div>
+      <div class="sdiv" style="margin-top:0;">이른아침 매칭된 발주 (${matchedOrders.length}건)</div>
       ${matchedOrders.map(m => `
         <div class="prev-card" style="border-left:3px solid var(--success);">
           <div class="prev-head" style="gap:6px;">
@@ -142,7 +150,8 @@ function renderDeliveryResult(result) {
           ✅ 매칭된 전체 납품완료 처리
         </button>
       ` : ''}
-    ` : '<div style="font-size:13px;color:var(--muted);text-align:center;padding:12px 0;">발주 목록에서 일치하는 항목을 찾지 못했습니다</div>'}
+    ` : '<div style="font-size:13px;color:var(--muted);text-align:center;padding:12px 0;">이른아침 항목이 없거나 발주 목록과 일치하는 항목을 찾지 못했습니다</div>'}
+    ${result.skipped_other_vendors ? `<div style="font-size:11px;color:var(--muted);padding:4px 0;">ℹ️ 타 업체 항목은 자동으로 제외되었습니다</div>` : ''}
     ${unmatched.length ? `
       <div class="sdiv">목록 미매칭 항목</div>
       ${unmatched.map(u => `<div style="font-size:12px;color:var(--muted);padding:4px 0;">• ${u}</div>`).join('')}
