@@ -1,4 +1,41 @@
 <!DOCTYPE html>
+<!--
+  이른아침 · 발주관리 PWA
+  ════════════════════════════════════════
+  Version : v2.3.0
+  Released: 2026-06-14
+  ────────────────────────────────────────
+  CHANGELOG
+  v2.3.0 (2026-06-14)
+    - [NEW] 업로드 탭 — 납품 리스트 사진 AI 자동 매칭
+            사진/PDF 업로드 → Gemini가 발주목록과 선명·서류번호·품목 매칭
+            → 납품완료 개별/일괄 처리, 비고 자동 기록 [납품사진 자동확인]
+    - [CHG] 대시보드 stat 카드 변경
+            총 발주건수 → 납품 건수 (납품완료+부분납품)
+            총 발주금액 → 납품 총금액 (실납품 기준, 반품 차감)
+            총 박스수   → 납품 박스수 (납품완료 발주 기준)
+
+  v2.2.0 (이전)
+    - [NEW] 납품 통계 탭 — 납품금액 요약, 선명별 납품 현황 테이블
+    - [NEW] 미납품 목록 / 반품 내역 섹션 분리 표시
+    - [NEW] 엑셀 내보내기 — 발주목록 + 납품통계 시트
+
+  v2.1.0 (이전)
+    - [NEW] 납품/반품/부분납품/미납품 상태 관리
+    - [NEW] 발주 모달 — 납품 처리 액션 버튼 그룹
+    - [NEW] 납품 금액 현황 블록 (발주금액·반품·실납품 표시)
+    - [NEW] 발주목록 납품 상태 칩 필터
+
+  v2.0.0 (이전)
+    - [NEW] OpenRouter API 연동 (Gemini 2.5 Flash)
+    - [NEW] PDF·이미지·ZIP 발주서 AI 자동 분석
+    - [NEW] localStorage 영구 저장 (v2 키)
+    - [NEW] 날짜 범위 필터
+    - [NEW] 박스 수량 자동 계산 (DOZ÷30, PCS÷360)
+    - [NEW] PWA — Service Worker, manifest, 홈 화면 추가
+    - [NEW] 5탭 스와이프 네비게이션
+  ════════════════════════════════════════
+-->
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
@@ -12,9 +49,10 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<title>이른아침 · 발주관리</title>
+<title>이른아침 · 발주관리 v2.3</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
@@ -25,12 +63,17 @@
   --gold:#e8b84b;--bg:#f0f4fa;--surface:#fff;
   --border:#dde3ef;--text:#1a2540;--muted:#6b7a99;
   --danger:#ef4444;--success:#22c55e;
+  --warn:#f59e0b;
+  --delivered:#0ea5e9;--returned:#ef4444;--pending:#6b7a99;
   --r:12px;--sh:0 2px 12px rgba(15,31,61,.08);
   --nav-h:56px;--top-h:56px;
 }
 
 html,body{height:100%;overflow:hidden;}
-body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);display:flex;flex-direction:column;}
+body{
+  font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);
+  display:flex;flex-direction:column;
+}
 
 /* ── TOP BAR ── */
 .topbar{
@@ -47,7 +90,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .topbar-stats b{color:#fff;font-weight:700;}
 
 /* ── SWIPE CONTAINER ── */
-.swipe-root{flex:1;overflow:hidden;position:relative;}
+.swipe-root{flex:1;overflow:hidden;position:relative;width:100%;}
 .swipe-track{
   display:flex;height:100%;
   transition:transform .32s cubic-bezier(.4,0,.2,1);
@@ -57,10 +100,10 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 
 /* ── VIEWS ── */
 .view{
-  min-width:100vw;width:100vw;height:100%;
+  min-width:100%;width:100%;height:100%;
   overflow-y:auto;overflow-x:hidden;
   -webkit-overflow-scrolling:touch;
-  padding:16px 14px calc(var(--nav-h) + 12px);
+  padding:16px 14px calc(var(--nav-h) + 16px);
 }
 
 /* ── BOTTOM NAV ── */
@@ -85,14 +128,9 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .tab.active .ti{transform:scale(1.15);}
 .tab-ink{
   position:absolute;bottom:0;height:2px;background:var(--accent);
-  border-radius:2px 2px 0 0;width:25%;
+  border-radius:2px 2px 0 0;width:20%;
   transition:left .32s cubic-bezier(.4,0,.2,1);
 }
-
-/* ── SWIPE DOT INDICATOR ── */
-.dot-row{display:flex;gap:5px;justify-content:center;margin-top:8px;}
-.dot{width:6px;height:6px;border-radius:50%;background:var(--border);transition:background .2s,width .2s;}
-.dot.active{background:var(--accent);width:18px;border-radius:3px;}
 
 /* ── PAGE HEADER ── */
 .ph{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px;}
@@ -106,10 +144,36 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .sc-val{font-size:22px;font-weight:700;letter-spacing:-.8px;line-height:1;}
 .sc-val.accent{color:var(--accent);}
 .sc-val.gold{color:#b8880a;}
-.sc-val.sm{font-size:17px;}
+.sc-val.success{color:var(--success);}
+.sc-val.danger{color:var(--danger);}
+.sc-val.sm{font-size:16px;}
+.sc-val.xs{font-size:14px;}
 .sc-sub{font-size:11px;color:var(--muted);margin-top:3px;}
 
-/* ── CARD LIST (mobile order rows) ── */
+/* ── 납품 현황 카드 ── */
+.delivery-summary{
+  background:var(--navy);border-radius:var(--r);
+  padding:16px;margin-bottom:16px;
+  box-shadow:0 4px 20px rgba(15,31,61,.18);
+}
+.ds-title{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:rgba(255,255,255,.5);margin-bottom:12px;}
+.ds-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+.ds-item{text-align:center;}
+.ds-val{font-size:18px;font-weight:700;line-height:1;margin-bottom:3px;}
+.ds-val.c-delivered{color:#38bdf8;}
+.ds-val.c-returned{color:#f87171;}
+.ds-val.c-pending{color:rgba(255,255,255,.45);}
+.ds-lbl{font-size:10px;color:rgba(255,255,255,.45);}
+.ds-amount{font-size:12px;color:rgba(255,255,255,.7);margin-top:2px;}
+.ds-net{
+  margin-top:12px;padding-top:12px;
+  border-top:1px solid rgba(255,255,255,.12);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.ds-net-lbl{font-size:11px;color:rgba(255,255,255,.5);}
+.ds-net-val{font-size:17px;font-weight:700;color:var(--gold);}
+
+/* ── ORDER CARD ── */
 .order-card{
   background:var(--surface);border-radius:var(--r);
   border:1px solid var(--border);box-shadow:var(--sh);
@@ -117,8 +181,15 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   cursor:pointer;
   -webkit-tap-highlight-color:transparent;
   transition:box-shadow .15s;
-  active:box-shadow:0 4px 20px rgba(41,121,212,.15);
+  position:relative;overflow:hidden;
 }
+.order-card::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:var(--border);border-radius:3px 0 0 3px;
+}
+.order-card.status-delivered::before{background:var(--delivered);}
+.order-card.status-returned::before{background:var(--returned);}
+.order-card.status-partial::before{background:var(--warn);}
 .order-card:active{box-shadow:0 4px 20px rgba(41,121,212,.12);}
 .oc-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;}
 .oc-ship{font-size:14px;font-weight:700;line-height:1.3;flex:1;padding-right:8px;}
@@ -129,12 +200,19 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .oc-item{font-size:12px;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .oc-dates{font-size:11px;color:var(--muted);white-space:nowrap;}
 .oc-qty{font-size:12px;font-family:'JetBrains Mono',monospace;font-weight:500;color:var(--text);}
+.oc-status-row{display:flex;gap:6px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);}
+.oc-net{font-size:12px;color:var(--muted);}
+.oc-net b{color:var(--text);}
 
 /* ── BADGES ── */
 .badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;}
 .b-cruise{background:#e0f0ff;color:#0a6abf;}
 .b-cargo{background:#fff3e0;color:#b35e00;}
 .b-manual{background:#f3e8ff;color:#7c3aed;}
+.b-delivered{background:#e0f7ff;color:#0369a1;}
+.b-returned{background:#fee2e2;color:#b91c1c;}
+.b-partial{background:#fef3c7;color:#92400e;}
+.b-pending{background:#f1f5f9;color:#64748b;}
 
 /* ── SECTION HEADER ── */
 .sec-hd{
@@ -170,6 +248,8 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   flex-shrink:0;
 }
 .chip.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+.chip.c-delivered.active{background:var(--delivered);border-color:var(--delivered);}
+.chip.c-returned.active{background:var(--returned);border-color:var(--returned);}
 
 /* ── UPLOAD ZONE ── */
 .upload-zone{
@@ -246,6 +326,10 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .btn-g:active{background:var(--border);}
 .btn-d{background:#fee2e2;color:var(--danger);}
 .btn-d:active{background:var(--danger);color:#fff;}
+.btn-success{background:#dcfce7;color:#15803d;}
+.btn-success:active{background:var(--success);color:#fff;}
+.btn-warn{background:#fef3c7;color:#92400e;}
+.btn-warn:active{background:var(--warn);color:#fff;}
 .btn-sm{padding:6px 12px;font-size:12px;border-radius:7px;}
 
 /* ── MODAL ── */
@@ -257,7 +341,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .modal-ov.open{display:flex;}
 .modal{
   background:#fff;border-radius:20px 20px 0 0;
-  width:100%;max-height:88vh;overflow-y:auto;
+  width:100%;max-height:90vh;overflow-y:auto;
   -webkit-overflow-scrolling:touch;
   box-shadow:0 -8px 40px rgba(0,0,0,.18);
   padding-bottom:env(safe-area-inset-bottom,16px);
@@ -275,7 +359,28 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 .items-tbl td{padding:9px 8px;border-top:1px solid var(--border);}
 .items-tbl .tr{background:var(--navy);color:#fff;font-weight:700;}
 .items-tbl .tr td{border-top:none;}
-.modal-del{margin-top:16px;}
+
+/* 납품/반품 액션 버튼 그룹 */
+.delivery-actions{
+  display:grid;grid-template-columns:1fr 1fr;gap:8px;
+  margin-top:16px;
+}
+.da-full{grid-column:1/-1;}
+
+/* 납품 현황 인라인 블록 */
+.delivery-block{
+  background:var(--bg);border-radius:10px;
+  padding:14px;margin:16px 0 0;
+}
+.db-title{font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;}
+.db-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+.db-row:last-child{margin-bottom:0;}
+.db-label{font-size:13px;color:var(--text);}
+.db-val{font-size:13px;font-weight:700;font-family:'JetBrains Mono',monospace;}
+.db-val.plus{color:var(--delivered);}
+.db-val.minus{color:var(--returned);}
+.db-val.net{color:var(--navy);font-size:15px;}
+.db-divider{height:1px;background:var(--border);margin:8px 0;}
 
 /* divider */
 .sdiv{
@@ -310,14 +415,38 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
   display:flex;align-items:center;justify-content:space-between;
 }
 
-/* desktop layout override */
+/* 날짜 필터 */
+.date-filter{
+  display:flex;gap:8px;align-items:center;
+  background:var(--surface);border-radius:var(--r);
+  border:1px solid var(--border);
+  padding:10px 14px;margin-bottom:12px;
+  box-shadow:var(--sh);
+}
+.date-filter input{
+  border:1.5px solid var(--border);border-radius:8px;
+  font-size:12px;font-family:inherit;color:var(--text);
+  background:#fff;outline:none;padding:6px 8px;flex:1;
+  -webkit-appearance:none;
+}
+.date-filter input:focus{border-color:var(--accent);}
+.date-sep{font-size:11px;color:var(--muted);}
+.date-clear{font-size:11px;color:var(--accent);cursor:pointer;white-space:nowrap;font-weight:600;background:none;border:none;font-family:inherit;padding:0;}
+
+/* 태블릿/데스크탑 - 넓은 화면 자동 비율 */
 @media(min-width:700px){
   .stat-grid{grid-template-columns:repeat(4,1fr);}
   .modal-ov{align-items:center;padding:20px;}
-  .modal{border-radius:16px;max-width:560px;width:100%;}
+  .modal{border-radius:16px;max-width:640px;width:100%;}
   .modal-handle{display:none;}
   .row2{grid-template-columns:1fr 1fr;}
   .fi{font-size:14px;} .fs{font-size:14px;}
+  .view{padding:20px 24px calc(var(--nav-h) + 20px);}
+  .ds-grid{grid-template-columns:repeat(3,1fr);}
+  :root{--top-h:60px;--nav-h:60px;}
+  .tab .ti{font-size:22px;}
+  .tab{font-size:11px;}
+  .pt{font-size:22px;}
 }
 </style>
 </head>
@@ -325,7 +454,7 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v2.3</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
@@ -339,13 +468,40 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     <div class="view" id="v0">
       <div class="ph">
         <div><div class="pt">대시보드</div><div class="ps">전체 발주 현황</div></div>
+        <button class="btn btn-g btn-sm" onclick="exportExcel()">📥 엑셀</button>
       </div>
+
+      <!-- 납품 현황 요약 -->
+      <div class="delivery-summary">
+        <div class="ds-title">납품 현황</div>
+        <div class="ds-grid">
+          <div class="ds-item">
+            <div class="ds-val c-delivered" id="ds-delivered-cnt">0</div>
+            <div class="ds-lbl">납품완료</div>
+            <div class="ds-amount" id="ds-delivered-amt">₩0</div>
+          </div>
+          <div class="ds-item">
+            <div class="ds-val c-returned" id="ds-returned-cnt">0</div>
+            <div class="ds-lbl">반품처리</div>
+            <div class="ds-amount" id="ds-returned-amt">₩0</div>
+          </div>
+          <div class="ds-item">
+            <div class="ds-val c-pending" id="ds-pending-cnt">0</div>
+            <div class="ds-lbl">미납품</div>
+            <div class="ds-amount" id="ds-pending-amt">₩0</div>
+          </div>
+        </div>
+        <div class="ds-net">
+          <div class="ds-net-lbl">실 납품금액 (납품 - 반품)</div>
+          <div class="ds-net-val" id="ds-net-amt">₩0</div>
+        </div>
+      </div>
+
       <div class="stat-grid">
-        <div class="stat-card"><div class="sc-label">총 발주</div><div class="sc-val accent" id="s-cnt">0</div><div class="sc-sub">건</div></div>
-        <div class="stat-card"><div class="sc-label">총 금액</div><div class="sc-val sm" id="s-tot">₩0</div><div class="sc-sub">KRW</div></div>
+        <div class="stat-card"><div class="sc-label">납품 건수</div><div class="sc-val accent" id="s-cnt">0</div><div class="sc-sub">건</div></div>
+        <div class="stat-card"><div class="sc-label">납품 총금액</div><div class="sc-val sm success" id="s-tot">₩0</div><div class="sc-sub">실납품 기준</div></div>
         <div class="stat-card"><div class="sc-label">선명 수</div><div class="sc-val gold" id="s-ships">0</div><div class="sc-sub">척</div></div>
-        <div class="stat-card"><div class="sc-label">평균 단가</div><div class="sc-val sm" id="s-avg">₩0</div><div class="sc-sub">KRW avg</div></div>
-        <div class="stat-card" style="grid-column:1 / -1;"><div class="sc-label">총 박스</div><div class="sc-val accent" id="s-boxes">0박스</div></div>
+        <div class="stat-card"><div class="sc-label">납품 박스</div><div class="sc-val accent" id="s-boxes">0박스</div><div class="sc-sub">납품완료 기준</div></div>
       </div>
       <div class="sdiv">최근 발주 내역</div>
       <div id="dash-list"></div>
@@ -355,33 +511,67 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     <div class="view" id="v1">
       <div class="ph">
         <div><div class="pt">발주 목록</div><div class="ps" id="o-sub">전체 0건</div></div>
-        <button class="btn btn-g btn-sm" onclick="resetOrders()">목록 초기화</button>
+        <button class="btn btn-g btn-sm" onclick="resetOrders()">초기화</button>
       </div>
       <div class="search-wrap">
         <span class="search-icon">🔍</span>
         <input class="search-input" id="searchInput" placeholder="선명, 서류번호 검색..." oninput="searchOrders(this.value)" />
       </div>
-      <div class="chips">
+      <!-- 날짜 필터 -->
+      <div class="date-filter">
+        <input type="date" id="fDateFrom" onchange="renderAll()" placeholder="시작일"/>
+        <span class="date-sep">~</span>
+        <input type="date" id="fDateTo" onchange="renderAll()" placeholder="종료일"/>
+        <button class="date-clear" onclick="clearDateFilter()">✕</button>
+      </div>
+      <!-- 구분 칩 -->
+      <div class="chips" id="cat-chips">
         <button class="chip active" onclick="filterOrders('all',this)">전체</button>
         <button class="chip" onclick="filterOrders('cruise',this)">크루즈</button>
         <button class="chip" onclick="filterOrders('cargo',this)">카고</button>
         <button class="chip" onclick="filterOrders('manual',this)">직접입력</button>
+      </div>
+      <!-- 납품 상태 칩 -->
+      <div class="chips" id="status-chips">
+        <button class="chip active" onclick="filterStatus('all',this)">전체 상태</button>
+        <button class="chip c-delivered" onclick="filterStatus('delivered',this)">납품완료</button>
+        <button class="chip c-returned" onclick="filterStatus('returned',this)">반품</button>
+        <button class="chip" onclick="filterStatus('pending',this)">미납품</button>
       </div>
       <div id="orders-list"></div>
     </div>
 
     <!-- ── VIEW 2: UPLOAD ── -->
     <div class="view" id="v2">
-      <div class="ph"><div><div class="pt">문서 업로드</div><div class="ps">PDF·이미지·ZIP → AI 자동 분석</div></div></div>
-      <!-- API KEY 입력 -->
+      <div class="ph"><div><div class="pt">업로드</div><div class="ps">발주서 등록 · 납품 자동 확인</div></div></div>
+
+      <!-- 납품 리스트 사진 업로드 섹션 -->
+      <div class="form-card" style="margin-bottom:14px;border-left:3px solid var(--success);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <span style="font-size:13px;font-weight:700;color:var(--success);">📷 납품 리스트 사진으로 자동 확인</span>
+          <span style="font-size:10px;color:var(--muted);">AI 매칭</span>
+        </div>
+        <div class="upload-zone" id="deliveryZone" style="padding:24px 16px;margin-bottom:8px;"
+          onclick="document.getElementById('deliveryInput').click()"
+          ondragover="onDragDelivery(event,true)" ondragleave="onDragDelivery(event,false)" ondrop="onDropDelivery(event)">
+          <div class="uz-icon" style="font-size:32px;">🚚</div>
+          <div class="uz-title" style="font-size:14px;">납품 확인서 / 납품 리스트 사진</div>
+          <div class="uz-sub" style="font-size:11px;">사진을 업로드하면 AI가 발주목록과 자동 매칭하여<br>납품완료 처리합니다</div>
+        </div>
+        <input type="file" id="deliveryInput" multiple accept=".jpg,.jpeg,.png,.webp,.pdf" style="display:none;" onchange="handleDeliveryFiles(this.files)"/>
+        <div class="prog-wrap" id="delProgWrap"><div class="prog-bar" id="delProgBar" style="width:0%;background:var(--success);"></div></div>
+        <div class="upload-status" id="delStatus"></div>
+        <div id="del-result-section" style="display:none;margin-top:12px;"></div>
+      </div>
+
+      <div class="sdiv" style="margin-top:4px;">발주서 등록</div>
       <div class="form-card" id="apiKeyCard" style="margin-bottom:14px;padding:13px 14px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
           <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.4px;text-transform:uppercase;">OpenRouter API Key</span>
           <a href="https://openrouter.ai/keys" target="_blank" style="font-size:11px;color:var(--accent);text-decoration:none;">발급 →</a>
         </div>
         <div style="display:flex;gap:8px;">
-          <input class="fi" id="geminiKey" type="password" placeholder="sk-or-v1-..." style="font-size:13px;padding:9px 11px;flex:1;"
-            autocomplete="off"/>
+          <input class="fi" id="geminiKey" type="password" placeholder="sk-or-v1-..." style="font-size:13px;padding:9px 11px;flex:1;" autocomplete="off"/>
           <button class="btn btn-g btn-sm" onclick="toggleKeyVisibility()" style="flex-shrink:0;font-size:13px;padding:0 12px;">👁</button>
         </div>
         <div style="display:flex;gap:8px;margin-top:8px;">
@@ -390,7 +580,6 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
         </div>
         <div style="font-size:11px;color:var(--muted);margin-top:6px;">OpenRouter · 기기에만 저장</div>
       </div>
-
       <div class="upload-zone" id="uploadZone"
         onclick="document.getElementById('fileInput').click()"
         ondragover="onDrag(event,true)" ondragleave="onDrag(event,false)" ondrop="onDrop(event)">
@@ -428,6 +617,15 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
           <div class="fg"><label class="fl">서류번호</label><input class="fi" type="text" id="m-doc" placeholder="HFC-2606..."/></div>
           <div class="fg"><label class="fl">거래처발주번호</label><input class="fi" type="text" id="m-po" placeholder="PO번호"/></div>
         </div>
+        <div class="fg">
+          <label class="fl">구분</label>
+          <select class="fs" id="m-cat">
+            <option value="manual">직접입력</option>
+            <option value="cruise">크루즈</option>
+            <option value="cargo">카고</option>
+            <option value="return">반품</option>
+          </select>
+        </div>
         <div class="sdiv">품목 정보</div>
         <div id="items-list"></div>
         <button class="add-row-btn" onclick="addItem()">＋ 품목 추가</button>
@@ -438,16 +636,23 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       </div>
     </div>
 
+    <!-- ── VIEW 4: STATS ── -->
+    <div class="view" id="v4">
+      <div class="ph"><div><div class="pt">납품 통계</div><div class="ps">납품·반품 상세 현황</div></div></div>
+      <div id="stats-content"></div>
+    </div>
+
   </div><!-- /swipe-track -->
 </div><!-- /swipe-root -->
 
-<!-- BOTTOM NAV -->
+<!-- BOTTOM NAV (5탭) -->
 <nav class="bottomnav">
-  <div class="tab-ink" id="tabInk"></div>
+  <div class="tab-ink" id="tabInk" style="width:20%"></div>
   <button class="tab active" onclick="goTo(0)"><span class="ti">📊</span>대시보드</button>
   <button class="tab" onclick="goTo(1)"><span class="ti">📋</span>발주목록</button>
   <button class="tab" onclick="goTo(2)"><span class="ti">📤</span>업로드</button>
   <button class="tab" onclick="goTo(3)"><span class="ti">✏️</span>직접입력</button>
+  <button class="tab" onclick="goTo(4)"><span class="ti">📈</span>통계</button>
 </nav>
 
 <!-- MODAL -->
@@ -466,151 +671,175 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 <div class="toast" id="toast"></div>
 
 <script>
-// pdf.js 워커 설정
 if(window.pdfjsLib){
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 }
 
 // ══════════════════════════════════
-// DATA
+// DATA  (localStorage 영구 저장)
 // ══════════════════════════════════
-const VIEWS = ['dashboard','orders','upload','manual'];
+const STORE_KEY = 'baljuOrders_v2';
 let orders = [];
 let filterMode = 'all';
+let statusMode = 'all';
 let searchQ = '';
-let sortKey = 'date', sortDir = -1;
-let pendingOrders = [];
 let itemCount = 0;
+let pendingOrders = [];
 
-function save(){ try{sessionStorage.setItem('orders',JSON.stringify(orders));}catch(e){} }
-function load(){ try{const d=sessionStorage.getItem('orders');if(d)orders=JSON.parse(d);}catch(e){} }
+function save(){
+  try{ localStorage.setItem(STORE_KEY, JSON.stringify(orders)); }catch(e){}
+}
+function load(){
+  try{
+    // v2 키 시도
+    let d = localStorage.getItem(STORE_KEY);
+    // 구버전 sessionStorage 마이그레이션
+    if(!d){ const old = sessionStorage.getItem('orders'); if(old) d = old; }
+    if(d){
+      orders = JSON.parse(d);
+      // 기존 데이터에 deliveryStatus 필드 초기화
+      orders.forEach(o=>{
+        if(!o.deliveryStatus) o.deliveryStatus = 'pending';
+        if(o.returnAmount === undefined) o.returnAmount = 0;
+        if(!o.deliveryNote) o.deliveryNote = '';
+        // 반품 카테고리 호환
+        if(o.category === 'return') o.deliveryStatus = 'returned';
+      });
+      save();
+    }
+  }catch(e){}
+}
+
 function resetOrders(){
-  if(!confirm('발주 목록 전체를 초기화할까요? 저장된 내역이 모두 삭제됩니다.')) return;
+  if(!confirm('발주 목록 전체를 초기화할까요?\n저장된 모든 내역이 삭제됩니다.')) return;
   orders=[];
   save();
   renderAll();
   toast('🗑️ 목록 초기화 완료');
 }
 
-const SEED = [];
-
 // ══════════════════════════════════
-// SWIPE NAVIGATION
+// SWIPE NAVIGATION (5탭)
 // ══════════════════════════════════
 let curView = 0;
-const TOTAL = 4;
-let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
-let isDragging = false, dragX = 0;
+const TOTAL = 5;
+let touchStartX=0, touchStartY=0, touchStartTime=0;
+let isDragging=false, dragX=0;
 
 function goTo(idx, animate=true){
   idx = Math.max(0, Math.min(TOTAL-1, idx));
   curView = idx;
   const track = document.getElementById('swipeTrack');
   if(!animate) track.classList.add('no-transition');
-  track.style.transform = `translateX(-${idx * 100}vw)`;
+  const W = root.offsetWidth;
+  track.style.transform = `translateX(-${idx * W}px)`;
   if(!animate) requestAnimationFrame(()=>{ track.classList.remove('no-transition'); });
-
-  // update tabs
   document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active', i===idx));
-  // update ink
-  document.getElementById('tabInk').style.left = (idx * 25) + '%';
-
-  // refresh content
+  document.getElementById('tabInk').style.left = (idx * 20) + '%';
   if(idx===0||idx===1) renderAll();
-  // 업로드 탭 진입 시 이전 상태 메시지 초기화
+  if(idx===4) renderStats();
   if(idx===2 && !pendingOrders.length){
     setStatus('');
     document.getElementById('progWrap').style.display='none';
   }
+  if(idx===2){
+    document.getElementById('delProgWrap').style.display='none';
+    if(typeof setDelStatus === 'function') setDelStatus('');
+  }
 }
 
 const root = document.getElementById('swipeRoot');
-
 root.addEventListener('touchstart', e=>{
-  // don't intercept if modal open or on scrollable element
   if(document.getElementById('modalOv').classList.contains('open')) return;
-  touchStartX = e.touches[0].clientX;
-  touchStartY = e.touches[0].clientY;
-  touchStartTime = Date.now();
-  isDragging = false;
-  dragX = 0;
-}, {passive:true});
+  touchStartX=e.touches[0].clientX; touchStartY=e.touches[0].clientY;
+  touchStartTime=Date.now(); isDragging=false; dragX=0;
+},{passive:true});
 
 root.addEventListener('touchmove', e=>{
   if(document.getElementById('modalOv').classList.contains('open')) return;
-  const dx = e.touches[0].clientX - touchStartX;
-  const dy = e.touches[0].clientY - touchStartY;
-  if(!isDragging && Math.abs(dy) > Math.abs(dx)) return; // vertical scroll
-  if(!isDragging && Math.abs(dx) > 8){ isDragging=true; }
+  const dx=e.touches[0].clientX-touchStartX;
+  const dy=e.touches[0].clientY-touchStartY;
+  if(!isDragging && Math.abs(dy)>Math.abs(dx)) return;
+  if(!isDragging && Math.abs(dx)>8){ isDragging=true; }
   if(!isDragging) return;
-  dragX = dx;
-  const offset = -curView * window.innerWidth + dx;
-  const track = document.getElementById('swipeTrack');
+  dragX=dx;
+  const W = root.offsetWidth;
+  const offset=-curView*W+dx;
+  const track=document.getElementById('swipeTrack');
   track.classList.add('no-transition');
-  track.style.transform = `translateX(${offset}px)`;
-}, {passive:true});
+  track.style.transform=`translateX(${offset}px)`;
+},{passive:true});
 
 root.addEventListener('touchend', e=>{
   if(!isDragging){ isDragging=false; return; }
-  isDragging = false;
-  const track = document.getElementById('swipeTrack');
+  isDragging=false;
+  const track=document.getElementById('swipeTrack');
   track.classList.remove('no-transition');
-  const dt = Date.now() - touchStartTime;
-  const velocity = Math.abs(dragX) / dt; // px/ms
-  const threshold = window.innerWidth * 0.3;
-  if(dragX < -threshold || (velocity > 0.4 && dragX < -20)){
-    goTo(curView+1);
-  } else if(dragX > threshold || (velocity > 0.4 && dragX > 20)){
-    goTo(curView-1);
-  } else {
-    goTo(curView); // snap back
-  }
-}, {passive:true});
+  const dt=Date.now()-touchStartTime;
+  const velocity=Math.abs(dragX)/dt;
+  const threshold=root.offsetWidth*0.3;
+  if(dragX<-threshold||(velocity>0.4&&dragX<-20)) goTo(curView+1);
+  else if(dragX>threshold||(velocity>0.4&&dragX>20)) goTo(curView-1);
+  else goTo(curView);
+},{passive:true});
 
 // ══════════════════════════════════
 // HELPERS
 // ══════════════════════════════════
-const fmt = n => n ? '₩'+Number(n).toLocaleString() : '-';
+const fmt = n => n!=null && n!=='' ? '₩'+Number(n).toLocaleString() : '-';
 const fmtQ = i => i.qty ? `${Number(i.qty).toLocaleString()} ${i.unit||''}` : '-';
 const badge = c => {
   if(c==='cruise') return '<span class="badge b-cruise">크루즈</span>';
-  if(c==='cargo') return '<span class="badge b-cargo">카고</span>';
+  if(c==='cargo')  return '<span class="badge b-cargo">카고</span>';
+  if(c==='return') return '<span class="badge b-returned">반품</span>';
   return '<span class="badge b-manual">직접입력</span>';
 };
+const statusBadge = s => {
+  if(s==='delivered') return '<span class="badge b-delivered">납품완료</span>';
+  if(s==='returned')  return '<span class="badge b-returned">반품</span>';
+  if(s==='partial')   return '<span class="badge b-partial">부분납품</span>';
+  return '<span class="badge b-pending">미납품</span>';
+};
 
-// ══════════════════════════════════
-// 박스 개수 계산 (30Doz = 1박스, 360pcs = 1박스)
-// ══════════════════════════════════
 function getBoxDivisor(unit){
   if(!unit) return null;
-  const u = String(unit).toLowerCase();
+  const u=String(unit).toLowerCase();
   if(u.includes('doz')) return 30;
   if(u.startsWith('pc')) return 360;
   return null;
 }
 function calcItemBoxCount(item){
-  const divisor = getBoxDivisor(item.unit);
-  if(!divisor || !item.qty) return 0;
-  return Number(item.qty) / divisor;
+  const d=getBoxDivisor(item.unit);
+  if(!d||!item.qty) return 0;
+  return Number(item.qty)/d;
 }
-function formatBoxCount(boxCount){
-  if(!boxCount) return '0박스';
-  return (boxCount % 1 === 0) ? `${boxCount}박스` : `${boxCount.toFixed(1)}박스`;
+function formatBoxCount(bc){
+  if(!bc) return '0박스';
+  return (bc%1===0)?`${bc}박스`:`${bc.toFixed(1)}박스`;
 }
 function calcOrderBoxes(order){
-  return (order.items||[]).reduce((sum,i)=>sum + calcItemBoxCount(i), 0);
+  return (order.items||[]).reduce((s,i)=>s+calcItemBoxCount(i),0);
 }
 
+// 실납품금액 계산: 납품완료는 total, 반품은 returnAmount(또는 total) 차감
+function calcNetDelivery(order){
+  const total = order.total || 0;
+  if(order.deliveryStatus === 'delivered') return total;
+  if(order.deliveryStatus === 'returned')  return -(order.returnAmount || total);
+  if(order.deliveryStatus === 'partial')   return order.partialAmount || 0;
+  return 0;
+}
 
 function filtered(){
+  const from = document.getElementById('fDateFrom')?.value || '';
+  const to   = document.getElementById('fDateTo')?.value   || '';
   return orders
-    .filter(o=>filterMode==='all'||o.category===filterMode)
-    .filter(o=>!searchQ||(o.ship+o.docNo+o.poNo).toLowerCase().includes(searchQ.toLowerCase()))
-    .sort((a,b)=>{
-      let va=sortKey==='amount'?a.total:sortKey==='qty'?(a.items[0]?.qty||0):a.date;
-      let vb=sortKey==='amount'?b.total:sortKey==='qty'?(b.items[0]?.qty||0):b.date;
-      return sortDir*(va>vb?1:va<vb?-1:0);
-    });
+    .filter(o=> filterMode==='all' || o.category===filterMode)
+    .filter(o=> statusMode==='all' || o.deliveryStatus===statusMode)
+    .filter(o=> !searchQ || (o.ship+o.docNo+o.poNo).toLowerCase().includes(searchQ.toLowerCase()))
+    .filter(o=> !from || o.date >= from)
+    .filter(o=> !to   || o.date <= to)
+    .sort((a,b)=> b.date.localeCompare(a.date));
 }
 
 // ══════════════════════════════════
@@ -619,25 +848,46 @@ function filtered(){
 function renderAll(){
   const total = orders.reduce((s,o)=>s+(o.total||0),0);
   const ships = new Set(orders.map(o=>o.ship)).size;
-  const prices = orders.flatMap(o=>o.items.map(i=>i.price)).filter(Boolean);
-  const avg = prices.length ? Math.round(prices.reduce((a,b)=>a+b,0)/prices.length) : 0;
-  const totalBoxes = orders.reduce((s,o)=>s+calcOrderBoxes(o),0);
+
+  // 납품 기준 통계
+  const deliveredOrders = orders.filter(o=>o.deliveryStatus==='delivered'||o.deliveryStatus==='partial');
+  const deliveredBoxes  = deliveredOrders.reduce((s,o)=>s+calcOrderBoxes(o),0);
+  const netTotal = orders.reduce((s,o)=>s+calcNetDelivery(o),0);
+  const deliveredCnt = orders.filter(o=>o.deliveryStatus==='delivered'||o.deliveryStatus==='partial').length;
 
   document.getElementById('h-cnt').textContent = orders.length;
   document.getElementById('h-tot').textContent = fmt(total);
-  document.getElementById('s-cnt').textContent = orders.length;
-  document.getElementById('s-tot').textContent = fmt(total);
+  document.getElementById('s-cnt').textContent = deliveredCnt;
+  document.getElementById('s-tot').textContent = fmt(netTotal);
   document.getElementById('s-ships').textContent = ships;
-  document.getElementById('s-avg').textContent = fmt(avg);
-  document.getElementById('s-boxes').textContent = formatBoxCount(totalBoxes);
+  document.getElementById('s-boxes').textContent = formatBoxCount(deliveredBoxes);
 
-  // dashboard
+  // 납품 현황 계산
+  const delivered = orders.filter(o=>o.deliveryStatus==='delivered');
+  const returned  = orders.filter(o=>o.deliveryStatus==='returned');
+  const pending   = orders.filter(o=>!o.deliveryStatus||o.deliveryStatus==='pending');
+  const partial   = orders.filter(o=>o.deliveryStatus==='partial');
+
+  const deliveredAmt = delivered.reduce((s,o)=>s+(o.total||0),0);
+  const returnedAmt  = returned.reduce((s,o)=>s+(o.returnAmount||o.total||0),0);
+  const pendingAmt   = [...pending,...partial].reduce((s,o)=>s+(o.total||0),0);
+  const netAmt = deliveredAmt - returnedAmt;
+
+  document.getElementById('ds-delivered-cnt').textContent = delivered.length;
+  document.getElementById('ds-returned-cnt').textContent  = returned.length;
+  document.getElementById('ds-pending-cnt').textContent   = pending.length+partial.length;
+  document.getElementById('ds-delivered-amt').textContent = fmt(deliveredAmt);
+  document.getElementById('ds-returned-amt').textContent  = returned.length ? '-'+fmt(returnedAmt) : fmt(0);
+  document.getElementById('ds-pending-amt').textContent   = fmt(pendingAmt);
+  document.getElementById('ds-net-amt').textContent       = fmt(netAmt);
+
+  // 대시보드 최근 목록
   const recent = [...orders].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
   document.getElementById('dash-list').innerHTML = recent.length
     ? recent.map(o=>orderCard(o,false)).join('')
     : '<div class="empty"><div class="empty-icon">📭</div><div class="empty-t">발주 내역 없음</div></div>';
 
-  // orders
+  // 발주목록
   const list = filtered();
   document.getElementById('o-sub').textContent = `${list.length}건`;
   document.getElementById('orders-list').innerHTML = list.length
@@ -650,8 +900,16 @@ function orderCard(o, showDel){
   const delBtn = showDel
     ? `<button class="btn btn-d btn-sm" onclick="event.stopPropagation();delOrder('${o.id}')">삭제</button>`
     : '';
+  const net = calcNetDelivery(o);
+  const netStr = o.deliveryStatus && o.deliveryStatus!=='pending'
+    ? `<span class="oc-net">실납품: <b>${net<0?'-'+fmt(-net):fmt(net)}</b></span>`
+    : '';
+  const statusClass = o.deliveryStatus === 'delivered' ? 'status-delivered'
+    : o.deliveryStatus === 'returned' ? 'status-returned'
+    : o.deliveryStatus === 'partial'  ? 'status-partial'
+    : '';
   return `
-  <div class="order-card" onclick="openModal('${o.id}')">
+  <div class="order-card ${statusClass}" onclick="openModal('${o.id}')">
     <div class="oc-top">
       <div class="oc-ship">${o.ship}</div>
       <div class="oc-amount">${fmt(o.total)}</div>
@@ -659,6 +917,7 @@ function orderCard(o, showDel){
     <div class="oc-meta">
       <span class="oc-doc">${o.docNo||''}</span>
       ${badge(o.category)}
+      ${statusBadge(o.deliveryStatus||'pending')}
       ${delBtn}
     </div>
     <div class="oc-bottom">
@@ -668,6 +927,7 @@ function orderCard(o, showDel){
         <span class="oc-dates">${o.date}${o.delivery?' → '+o.delivery:''}</span>
       </div>
     </div>
+    ${netStr ? `<div class="oc-status-row">${netStr}</div>` : ''}
   </div>`;
 }
 
@@ -676,27 +936,48 @@ function orderCard(o, showDel){
 // ══════════════════════════════════
 function filterOrders(m,btn){
   filterMode=m;
-  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+  document.querySelectorAll('#cat-chips .chip').forEach(c=>c.classList.remove('active'));
+  btn.classList.add('active');
+  renderAll();
+}
+function filterStatus(m,btn){
+  statusMode=m;
+  document.querySelectorAll('#status-chips .chip').forEach(c=>c.classList.remove('active'));
   btn.classList.add('active');
   renderAll();
 }
 function searchOrders(q){ searchQ=q; renderAll(); }
+function clearDateFilter(){
+  document.getElementById('fDateFrom').value='';
+  document.getElementById('fDateTo').value='';
+  renderAll();
+}
 
 // ══════════════════════════════════
 // MODAL
 // ══════════════════════════════════
-let modalSwipeY=0, modalScrollTop=0;
+let modalSwipeY=0;
 function openModal(id){
   const o=orders.find(x=>x.id===id); if(!o) return;
   document.getElementById('m-title').textContent = o.ship;
   document.getElementById('m-docid').textContent = (o.docNo||'')+(o.poNo?' · '+o.poNo:'');
+
+  const boxes = calcOrderBoxes(o);
+  const netAmt = calcNetDelivery(o);
+  const isDelivered = o.deliveryStatus==='delivered';
+  const isReturned  = o.deliveryStatus==='returned';
+  const isPartial   = o.deliveryStatus==='partial';
+
   document.getElementById('m-body').innerHTML = `
     <div class="info-row">
       <div><span class="ir-lbl">발주일자</span><span class="ir-val">${o.date}</span></div>
       <div><span class="ir-lbl">납기일자</span><span class="ir-val">${o.delivery||'-'}</span></div>
       <div><span class="ir-lbl">구분</span><span class="ir-val">${badge(o.category)}</span></div>
+      <div><span class="ir-lbl">납품상태</span><span class="ir-val">${statusBadge(o.deliveryStatus||'pending')}</span></div>
       <div><span class="ir-lbl">거래처발주번호</span><span class="ir-val" style="font-size:12px;">${o.poNo||'-'}</span></div>
+      <div><span class="ir-lbl">발주총액</span><span class="ir-val" style="font-weight:700;">${fmt(o.total)}</span></div>
     </div>
+
     <div class="sdiv" style="margin-top:0;">품목 상세</div>
     <table class="items-tbl">
       <thead><tr><th>품목</th><th>CODE</th><th>수량</th><th>박스</th><th>단가</th><th>금액</th></tr></thead>
@@ -709,26 +990,115 @@ function openModal(id){
           <td style="font-family:monospace;">${i.price?'₩'+Number(i.price).toLocaleString():'-'}</td>
           <td style="font-family:monospace;font-weight:700;">${i.amount?'₩'+Number(i.amount).toLocaleString():'-'}</td>
         </tr>`).join('')}
-        <tr class="tr"><td colspan="3">TOTAL</td><td style="font-family:monospace;">${formatBoxCount(calcOrderBoxes(o))}</td><td colspan="2" style="font-family:monospace;">${fmt(o.total)}</td></tr>
+        <tr class="tr">
+          <td colspan="3">TOTAL</td>
+          <td style="font-family:monospace;">${formatBoxCount(boxes)}</td>
+          <td colspan="2" style="font-family:monospace;">${fmt(o.total)}</td>
+        </tr>
       </tbody>
     </table>
-    <div class="modal-del">
+
+    <!-- 납품/반품 금액 현황 -->
+    ${(isDelivered||isReturned||isPartial) ? `
+    <div class="delivery-block">
+      <div class="db-title">납품 금액 현황</div>
+      ${isDelivered ? `
+        <div class="db-row"><span class="db-label">납품금액</span><span class="db-val plus">${fmt(o.total)}</span></div>
+      ` : ''}
+      ${isReturned ? `
+        <div class="db-row"><span class="db-label">발주금액</span><span class="db-val">${fmt(o.total)}</span></div>
+        <div class="db-row"><span class="db-label">반품금액</span><span class="db-val minus">-${fmt(o.returnAmount||o.total)}</span></div>
+        <div class="db-divider"></div>
+        <div class="db-row"><span class="db-label">실 납품금액</span><span class="db-val net">${fmt(netAmt)}</span></div>
+      ` : ''}
+      ${isPartial ? `
+        <div class="db-row"><span class="db-label">발주금액</span><span class="db-val">${fmt(o.total)}</span></div>
+        <div class="db-row"><span class="db-label">실 납품금액</span><span class="db-val plus">${fmt(o.partialAmount||0)}</span></div>
+      ` : ''}
+      ${o.deliveryNote ? `<div style="font-size:12px;color:var(--muted);margin-top:8px;">📝 ${o.deliveryNote}</div>` : ''}
+    </div>` : ''}
+
+    <!-- 납품/반품 액션 -->
+    <div class="sdiv">납품 처리</div>
+    <div class="delivery-actions">
+      <button class="btn btn-success ${isDelivered?'':'btn-g'}" onclick="setDelivery('${o.id}','delivered')">
+        ${isDelivered?'✅ 납품완료':'📦 납품완료 처리'}
+      </button>
+      <button class="btn btn-warn ${isReturned?'':'btn-g'}" onclick="setDelivery('${o.id}','returned')">
+        ${isReturned?'↩️ 반품처리됨':'↩️ 반품 처리'}
+      </button>
+      <button class="btn btn-g" onclick="setDelivery('${o.id}','partial')">
+        📋 부분납품
+      </button>
+      <button class="btn btn-g" onclick="setDelivery('${o.id}','pending')">
+        ⏳ 미납품으로
+      </button>
+    </div>
+
+    <div style="margin-top:12px;">
       <button class="btn btn-d btn-block" onclick="delOrder('${o.id}');closeModalBtn()">🗑 이 발주 삭제</button>
     </div>
   `;
   document.getElementById('modalOv').classList.add('open');
 
-  // swipe-down to close
   const modal = document.getElementById('modal');
-  modal.addEventListener('touchstart', e=>{ modalSwipeY=e.touches[0].clientY; modalScrollTop=modal.scrollTop; },{passive:true,once:false});
+  modal.addEventListener('touchstart', e=>{ modalSwipeY=e.touches[0].clientY; },{passive:true,once:false});
   modal.addEventListener('touchmove', e=>{
     if(modal.scrollTop>0) return;
-    const dy = e.touches[0].clientY - modalSwipeY;
-    if(dy>60){ closeModalBtn(); }
+    if(e.touches[0].clientY-modalSwipeY>60) closeModalBtn();
   },{passive:true});
 }
+
 function closeModal(e){ if(e.target===document.getElementById('modalOv')) closeModalBtn(); }
 function closeModalBtn(){ document.getElementById('modalOv').classList.remove('open'); }
+
+// ══════════════════════════════════
+// 납품 상태 변경
+// ══════════════════════════════════
+function setDelivery(id, status){
+  const o = orders.find(x=>x.id===id);
+  if(!o) return;
+
+  if(status === 'returned'){
+    const input = prompt(
+      `반품 금액을 입력하세요\n(전액 반품이면 비워두세요, 발주금액 ${fmt(o.total)} 적용)`,
+      o.returnAmount || ''
+    );
+    if(input === null) return; // 취소
+    const amt = input.trim() === '' ? (o.total||0) : parseFloat(input.replace(/[^0-9.]/g,''));
+    o.returnAmount = isNaN(amt) ? (o.total||0) : amt;
+    const note = prompt('비고 (선택사항)', o.deliveryNote||'');
+    if(note !== null) o.deliveryNote = note.trim();
+  } else if(status === 'partial'){
+    const input = prompt(`실제 납품된 금액을 입력하세요`, o.partialAmount || '');
+    if(input === null) return;
+    const amt = parseFloat(input.replace(/[^0-9.]/g,''));
+    if(isNaN(amt)||amt<=0){ toast('⚠️ 올바른 금액을 입력해주세요'); return; }
+    o.partialAmount = amt;
+    const note = prompt('비고 (선택사항)', o.deliveryNote||'');
+    if(note !== null) o.deliveryNote = note.trim();
+  } else if(status === 'delivered'){
+    const note = prompt('납품 비고 (선택사항)', o.deliveryNote||'');
+    if(note !== null) o.deliveryNote = note.trim();
+  } else {
+    o.deliveryNote = '';
+    o.returnAmount = 0;
+    o.partialAmount = 0;
+  }
+
+  o.deliveryStatus = status;
+  save();
+  closeModalBtn();
+  renderAll();
+
+  const msgs = {
+    delivered:'✅ 납품완료로 변경되었습니다.',
+    returned:'↩️ 반품 처리되었습니다.',
+    partial:'📋 부분납품으로 변경되었습니다.',
+    pending:'⏳ 미납품으로 변경되었습니다.'
+  };
+  toast(msgs[status]||'변경되었습니다.');
+}
 
 // ══════════════════════════════════
 // DELETE
@@ -747,7 +1117,6 @@ function onDrop(e){ e.preventDefault(); document.getElementById('uploadZone').cl
 
 async function handleFiles(files){
   if(!files.length) return;
-
   pendingOrders=[];
   document.getElementById('prev-section').style.display='none';
   document.getElementById('prev-cards').innerHTML='';
@@ -771,13 +1140,8 @@ async function handleFiles(files){
   for(let i=0;i<all.length;i++){
     setProgress(Math.round(((i+0.5)/all.length)*100));
     setStatus(`분석 중 ${i+1}/${all.length}: ${all[i].name}`);
-    try{
-      await analyzeFile(all[i]);
-    }catch(e){
-      // analyzeFile 내부에서 이미 setStatus 처리됨 — 루프 중단
-      setProgress(100);
-      return;
-    }
+    try{ await analyzeFile(all[i]); }
+    catch(e){ setProgress(100); return; }
   }
 
   setProgress(100);
@@ -791,62 +1155,39 @@ async function handleFiles(files){
 }
 
 async function analyzeFile(file){
-  const apiKey = (document.getElementById('geminiKey').value||'').trim();
+  const apiKey=(document.getElementById('geminiKey').value||'').trim();
   if(!apiKey){ setStatus('⚠️ OpenRouter API Key를 입력해주세요.'); throw new Error('no key'); }
-
   try{
-    const isPdf = file.type==='application/pdf';
-
-    const prompt = `이 발주서 문서를 분석해 아래 JSON 형식으로만 응답하세요. 코드블록 없이 순수 JSON만:
+    const isPdf=file.type==='application/pdf';
+    const prompt=`이 발주서 문서를 분석해 아래 JSON 형식으로만 응답하세요. 코드블록 없이 순수 JSON만:
 {"docNo":"","date":"YYYY-MM-DD","delivery":"YYYY-MM-DD","ship":"","poNo":"","category":"cruise or cargo","items":[{"desc":"","code":"","qty":0,"unit":"","price":0,"amount":0}],"total":0}
 규칙: date/delivery는 YYYY-MM-DD, category는 크루즈면 cruise 화물이면 cargo, 모르면 빈값`;
-
-    const content = [{type:'text', text:prompt}];
-
+    const content=[{type:'text',text:prompt}];
     if(isPdf){
-      // PDF는 클라이언트에서 이미지로 변환 후 전송 (file 엔진 미사용 → 크레딧 요건 없음)
-      const pages = await pdfToImages(file);
-      pages.forEach(dataUrl=>{
-        content.push({type:'image_url', image_url:{url:dataUrl}});
-      });
-    }else{
-      const b64 = await toB64(file);
-      const mimeType = file.type||'image/jpeg';
-      content.push({type:'image_url', image_url:{url:`data:${mimeType};base64,${b64}`}});
+      const pages=await pdfToImages(file);
+      pages.forEach(dataUrl=>{ content.push({type:'image_url',image_url:{url:dataUrl}}); });
+    } else {
+      const b64=await toB64(file);
+      content.push({type:'image_url',image_url:{url:`data:${file.type||'image/jpeg'};base64,${b64}`}});
     }
-
-    const url = 'https://openrouter.ai/api/v1/chat/completions';
-    const resp = await fetch(url,{
+    const resp=await fetch('https://openrouter.ai/api/v1/chat/completions',{
       method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'Authorization':`Bearer ${apiKey}`
-      },
-      body:JSON.stringify({
-        model:'google/gemini-2.5-flash',
-        messages:[{role:'user', content}],
-        temperature:0,
-        max_tokens:1500
-      })
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
+      body:JSON.stringify({model:'google/gemini-2.5-flash',messages:[{role:'user',content}],temperature:0,max_tokens:1500})
     });
-
-    if(!resp.ok){
-      const err = await resp.json().catch(()=>({}));
-      throw new Error(`[${resp.status}] ${err?.error?.message||resp.statusText}`);
-    }
-
-    const data = await resp.json();
+    if(!resp.ok){ const err=await resp.json().catch(()=>({})); throw new Error(`[${resp.status}] ${err?.error?.message||resp.statusText}`); }
+    const data=await resp.json();
     if(data.error) throw new Error(data.error.message||'API 오류');
-    let txt = (data.choices?.[0]?.message?.content||'').replace(/```json|```/g,'').trim();
+    let txt=(data.choices?.[0]?.message?.content||'').replace(/```json|```/g,'').trim();
     if(!txt) throw new Error('AI 응답 없음');
-    // 응답에 JSON 외 텍스트가 섞여 있을 경우 { ... } 구간만 추출
-    const s = txt.indexOf('{'), e = txt.lastIndexOf('}');
-    if(s!==-1 && e!==-1 && e>s) txt = txt.slice(s, e+1);
-
-    const parsed = JSON.parse(txt);
-    parsed.id = parsed.docNo||('UP-'+Date.now());
+    const s=txt.indexOf('{'),e=txt.lastIndexOf('}');
+    if(s!==-1&&e!==-1&&e>s) txt=txt.slice(s,e+1);
+    const parsed=JSON.parse(txt);
+    parsed.id=parsed.docNo||('UP-'+Date.now());
     parsed.source='upload'; parsed.fileName=file.name;
     if(!parsed.category) parsed.category='cargo';
+    parsed.deliveryStatus='pending';
+    parsed.returnAmount=0;
     pendingOrders.push(parsed);
   }catch(e){
     console.error('분석 오류:',e);
@@ -854,7 +1195,6 @@ async function analyzeFile(file){
     throw e;
   }
 }
-
 
 function toB64(file){
   return new Promise((res,rej)=>{
@@ -865,34 +1205,28 @@ function toB64(file){
   });
 }
 
-// PDF 페이지들을 canvas로 렌더링 후 JPEG dataURL 배열로 반환 (최대 MAX_PAGES페이지)
-const PDF_MAX_PAGES = 5;
+const PDF_MAX_PAGES=5;
 async function pdfToImages(file){
   if(!window.pdfjsLib) throw new Error('PDF 렌더링 라이브러리 로드 실패');
-  const buf = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({data:buf}).promise;
-  const n = Math.min(pdf.numPages, PDF_MAX_PAGES);
-  const images = [];
+  const buf=await file.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+  const n=Math.min(pdf.numPages,PDF_MAX_PAGES);
+  const images=[];
   for(let i=1;i<=n;i++){
-    const page = await pdf.getPage(i);
-    const viewport = page.getViewport({scale:1.8});
-    const canvas = document.createElement('canvas');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext('2d');
-    await page.render({canvasContext:ctx, viewport}).promise;
-    images.push(canvas.toDataURL('image/jpeg', 0.85));
+    const page=await pdf.getPage(i);
+    const viewport=page.getViewport({scale:1.8});
+    const canvas=document.createElement('canvas');
+    canvas.width=viewport.width; canvas.height=viewport.height;
+    await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;
+    images.push(canvas.toDataURL('image/jpeg',0.85));
   }
   return images;
 }
 
 function renderPreview(){
-  document.getElementById('prev-cards').innerHTML = pendingOrders.map(o=>`
+  document.getElementById('prev-cards').innerHTML=pendingOrders.map(o=>`
     <div class="prev-card">
-      <div class="prev-head">
-        <div class="prev-ship">${o.ship||'선명 미확인'}</div>
-        ${badge(o.category)}
-      </div>
+      <div class="prev-head"><div class="prev-ship">${o.ship||'선명 미확인'}</div>${badge(o.category)}</div>
       <div class="prev-meta">
         <div><span class="pm-label">발주일자</span>${o.date||'-'}</div>
         <div><span class="pm-label">납기일자</span>${o.delivery||'-'}</div>
@@ -930,36 +1264,25 @@ function clearPrev(){
 function setProgress(p){ document.getElementById('progBar').style.width=p+'%'; }
 function setStatus(m){ document.getElementById('upStatus').textContent=m; }
 
+// ── API KEY ──
 function saveApiKey(){
   const val=(document.getElementById('geminiKey').value||'').trim();
   if(!val){ toast('⚠️ 키를 입력해주세요'); return; }
-  try{localStorage.setItem('openrouterApiKey',val);}catch(e){}
+  try{ localStorage.setItem('openrouterApiKey',val); }catch(e){}
   toast('✅ API 키 저장 완료');
 }
 function loadApiKey(){
   try{
     let k=localStorage.getItem('openrouterApiKey');
-    if(!k){
-      // 이전 버전(geminiApiKey)에 저장된 키 마이그레이션
-      const old=localStorage.getItem('geminiApiKey');
-      if(old){ k=old; localStorage.setItem('openrouterApiKey',old); }
-    }
+    if(!k){ const old=localStorage.getItem('geminiApiKey'); if(old){ k=old; localStorage.setItem('openrouterApiKey',old); } }
     if(k) document.getElementById('geminiKey').value=k;
   }catch(e){}
 }
-function toggleKeyVisibility(){
-  const el=document.getElementById('geminiKey');
-  el.type=el.type==='password'?'text':'password';
-}
+function toggleKeyVisibility(){ const el=document.getElementById('geminiKey'); el.type=el.type==='password'?'text':'password'; }
 function resetApiKey(){
   if(!confirm('등록된 API 키를 삭제할까요?')) return;
-  try{
-    localStorage.removeItem('openrouterApiKey');
-    localStorage.removeItem('geminiApiKey');
-  }catch(e){}
-  const el=document.getElementById('geminiKey');
-  el.value='';
-  el.type='password';
+  try{ localStorage.removeItem('openrouterApiKey'); localStorage.removeItem('geminiApiKey'); }catch(e){}
+  const el=document.getElementById('geminiKey'); el.value=''; el.type='password';
   toast('🗑️ API 키 초기화 완료');
 }
 
@@ -1006,6 +1329,7 @@ function saveManual(){
   const date=document.getElementById('m-date').value;
   const ship=document.getElementById('m-ship').value.trim();
   if(!date||!ship){ toast('⚠️ 발주일자와 선명 필수'); return; }
+  const cat=document.getElementById('m-cat').value;
   const rows=document.querySelectorAll('#items-list .item-row');
   const items=[]; let total=0;
   rows.forEach(row=>{
@@ -1021,9 +1345,11 @@ function saveManual(){
   const o={
     id:'MAN-'+Date.now(),
     docNo:document.getElementById('m-doc').value.trim()||'MAN-'+Date.now(),
-    date,delivery:document.getElementById('m-del').value,
-    ship,poNo:document.getElementById('m-po').value.trim(),
-    category:'manual',items,total,source:'manual'
+    date, delivery:document.getElementById('m-del').value,
+    ship, poNo:document.getElementById('m-po').value.trim(),
+    category: cat, items, total, source:'manual',
+    deliveryStatus: cat==='return' ? 'returned' : 'pending',
+    returnAmount: cat==='return' ? total : 0
   };
   orders.push(o); save(); resetManual(); toast('✅ 저장되었습니다.');
   setTimeout(()=>goTo(1),600);
@@ -1031,7 +1357,351 @@ function saveManual(){
 function resetManual(){
   document.getElementById('m-date').value=new Date().toISOString().split('T')[0];
   ['m-del','m-doc','m-po','m-ship'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('m-cat').value='manual';
   initManual();
+}
+
+// ══════════════════════════════════
+// 납품 통계 탭 (VIEW 4)
+// ══════════════════════════════════
+function renderStats(){
+  const delivered = orders.filter(o=>o.deliveryStatus==='delivered');
+  const returned  = orders.filter(o=>o.deliveryStatus==='returned');
+  const partial   = orders.filter(o=>o.deliveryStatus==='partial');
+  const pending   = orders.filter(o=>!o.deliveryStatus||o.deliveryStatus==='pending');
+
+  const deliveredAmt = delivered.reduce((s,o)=>s+(o.total||0),0);
+  const returnedAmt  = returned.reduce((s,o)=>s+(o.returnAmount||o.total||0),0);
+  const partialAmt   = partial.reduce((s,o)=>s+(o.partialAmount||0),0);
+  const netAmt = deliveredAmt + partialAmt - returnedAmt;
+
+  // 선명별 통계
+  const byShip = {};
+  orders.forEach(o=>{
+    if(!byShip[o.ship]) byShip[o.ship]={ship:o.ship,cnt:0,total:0,net:0,returned:0};
+    byShip[o.ship].cnt++;
+    byShip[o.ship].total += (o.total||0);
+    byShip[o.ship].net   += calcNetDelivery(o);
+    if(o.deliveryStatus==='returned') byShip[o.ship].returned += (o.returnAmount||o.total||0);
+  });
+  const ships = Object.values(byShip).sort((a,b)=>b.net-a.net);
+
+  document.getElementById('stats-content').innerHTML = `
+    <!-- 합산 카드 -->
+    <div class="delivery-summary" style="margin-bottom:16px;">
+      <div class="ds-title">납품 금액 요약</div>
+      <div class="ds-grid">
+        <div class="ds-item">
+          <div class="ds-val c-delivered">${fmt(deliveredAmt)}</div>
+          <div class="ds-lbl">납품완료</div>
+          <div class="ds-amount">${delivered.length}건</div>
+        </div>
+        <div class="ds-item">
+          <div class="ds-val c-returned">-${fmt(returnedAmt)}</div>
+          <div class="ds-lbl">반품차감</div>
+          <div class="ds-amount">${returned.length}건</div>
+        </div>
+        <div class="ds-item">
+          <div class="ds-val c-pending">${fmt(partialAmt)}</div>
+          <div class="ds-lbl">부분납품</div>
+          <div class="ds-amount">${partial.length}건</div>
+        </div>
+      </div>
+      <div class="ds-net">
+        <div class="ds-net-lbl">실 납품금액 합계</div>
+        <div class="ds-net-val">${fmt(netAmt)}</div>
+      </div>
+    </div>
+
+    <!-- 미납품 목록 -->
+    ${pending.length ? `
+    <div class="sdiv">미납품 발주 (${pending.length}건)</div>
+    ${pending.sort((a,b)=>a.date.localeCompare(b.date)).map(o=>`
+      <div class="order-card" onclick="openModal('${o.id}')">
+        <div class="oc-top">
+          <div class="oc-ship">${o.ship}</div>
+          <div class="oc-amount">${fmt(o.total)}</div>
+        </div>
+        <div class="oc-meta"><span class="oc-doc">${o.docNo||''}</span>${badge(o.category)}${statusBadge('pending')}</div>
+        <div class="oc-bottom"><div class="oc-item">${o.date}</div></div>
+      </div>
+    `).join('')}` : ''}
+
+    <!-- 반품 내역 -->
+    ${returned.length ? `
+    <div class="sdiv">반품 내역 (${returned.length}건)</div>
+    ${returned.map(o=>`
+      <div class="order-card status-returned" onclick="openModal('${o.id}')">
+        <div class="oc-top">
+          <div class="oc-ship">${o.ship}</div>
+          <div class="oc-amount" style="color:var(--danger);">-${fmt(o.returnAmount||o.total)}</div>
+        </div>
+        <div class="oc-meta"><span class="oc-doc">${o.docNo||''}</span>${statusBadge('returned')}</div>
+        <div class="oc-bottom"><div class="oc-item">${o.deliveryNote||'-'}</div><div class="oc-dates">${o.date}</div></div>
+      </div>
+    `).join('')}` : ''}
+
+    <!-- 선명별 납품 현황 -->
+    ${ships.length ? `
+    <div class="sdiv">선명별 납품 현황</div>
+    <div class="form-card" style="padding:0;overflow:hidden;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead>
+          <tr style="background:var(--bg);">
+            <th style="padding:10px 12px;text-align:left;color:var(--muted);font-size:10px;font-weight:700;">선명</th>
+            <th style="padding:10px 8px;text-align:right;color:var(--muted);font-size:10px;font-weight:700;">발주</th>
+            <th style="padding:10px 8px;text-align:right;color:var(--muted);font-size:10px;font-weight:700;">반품</th>
+            <th style="padding:10px 12px;text-align:right;color:var(--muted);font-size:10px;font-weight:700;">실납품</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${ships.map((s,i)=>`
+          <tr style="border-top:1px solid var(--border);">
+            <td style="padding:10px 12px;font-weight:600;">${s.ship}</td>
+            <td style="padding:10px 8px;text-align:right;font-family:monospace;color:var(--muted);">${fmt(s.total)}</td>
+            <td style="padding:10px 8px;text-align:right;font-family:monospace;color:var(--danger);">${s.returned?'-'+fmt(s.returned):'-'}</td>
+            <td style="padding:10px 12px;text-align:right;font-family:monospace;font-weight:700;color:${s.net>=0?'var(--navy)':'var(--danger)'};">${fmt(s.net)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : ''}
+  `;
+}
+
+// ══════════════════════════════════
+// 납품 리스트 사진 → 자동 납품 확인
+// ══════════════════════════════════
+function onDragDelivery(e,on){ e.preventDefault(); document.getElementById('deliveryZone').classList.toggle('drag',on); }
+function onDropDelivery(e){ e.preventDefault(); document.getElementById('deliveryZone').classList.remove('drag'); handleDeliveryFiles(e.dataTransfer.files); }
+
+function setDelStatus(m){ document.getElementById('delStatus').textContent=m; }
+function setDelProgress(p){ document.getElementById('delProgBar').style.width=p+'%'; }
+
+async function handleDeliveryFiles(files){
+  if(!files.length) return;
+  const apiKey=(document.getElementById('geminiKey').value||'').trim();
+  if(!apiKey){ toast('⚠️ OpenRouter API Key를 먼저 입력해주세요'); return; }
+  if(!orders.length){ toast('⚠️ 등록된 발주 내역이 없습니다'); return; }
+
+  document.getElementById('delProgWrap').style.display='block';
+  document.getElementById('del-result-section').style.display='none';
+  setDelStatus('납품 리스트 분석 중...');
+  setDelProgress(20);
+
+  try{
+    // 모든 파일을 base64 이미지로 변환
+    const imageContents = [];
+    for(const f of files){
+      if(f.type==='application/pdf'){
+        const pages = await pdfToImages(f);
+        pages.forEach(dataUrl=>{ imageContents.push({type:'image_url',image_url:{url:dataUrl}}); });
+      } else {
+        const b64 = await toB64(f);
+        imageContents.push({type:'image_url',image_url:{url:`data:${f.type||'image/jpeg'};base64,${b64}`}});
+      }
+    }
+    setDelProgress(50);
+
+    // 발주 목록 요약 생성 (AI 매칭용)
+    const orderSummary = orders.map(o=>({
+      id: o.id,
+      ship: o.ship,
+      docNo: o.docNo||'',
+      poNo: o.poNo||'',
+      date: o.date,
+      total: o.total||0,
+      status: o.deliveryStatus||'pending',
+      items: (o.items||[]).map(i=>i.desc).join(', ')
+    }));
+
+    const prompt = `다음은 납품 확인서 또는 납품 리스트 이미지입니다.
+아래 발주 목록과 매칭하여 납품된 항목을 찾아주세요.
+
+발주 목록 (JSON):
+${JSON.stringify(orderSummary, null, 2)}
+
+이미지에서 납품된 선명(선박명), 서류번호, 발주번호, 날짜, 품목명 등을 추출하고
+위 발주 목록에서 일치하는 항목의 id를 찾아주세요.
+
+응답은 반드시 아래 JSON 형식으로만, 코드블록 없이 순수 JSON만 출력:
+{
+  "matched": [
+    {"id":"발주ID", "ship":"선명", "reason":"매칭근거(서류번호/선명/품목 등)"}
+  ],
+  "unmatched": ["발주목록에 없는 납품 항목 설명"],
+  "summary": "납품 리스트 전체 요약 1-2줄"
+}
+
+매칭이 전혀 없으면 matched는 빈 배열로.`;
+
+    const content = [{type:'text', text:prompt}, ...imageContents];
+    setDelProgress(70);
+
+    const resp = await fetch('https://openrouter.ai/api/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${apiKey}`},
+      body:JSON.stringify({model:'google/gemini-2.5-flash',messages:[{role:'user',content}],temperature:0,max_tokens:2000})
+    });
+
+    if(!resp.ok){ const err=await resp.json().catch(()=>({})); throw new Error(`[${resp.status}] ${err?.error?.message||resp.statusText}`); }
+    const data = await resp.json();
+    if(data.error) throw new Error(data.error.message||'API 오류');
+    let txt = (data.choices?.[0]?.message?.content||'').replace(/```json|```/g,'').trim();
+    const s=txt.indexOf('{'), e=txt.lastIndexOf('}');
+    if(s!==-1&&e!==-1&&e>s) txt=txt.slice(s,e+1);
+    const result = JSON.parse(txt);
+
+    setDelProgress(90);
+    renderDeliveryResult(result);
+    setDelProgress(100);
+    setDelStatus(`✅ 분석 완료 — ${result.matched?.length||0}건 매칭됨`);
+
+  } catch(err){
+    console.error('납품 분석 오류:',err);
+    setDelStatus('❌ '+(err.message||'분석 실패'));
+    setDelProgress(0);
+    document.getElementById('delProgWrap').style.display='none';
+  }
+}
+
+function renderDeliveryResult(result){
+  const matched = result.matched || [];
+  const unmatched = result.unmatched || [];
+  const sec = document.getElementById('del-result-section');
+  sec.style.display='block';
+
+  // 매칭된 발주 찾기
+  const matchedOrders = matched.map(m=>{
+    const order = orders.find(o=>o.id===m.id);
+    return order ? {...m, order} : null;
+  }).filter(Boolean);
+
+  sec.innerHTML = `
+    ${result.summary ? `<div style="font-size:12px;color:var(--muted);margin-bottom:10px;padding:8px 10px;background:var(--bg);border-radius:8px;">📋 ${result.summary}</div>` : ''}
+    ${matchedOrders.length ? `
+      <div class="sdiv" style="margin-top:0;">매칭된 발주 (${matchedOrders.length}건)</div>
+      ${matchedOrders.map(m=>`
+        <div class="prev-card" style="border-left:3px solid var(--success);">
+          <div class="prev-head" style="gap:6px;">
+            <div style="flex:1;">
+              <div class="prev-ship" style="font-size:13px;">${m.order.ship}</div>
+              <div style="font-size:10px;color:var(--muted);margin-top:2px;">${m.reason}</div>
+            </div>
+            <span class="badge" style="background:#dcfce7;color:#15803d;">${m.order.deliveryStatus==='delivered'?'✅ 이미 납품완료':'미납품'}</span>
+          </div>
+          <div style="padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <div style="font-size:12px;color:var(--muted);">${m.order.docNo||'-'} · ${m.order.date} · ${fmt(m.order.total)}</div>
+            ${m.order.deliveryStatus!=='delivered' ? `
+              <button class="btn btn-success btn-sm" onclick="confirmDeliveryFromPhoto('${m.order.id}')">✅ 납품완료 처리</button>
+            ` : `<span style="font-size:11px;color:var(--success);font-weight:700;">납품완료</span>`}
+          </div>
+        </div>
+      `).join('')}
+      ${matchedOrders.some(m=>m.order.deliveryStatus!=='delivered') ? `
+        <button class="btn btn-success btn-block" style="margin-top:4px;" onclick="confirmAllDelivery(${JSON.stringify(matched.map(m=>m.id))})">
+          ✅ 매칭된 전체 납품완료 처리
+        </button>
+      ` : ''}
+    ` : '<div style="font-size:13px;color:var(--muted);text-align:center;padding:12px 0;">발주 목록에서 일치하는 항목을 찾지 못했습니다</div>'}
+    ${unmatched.length ? `
+      <div class="sdiv">목록 미매칭 항목</div>
+      ${unmatched.map(u=>`<div style="font-size:12px;color:var(--muted);padding:4px 0;">• ${u}</div>`).join('')}
+    ` : ''}
+  `;
+}
+
+function confirmDeliveryFromPhoto(id){
+  const o = orders.find(x=>x.id===id);
+  if(!o) return;
+  o.deliveryStatus = 'delivered';
+  o.deliveryNote = (o.deliveryNote||'') + (o.deliveryNote?' ':'') + '[납품사진 자동확인]';
+  save();
+  renderAll();
+  // 버튼 업데이트
+  const btns = document.querySelectorAll(`button[onclick="confirmDeliveryFromPhoto('${id}')"]`);
+  btns.forEach(btn=>{ btn.textContent='✅ 납품완료'; btn.disabled=true; btn.style.opacity='0.6'; });
+  toast(`✅ ${o.ship} 납품완료 처리됨`);
+}
+
+function confirmAllDelivery(ids){
+  let cnt=0;
+  ids.forEach(id=>{
+    const o=orders.find(x=>x.id===id);
+    if(o&&o.deliveryStatus!=='delivered'){
+      o.deliveryStatus='delivered';
+      o.deliveryNote = (o.deliveryNote||'') + (o.deliveryNote?' ':'') + '[납품사진 자동확인]';
+      cnt++;
+    }
+  });
+  save(); renderAll();
+  // 결과 재렌더
+  const sec = document.getElementById('del-result-section');
+  if(sec) {
+    const btns = sec.querySelectorAll('.btn-success');
+    btns.forEach(btn=>{ btn.textContent='✅ 납품완료'; btn.disabled=true; btn.style.opacity='0.6'; });
+  }
+  toast(`✅ ${cnt}건 납품완료 처리됨`);
+}
+
+// ══════════════════════════════════
+// 엑셀 내보내기
+// ══════════════════════════════════
+function exportExcel(){
+  if(!orders.length){ toast('⚠️ 내보낼 데이터가 없습니다'); return; }
+  if(!window.XLSX){ toast('⚠️ 엑셀 라이브러리 로드 중...'); return; }
+
+  const rows = [];
+  orders.forEach(o=>{
+    (o.items||[{desc:'-',qty:0,unit:'',price:0,amount:0}]).forEach((item,idx)=>{
+      rows.push({
+        '발주일자': o.date,
+        '납기일자': o.delivery||'',
+        '선명': o.ship,
+        '서류번호': o.docNo||'',
+        '거래처발주번호': o.poNo||'',
+        '구분': o.category==='cruise'?'크루즈':o.category==='cargo'?'카고':o.category==='return'?'반품':'직접입력',
+        '납품상태': o.deliveryStatus==='delivered'?'납품완료':o.deliveryStatus==='returned'?'반품':o.deliveryStatus==='partial'?'부분납품':'미납품',
+        '품목': item.desc||'',
+        '코드': item.code||'',
+        '수량': item.qty||0,
+        '단위': item.unit||'',
+        '박스': calcItemBoxCount(item)||0,
+        '단가': item.price||0,
+        '품목금액': item.amount||0,
+        '발주총액': idx===0 ? (o.total||0) : '',
+        '반품금액': idx===0 ? (o.returnAmount||0) : '',
+        '실납품금액': idx===0 ? calcNetDelivery(o) : '',
+        '비고': idx===0 ? (o.deliveryNote||'') : ''
+      });
+    });
+  });
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '발주목록');
+
+  // 통계 시트
+  const delivered = orders.filter(o=>o.deliveryStatus==='delivered');
+  const returned  = orders.filter(o=>o.deliveryStatus==='returned');
+  const partial   = orders.filter(o=>o.deliveryStatus==='partial');
+  const pending   = orders.filter(o=>!o.deliveryStatus||o.deliveryStatus==='pending');
+  const statsRows = [
+    {항목:'총 발주건수', 값:orders.length},
+    {항목:'총 발주금액', 값:orders.reduce((s,o)=>s+(o.total||0),0)},
+    {항목:'납품완료건수', 값:delivered.length},
+    {항목:'납품완료금액', 값:delivered.reduce((s,o)=>s+(o.total||0),0)},
+    {항목:'반품건수', 값:returned.length},
+    {항목:'반품금액', 값:returned.reduce((s,o)=>s+(o.returnAmount||o.total||0),0)},
+    {항목:'부분납품건수', 값:partial.length},
+    {항목:'미납품건수', 값:pending.length},
+    {항목:'실납품금액합계', 값:orders.reduce((s,o)=>s+calcNetDelivery(o),0)},
+  ];
+  const ws2 = XLSX.utils.json_to_sheet(statsRows);
+  XLSX.utils.book_append_sheet(wb, ws2, '납품통계');
+
+  const date = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `발주관리_${date}.xlsx`);
+  toast('📥 엑셀 파일 다운로드 완료');
 }
 
 // ══════════════════════════════════
@@ -1050,24 +1720,34 @@ function toast(msg){
 // ══════════════════════════════════
 function init(){
   load();
-  if(!orders.length){ orders=[...SEED]; save(); }
   resetManual();
-  goTo(0, false);
+  goTo(0,false);
   renderAll();
   loadApiKey();
   document.getElementById('tabInk').style.left='0%';
 }
 init();
 
-// ══════════════════════════════════
-// PWA: SERVICE WORKER 등록
-// ══════════════════════════════════
 if('serviceWorker' in navigator){
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW 등록 실패:', e));
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('sw.js').catch(e=>console.warn('SW 등록 실패:',e));
   });
 }
 
+// ── 핀치줌 / 더블탭 확대 완전 차단 (스마트폰 터치 전용) ──
+const isTouchOnly = window.matchMedia('(pointer:coarse) and (max-width:699px)').matches;
+if(isTouchOnly){
+  document.addEventListener('touchstart', e=>{
+    if(e.touches.length > 1) e.preventDefault();
+  }, {passive:false});
+
+  let lastTap = 0;
+  document.addEventListener('touchend', e=>{
+    const now = Date.now();
+    if(now - lastTap < 300) e.preventDefault();
+    lastTap = now;
+  }, {passive:false});
+}
 </script>
 </body>
 </html>

@@ -1,4 +1,4 @@
-const CACHE_NAME = '발주관리-cache-v1';
+const CACHE_NAME = '발주관리-cache-v2.3';
 const APP_SHELL = [
   './index.html',
   './manifest.json',
@@ -24,10 +24,7 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-  if (e.request.method !== 'GET') return; // POST(OpenRouter API 등)는 그대로 통과
-
-  // 앱 셀(HTML/매니페스트/아이콘): stale-while-revalidate
-  // CDN(jszip, pdf.js, 폰트): cache-first, 실패 시 네트워크
+  if (e.request.method !== 'GET') return;
   e.respondWith(
     caches.match(e.request).then((cached) => {
       const fetchPromise = fetch(e.request)
