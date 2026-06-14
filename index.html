@@ -366,15 +366,15 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
       <!-- API KEY 입력 -->
       <div class="form-card" id="apiKeyCard" style="margin-bottom:14px;padding:13px 14px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-          <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.4px;text-transform:uppercase;">Gemini API Key</span>
-          <a href="https://aistudio.google.com/apikey" target="_blank" style="font-size:11px;color:var(--accent);text-decoration:none;">무료 발급 →</a>
+          <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.4px;text-transform:uppercase;">OpenRouter API Key</span>
+          <a href="https://openrouter.ai/keys" target="_blank" style="font-size:11px;color:var(--accent);text-decoration:none;">발급 →</a>
         </div>
         <div style="display:flex;gap:8px;">
-          <input class="fi" id="geminiKey" type="password" placeholder="AQ. 또는 AIza..." style="font-size:13px;padding:9px 11px;flex:1;"
+          <input class="fi" id="geminiKey" type="password" placeholder="sk-or-v1-..." style="font-size:13px;padding:9px 11px;flex:1;"
             oninput="saveApiKey(this.value)" autocomplete="off"/>
           <button class="btn btn-g btn-sm" onclick="toggleKeyVisibility()" style="flex-shrink:0;font-size:13px;padding:0 12px;">👁</button>
         </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:6px;">Google AI Studio · 무료 · 기기에만 저장</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;">OpenRouter · 기기에만 저장</div>
       </div>
 
       <div class="upload-zone" id="uploadZone"
@@ -748,7 +748,7 @@ async function handleFiles(files){
 
 async function analyzeFile(file){
   const apiKey = (document.getElementById('geminiKey').value||'').trim();
-  if(!apiKey){ setStatus('⚠️ Gemini API Key를 입력해주세요.'); throw new Error('no key'); }
+  if(!apiKey){ setStatus('⚠️ OpenRouter API Key를 입력해주세요.'); throw new Error('no key'); }
 
   try{
     const b64 = await toB64(file);
@@ -759,25 +759,25 @@ async function analyzeFile(file){
 {"docNo":"","date":"YYYY-MM-DD","delivery":"YYYY-MM-DD","ship":"","poNo":"","category":"cruise or cargo","items":[{"desc":"","code":"","qty":0,"unit":"","price":0,"amount":0}],"total":0}
 규칙: date/delivery는 YYYY-MM-DD, category는 크루즈면 cruise 화물이면 cargo, 모르면 빈값`;
 
-    // 사용 가능 모델 탐색
-    let model = 'gemini-2.0-flash';
-    try{
-      const mr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-      if(mr.ok){
-        const md = await mr.json();
-        const names = (md.models||[]).map(m=>m.name.replace('models/',''));
-        const cands = ['gemini-2.0-flash','gemini-1.5-flash','gemini-flash','gemini-pro'];
-        model = cands.find(c=>names.includes(c)) || names.find(n=>n.includes('flash')) || names[0] || model;
-      }
-    }catch(_){}
+    const content = [
+      {type:'text', text:prompt},
+      isPdf
+        ? {type:'file', file:{filename:file.name, file_data:`data:${mimeType};base64,${b64}`}}
+        : {type:'image_url', image_url:{url:`data:${mimeType};base64,${b64}`}}
+    ];
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const url = 'https://openrouter.ai/api/v1/chat/completions';
     const resp = await fetch(url,{
       method:'POST',
-      headers:{'Content-Type':'application/json'},
+      headers:{
+        'Content-Type':'application/json',
+        'Authorization':`Bearer ${apiKey}`
+      },
       body:JSON.stringify({
-        contents:[{parts:[{inline_data:{mime_type:mimeType,data:b64}},{text:prompt}]}],
-        generationConfig:{temperature:0,maxOutputTokens:1500}
+        model:'google/gemini-2.0-flash-001',
+        messages:[{role:'user', content}],
+        temperature:0,
+        max_tokens:1500
       })
     });
 
@@ -787,7 +787,8 @@ async function analyzeFile(file){
     }
 
     const data = await resp.json();
-    const txt = data.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('').replace(/```json|```/g,'').trim();
+    if(data.error) throw new Error(data.error.message||'API 오류');
+    const txt = (data.choices?.[0]?.message?.content||'').replace(/```json|```/g,'').trim();
     if(!txt) throw new Error('AI 응답 없음');
 
     const parsed = JSON.parse(txt);
@@ -802,9 +803,9 @@ async function analyzeFile(file){
   }
 }
 
-function saveApiKey(val){ try{localStorage.setItem('geminiApiKey',val);}catch(e){} }
+function saveApiKey(val){ try{localStorage.setItem('openrouterApiKey',val);}catch(e){} }
 function loadApiKey(){
-  try{ const k=localStorage.getItem('geminiApiKey'); if(k) document.getElementById('geminiKey').value=k; }catch(e){}
+  try{ const k=localStorage.getItem('openrouterApiKey'); if(k) document.getElementById('geminiKey').value=k; }catch(e){}
 }
 function toggleKeyVisibility(){
   const el=document.getElementById('geminiKey');

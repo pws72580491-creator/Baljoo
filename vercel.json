@@ -1,11 +1,4 @@
 {
-  "functions": {
-    "analyze.js": {
-      "runtime": "nodejs20.x"
-    }
-  },
-  "rewrites": [
-    { "source": "/api/analyze", "destination": "/analyze.js" },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ]
+  "cleanUrls": true,
+  "trailingSlash": false
 }
