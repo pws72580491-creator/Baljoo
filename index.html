@@ -363,19 +363,6 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     <!-- ── VIEW 2: UPLOAD ── -->
     <div class="view" id="v2">
       <div class="ph"><div><div class="pt">문서 업로드</div><div class="ps">PDF·이미지·ZIP → AI 자동 분석</div></div></div>
-      <!-- API KEY 입력 -->
-      <div class="form-card" id="apiKeyCard" style="margin-bottom:14px;padding:13px 14px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-          <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.4px;text-transform:uppercase;">OpenRouter API Key</span>
-          <a href="https://openrouter.ai/keys" target="_blank" style="font-size:11px;color:var(--accent);text-decoration:none;">발급 →</a>
-        </div>
-        <div style="display:flex;gap:8px;">
-          <input class="fi" id="geminiKey" type="password" placeholder="sk-or-v1-..." style="font-size:13px;padding:9px 11px;flex:1;"
-            oninput="saveApiKey(this.value)" autocomplete="off"/>
-          <button class="btn btn-g btn-sm" onclick="toggleKeyVisibility()" style="flex-shrink:0;font-size:13px;padding:0 12px;">👁</button>
-        </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:6px;">OpenRouter · 기기에만 저장</div>
-      </div>
 
       <div class="upload-zone" id="uploadZone"
         onclick="document.getElementById('fileInput').click()"
@@ -452,6 +439,11 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
 <div class="toast" id="toast"></div>
 
 <script>
+// ══════════════════════════════════
+// AI API KEY (공용 키 - 코드에 내장됨)
+// ══════════════════════════════════
+const OPENROUTER_API_KEY = 'YOUR_OPENROUTER_API_KEY_HERE';
+
 // ══════════════════════════════════
 // DATA
 // ══════════════════════════════════
@@ -747,8 +739,8 @@ async function handleFiles(files){
 }
 
 async function analyzeFile(file){
-  const apiKey = (document.getElementById('geminiKey').value||'').trim();
-  if(!apiKey){ setStatus('⚠️ OpenRouter API Key를 입력해주세요.'); throw new Error('no key'); }
+  const apiKey = OPENROUTER_API_KEY;
+  if(!apiKey || apiKey.includes('YOUR_')){ setStatus('⚠️ API 키가 설정되지 않았습니다.'); throw new Error('no key'); }
 
   try{
     const b64 = await toB64(file);
@@ -803,14 +795,6 @@ async function analyzeFile(file){
   }
 }
 
-function saveApiKey(val){ try{localStorage.setItem('openrouterApiKey',val);}catch(e){} }
-function loadApiKey(){
-  try{ const k=localStorage.getItem('openrouterApiKey'); if(k) document.getElementById('geminiKey').value=k; }catch(e){}
-}
-function toggleKeyVisibility(){
-  const el=document.getElementById('geminiKey');
-  el.type=el.type==='password'?'text':'password';
-}
 
 function toB64(file){
   return new Promise((res,rej)=>{
@@ -955,7 +939,6 @@ function init(){
   resetManual();
   goTo(0, false);
   renderAll();
-  loadApiKey();
   document.getElementById('tabInk').style.left='0%';
 }
 init();
