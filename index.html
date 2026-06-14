@@ -363,13 +363,18 @@ body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text
     <!-- ── VIEW 2: UPLOAD ── -->
     <div class="view" id="v2">
       <div class="ph"><div><div class="pt">문서 업로드</div><div class="ps">PDF·이미지·ZIP → AI 자동 분석</div></div></div>
-      <!-- Claude AI 안내 -->
-      <div class="form-card" id="apiKeyCard" style="margin-bottom:14px;padding:13px 14px;background:linear-gradient(135deg,#f0f5ff,#fff);">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-          <span style="font-size:16px;">🤖</span>
-          <span style="font-size:12px;font-weight:700;color:var(--accent);letter-spacing:.4px;text-transform:uppercase;">Claude AI 자동 분석</span>
+      <!-- API KEY 입력 -->
+      <div class="form-card" id="apiKeyCard" style="margin-bottom:14px;padding:13px 14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.4px;text-transform:uppercase;">Gemini API Key</span>
+          <a href="https://aistudio.google.com/apikey" target="_blank" style="font-size:11px;color:var(--accent);text-decoration:none;">무료 발급 →</a>
         </div>
-        <div style="font-size:12px;color:var(--muted);">별도 API 키 없이 Claude가 직접 발주서를 분석합니다.</div>
+        <div style="display:flex;gap:8px;">
+          <input class="fi" id="geminiKey" type="password" placeholder="AQ. 또는 AIza..." style="font-size:13px;padding:9px 11px;flex:1;"
+            oninput="saveApiKey(this.value)" autocomplete="off"/>
+          <button class="btn btn-g btn-sm" onclick="toggleKeyVisibility()" style="flex-shrink:0;font-size:13px;padding:0 12px;">👁</button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;">Google AI Studio · 무료 · 기기에만 저장</div>
       </div>
 
       <div class="upload-zone" id="uploadZone"
@@ -742,43 +747,69 @@ async function handleFiles(files){
 }
 
 async function analyzeFile(file){
+  const apiKey = (document.getElementById('geminiKey').value||'').trim();
+  if(!apiKey){ setStatus('⚠️ Gemini API Key를 입력해주세요.'); throw new Error('no key'); }
+
   try{
     const b64 = await toB64(file);
     const isPdf = file.type==='application/pdf';
+    const mimeType = isPdf ? 'application/pdf' : (file.type||'image/jpeg');
 
-    const prompt = `이 발주서 문서를 분석해 아래 JSON 형식으로만 응답하세요. 코드블록(백틱) 없이 순수 JSON만:\n{"docNo":"","date":"YYYY-MM-DD","delivery":"YYYY-MM-DD","ship":"","poNo":"","category":"cruise or cargo","items":[{"desc":"","code":"","qty":0,"unit":"","price":0,"amount":0}],"total":0}\n\n규칙:\n- date/delivery: YYYY-MM-DD 형식\n- category: 크루즈선이면 "cruise", 화물선이면 "cargo"\n- items: 모든 품목 포함\n- total: 모든 품목 amount 합계\n- 알 수 없는 값은 빈 문자열 또는 0`;
+    const prompt = `이 발주서 문서를 분석해 아래 JSON 형식으로만 응답하세요. 코드블록 없이 순수 JSON만:
+{"docNo":"","date":"YYYY-MM-DD","delivery":"YYYY-MM-DD","ship":"","poNo":"","category":"cruise or cargo","items":[{"desc":"","code":"","qty":0,"unit":"","price":0,"amount":0}],"total":0}
+규칙: date/delivery는 YYYY-MM-DD, category는 크루즈면 cruise 화물이면 cargo, 모르면 빈값`;
 
-    const mediaType = isPdf ? 'application/pdf' : (file.type || 'image/jpeg');
+    // 사용 가능 모델 탐색
+    let model = 'gemini-2.0-flash';
+    try{
+      const mr = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+      if(mr.ok){
+        const md = await mr.json();
+        const names = (md.models||[]).map(m=>m.name.replace('models/',''));
+        const cands = ['gemini-2.0-flash','gemini-1.5-flash','gemini-flash','gemini-pro'];
+        model = cands.find(c=>names.includes(c)) || names.find(n=>n.includes('flash')) || names[0] || model;
+      }
+    }catch(_){}
 
-    const resp = await fetch('/api/analyze', {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    const resp = await fetch(url,{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({mediaType, b64, isPdf, prompt})
+      body:JSON.stringify({
+        contents:[{parts:[{inline_data:{mime_type:mimeType,data:b64}},{text:prompt}]}],
+        generationConfig:{temperature:0,maxOutputTokens:1500}
+      })
     });
 
     if(!resp.ok){
       const err = await resp.json().catch(()=>({}));
-      throw new Error('['+resp.status+'] '+(err?.error || resp.statusText));
+      throw new Error(`[${resp.status}] ${err?.error?.message||resp.statusText}`);
     }
 
     const data = await resp.json();
-    const txt = (data.text||'').replace(/```json|```/g,'').trim();
-    if(!txt) throw new Error('AI 응답이 비어 있습니다.');
+    const txt = data.candidates?.[0]?.content?.parts?.map(p=>p.text||'').join('').replace(/```json|```/g,'').trim();
+    if(!txt) throw new Error('AI 응답 없음');
 
     const parsed = JSON.parse(txt);
-    parsed.id = parsed.docNo || ('UP-'+Date.now());
-    parsed.source = 'upload';
-    parsed.fileName = file.name;
-    if(!parsed.category) parsed.category = 'cargo';
+    parsed.id = parsed.docNo||('UP-'+Date.now());
+    parsed.source='upload'; parsed.fileName=file.name;
+    if(!parsed.category) parsed.category='cargo';
     pendingOrders.push(parsed);
   }catch(e){
-    console.error('분석 오류:', e);
-    setStatus('❌ ' + (e.message || '분석 실패'));
+    console.error('분석 오류:',e);
+    setStatus('❌ '+(e.message||'분석 실패'));
     throw e;
   }
 }
 
-function loadApiKey(){ /* Claude 내장 API 사용 — 키 불필요 */ }
+function saveApiKey(val){ try{localStorage.setItem('geminiApiKey',val);}catch(e){} }
+function loadApiKey(){
+  try{ const k=localStorage.getItem('geminiApiKey'); if(k) document.getElementById('geminiKey').value=k; }catch(e){}
+}
+function toggleKeyVisibility(){
+  const el=document.getElementById('geminiKey');
+  el.type=el.type==='password'?'text':'password';
+}
 
 function toB64(file){
   return new Promise((res,rej)=>{
