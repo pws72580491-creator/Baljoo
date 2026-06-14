@@ -76,3 +76,57 @@ sw.js           — Service Worker (오프라인 캐싱)
 manifest.json   — PWA 메타데이터
 CHANGELOG.md    — 버전 이력 (이 파일)
 ```
+
+---
+
+## v3.0.0 · 2026-06-15
+
+### 🏗️ 구조 리팩토링 (Breaking: 파일 구조 변경)
+- **단일 index.html → 멀티 파일 모듈 구조로 전환**
+  - 인라인 JS (~42,900자) 완전 제거, `js/` 폴더로 분리
+  - index.html 순수 HTML+CSS 전용 (31KB → 유지보수 대폭 향상)
+
+- **js/ 폴더 구성 (보고서 7번 권장사항 반영)**
+
+  | 파일 | 역할 | 주요 함수 |
+  |------|------|-----------|
+  | `js/storage.js` | 저장/불러오기 | save, load, resetOrders |
+  | `js/helpers.js` | 순수 유틸리티 | fmt, badge, calcBoxes, calcNetDelivery, filtered, toast |
+  | `js/ui.js` | 렌더링 전용 | renderAll, orderCard, filterOrders, filterStatus, renderStats |
+  | `js/modal.js` | 모달 · 납품상태 · 삭제 | openModal, closeModal, setDelivery, delOrder |
+  | `js/analyzer.js` | 발주서 AI 분석 | handleFiles, analyzeFile, toB64, pdfToImages, API key |
+  | `js/delivery.js` | 납품사진 AI 매칭 | handleDeliveryFiles, renderDeliveryResult, confirmDelivery |
+  | `js/manual.js` | 직접입력 폼 | addItem, rmItem, saveManual, resetManual |
+  | `js/app.js` | 앱 초기화 · 네비 | goTo, swipe, init, exportExcel, SW등록 |
+
+- **Service Worker `cache-v3.0`** — js/ 파일 8개 오프라인 캐시 추가
+
+### ✅ 보고서 반영 항목
+- [#4] 상태·렌더 강결합 해소 → ui.js / storage.js / modal.js 분리
+- [#5] renderAll 분리 기반 마련 (ui.js 독립)
+- [#6] save/load 오류 처리 강화 (try/catch + console.error)
+- [#7] 추천 구조 리팩토링 완료
+- [#8] Vercel 배포 구조 유지 (정적 파일, SW 정상 동작)
+
+---
+
+## v3.1.0 · 2026-06-15
+
+### 🆕 신규
+- **납품완료 터치 취소** (modal.js)
+  - 납품완료 버튼이 이미 완료 상태면 "✅ 납품완료 · 터치하면 취소" 문구로 변경
+  - 한 번 더 터치 → 확인 후 미납품으로 즉시 되돌림
+  - `toggleDelivered()` 함수로 분리, 납품처리 버튼과 역할 명확히 구분
+
+- **일별 납품 정리** (ui.js 통계 탭)
+  - 납품완료·부분납품을 날짜별로 그룹화 → "M월 D일 (요일)" 헤더
+  - 헤더: 건수·박스수·합계금액 / 내부: 선명·서류번호·금액·상태배지
+  - 헤더 터치로 접기/펼치기
+  - 일별 소계(건수 · 박스 · 합계) 하단 표시
+
+- **중복 발주 자동 업데이트** (analyzer.js)
+  - 업로드 저장 시 **서류번호(docNo) 기준** 중복 탐지
+  - 중복 시: 기존 납품상태 보존 + 품목·금액 등 최신 데이터로 업데이트
+  - 신규 시: id 기준 중복 재확인 후 추가
+  - 미리보기 카드에 ⚠️ 중복 / 신규 배지 표시
+  - 저장 완료 토스트에 "N건 신규 추가 · M건 업데이트" 구분 표시

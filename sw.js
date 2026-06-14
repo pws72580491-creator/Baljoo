@@ -1,10 +1,18 @@
-const CACHE_NAME = '발주관리-cache-v2.3';
+const CACHE_NAME = '발주관리-cache-v3.1';
 const APP_SHELL = [
   './index.html',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
-  './icon-512-maskable.png'
+  './icon-512-maskable.png',
+  './js/storage.js',
+  './js/helpers.js',
+  './js/ui.js',
+  './js/modal.js',
+  './js/analyzer.js',
+  './js/delivery.js',
+  './js/manual.js',
+  './js/app.js'
 ];
 
 self.addEventListener('install', (e) => {
