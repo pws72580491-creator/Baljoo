@@ -570,18 +570,19 @@ body{
       <div class="sdiv" style="margin-top:4px;">발주서 등록</div>
       <div class="form-card" id="apiKeyCard" style="margin-bottom:14px;padding:13px 14px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-          <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.4px;text-transform:uppercase;">OpenRouter API Key</span>
-          <a href="https://openrouter.ai/keys" target="_blank" style="font-size:11px;color:var(--accent);text-decoration:none;">발급 →</a>
+          <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.4px;text-transform:uppercase;">Google AI Studio API Key</span>
+          <a href="https://aistudio.google.com/apikey" target="_blank" style="font-size:11px;color:var(--accent);text-decoration:none;">발급 →</a>
         </div>
         <div style="display:flex;gap:8px;">
-          <input class="fi" id="geminiKey" type="password" placeholder="sk-or-v1-..." style="font-size:13px;padding:9px 11px;flex:1;" autocomplete="off"/>
-          <button class="btn btn-g btn-sm" onclick="toggleKeyVisibility()" style="flex-shrink:0;font-size:13px;padding:0 12px;">👁</button>
+          <input class="fi" id="geminiKeyInput" type="password" placeholder="AI Studio API Key"
+            style="font-size:13px;padding:9px 11px;flex:1;" autocomplete="off"/>
+          <button class="btn btn-g btn-sm" onclick="toggleGeminiKeyVisibility()" style="flex-shrink:0;font-size:13px;padding:0 12px;">👁</button>
         </div>
         <div style="display:flex;gap:8px;margin-top:8px;">
-          <button class="btn btn-p btn-sm" onclick="saveApiKey()" style="flex:1;padding:8px 0;">저장</button>
-          <button class="btn btn-g btn-sm" onclick="resetApiKey()" style="flex:1;padding:8px 0;">초기화</button>
+          <button class="btn btn-p btn-sm" onclick="saveGeminiKey()" style="flex:1;padding:8px 0;">저장</button>
+          <button class="btn btn-g btn-sm" onclick="resetGeminiKey()" style="flex:1;padding:8px 0;">초기화</button>
         </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:6px;">OpenRouter · 기기에만 저장</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;">Google AI Studio · 기기에만 저장 · 무료</div>
       </div>
       <div class="upload-zone" id="uploadZone"
         onclick="document.getElementById('fileInput').click()"
@@ -678,6 +679,7 @@ body{
 <script src="js/helpers.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/modal.js"></script>
+<script src="js/gemini.js"></script>
 <script src="js/analyzer.js"></script>
 <script src="js/delivery.js"></script>
 <script src="js/manual.js"></script>
