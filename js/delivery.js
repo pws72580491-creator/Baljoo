@@ -15,85 +15,57 @@ function onDropDelivery(e) {
 function setDelStatus(m)   { document.getElementById('delStatus').textContent = m; }
 function setDelProgress(p) { document.getElementById('delProgBar').style.width = p + '%'; }
 
-// ── 납품 사진 처리 진입점 ──
 async function handleDeliveryFiles(files) {
   if (!files.length) return;
-  const apiKey = (document.getElementById('geminiKey').value || '').trim();
-  if (!apiKey)        { toast('⚠️ OpenRouter API Key를 먼저 입력해주세요'); return; }
-  if (!orders.length) { toast('⚠️ 등록된 발주 내역이 없습니다'); return; }
+  if (!getGeminiKey()) { toast('⚠️ API 키를 먼저 입력해주세요'); return; }
+  if (!orders.length)  { toast('⚠️ 등록된 발주 내역이 없습니다'); return; }
 
-  document.getElementById('delProgWrap').style.display     = 'block';
+  document.getElementById('delProgWrap').style.display        = 'block';
   document.getElementById('del-result-section').style.display = 'none';
   setDelStatus('납품 리스트 분석 중...');
   setDelProgress(20);
 
   try {
-    // 파일 → 이미지 콘텐츠 변환
-    const imageContents = [];
+    const parts = [];
     for (const f of files) {
       if (f.type === 'application/pdf') {
         const pages = await pdfToImages(f);
-        pages.forEach(dataUrl => { imageContents.push({ type: 'image_url', image_url: { url: dataUrl } }); });
+        pages.forEach(dataUrl => parts.push(imagePart(dataUrl)));
       } else {
         const b64 = await toB64(f);
-        imageContents.push({ type: 'image_url', image_url: { url: `data:${f.type || 'image/jpeg'};base64,${b64}` } });
+        parts.push(imagePart(`data:${f.type || 'image/jpeg'};base64,${b64}`));
       }
     }
     setDelProgress(50);
 
-    // 발주 목록 요약 (AI 매칭용)
     const orderSummary = orders.map(o => ({
-      id:     o.id,
-      ship:   o.ship,
-      docNo:  o.docNo  || '',
-      poNo:   o.poNo   || '',
-      date:   o.date,
-      total:  o.total  || 0,
-      status: o.deliveryStatus || 'pending',
-      items:  (o.items || []).map(i => i.desc).join(', ')
+      id: o.id, ship: o.ship, docNo: o.docNo || '', poNo: o.poNo || '',
+      date: o.date, total: o.total || 0, status: o.deliveryStatus || 'pending',
+      items: (o.items || []).map(i => i.desc).join(', ')
     }));
 
     const prompt = `다음은 납품 확인서 또는 납품 리스트 이미지입니다.
 
-⚠️ 중요: 이 이미지에는 여러 업체의 납품 항목이 섞여 있을 수 있습니다.
-반드시 **"이른아침"** 업체(공급자) 항목만 추출하세요.
+⚠️ 중요: 반드시 **"이른아침"** 업체(공급자) 항목만 추출하세요.
 "이른아침"이 공급자/납품처/발행처로 표기된 행 또는 섹션만 대상입니다.
 다른 업체 항목은 무시하세요.
-
-아래 발주 목록과 매칭하여 이른아침 납품 항목을 찾아주세요.
 
 발주 목록 (JSON):
 ${JSON.stringify(orderSummary, null, 2)}
 
-이미지에서 이른아침 항목의 선명(선박명), 서류번호, 발주번호, 날짜, 품목명을 추출하고
+이미지에서 이른아침 항목의 선명, 서류번호, 발주번호, 날짜, 품목명을 추출하고
 위 발주 목록에서 일치하는 항목의 id를 찾아주세요.
 
-응답은 반드시 아래 JSON 형식으로만, 코드블록 없이 순수 JSON만 출력:
-{
-  "matched": [
-    {"id":"발주ID", "ship":"선명", "reason":"매칭근거(서류번호/선명/품목 등)"}
-  ],
-  "unmatched": ["이른아침 항목이지만 발주목록에 없는 경우만 기재"],
-  "skipped_other_vendors": true,
-  "summary": "이른아침 납품 항목 요약 1-2줄"
-}
+응답은 반드시 아래 JSON만, 코드블록 없이:
+{"matched":[{"id":"발주ID","ship":"선명","reason":"매칭근거"}],"unmatched":["이른아침 항목이지만 미매칭"],"skipped_other_vendors":true,"summary":"이른아침 납품 요약 1-2줄"}
 
-이른아침 항목이 전혀 없으면 matched는 빈 배열, summary에 '이른아침 항목 없음' 표기.
-매칭이 전혀 없으면 matched는 빈 배열로.`;
+이른아침 항목 없으면 matched 빈 배열, summary에 '이른아침 항목 없음'.`;
 
-    const content = [{ type: 'text', text: prompt }, ...imageContents];
+    parts.unshift(textPart(prompt));
     setDelProgress(70);
 
-    const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body:    JSON.stringify({ model: 'google/gemini-2.5-flash:free', messages: [{ role: 'user', content }], temperature: 0, max_tokens: 1000 })
-    });
-    if (!resp.ok) { const err = await resp.json().catch(() => ({})); throw new Error(`[${resp.status}] ${err?.error?.message || resp.statusText}`); }
-    const data = await resp.json();
-    if (data.error) throw new Error(data.error.message || 'API 오류');
-
-    let txt = (data.choices?.[0]?.message?.content || '').replace(/```json|```/g, '').trim();
+    let txt = await callGemini(parts, 1000);
+    txt = txt.replace(/```json|```/g, '').trim();
     const s = txt.indexOf('{'), e = txt.lastIndexOf('}');
     if (s !== -1 && e !== -1 && e > s) txt = txt.slice(s, e + 1);
     const result = JSON.parse(txt);
@@ -104,14 +76,14 @@ ${JSON.stringify(orderSummary, null, 2)}
     setDelStatus(`✅ 분석 완료 — ${result.matched?.length || 0}건 매칭됨`);
 
   } catch(err) {
-    console.error('[delivery] 납품 분석 오류:', err);
-    setDelStatus('❌ ' + (err.message || '분석 실패'));
+    console.error('[delivery] 오류:', err);
+    const msg = err.message === 'API_KEY_MISSING' ? '⚠️ API 키를 먼저 입력해주세요.' : '❌ ' + (err.message || '분석 실패');
+    setDelStatus(msg);
     setDelProgress(0);
     document.getElementById('delProgWrap').style.display = 'none';
   }
 }
 
-// ── 매칭 결과 렌더 ──
 function renderDeliveryResult(result) {
   const matched   = result.matched   || [];
   const unmatched = result.unmatched || [];
@@ -159,38 +131,31 @@ function renderDeliveryResult(result) {
   `;
 }
 
-// ── 개별 납품완료 처리 ──
 function confirmDeliveryFromPhoto(id) {
   const o = orders.find(x => x.id === id);
   if (!o) return;
   o.deliveryStatus = 'delivered';
-  o.deliveryNote   = (o.deliveryNote || '') + (o.deliveryNote ? ' ' : '') + '[납품사진 자동확인]';
-  save();
-  renderAll();
+  o.deliveryNote   = (o.deliveryNote ? o.deliveryNote + ' ' : '') + '[납품사진 자동확인]';
+  save(); renderAll();
   document.querySelectorAll(`button[onclick="confirmDeliveryFromPhoto('${id}')"]`).forEach(btn => {
     btn.textContent = '✅ 납품완료'; btn.disabled = true; btn.style.opacity = '0.6';
   });
   toast(`✅ ${o.ship} 납품완료 처리됨`);
 }
 
-// ── 전체 일괄 납품완료 처리 ──
 function confirmAllDelivery(ids) {
   let cnt = 0;
   ids.forEach(id => {
     const o = orders.find(x => x.id === id);
     if (o && o.deliveryStatus !== 'delivered') {
       o.deliveryStatus = 'delivered';
-      o.deliveryNote   = (o.deliveryNote || '') + (o.deliveryNote ? ' ' : '') + '[납품사진 자동확인]';
+      o.deliveryNote   = (o.deliveryNote ? o.deliveryNote + ' ' : '') + '[납품사진 자동확인]';
       cnt++;
     }
   });
-  save();
-  renderAll();
-  const sec = document.getElementById('del-result-section');
-  if (sec) {
-    sec.querySelectorAll('.btn-success').forEach(btn => {
-      btn.textContent = '✅ 납품완료'; btn.disabled = true; btn.style.opacity = '0.6';
-    });
-  }
+  save(); renderAll();
+  document.getElementById('del-result-section')?.querySelectorAll('.btn-success').forEach(btn => {
+    btn.textContent = '✅ 납품완료'; btn.disabled = true; btn.style.opacity = '0.6';
+  });
   toast(`✅ ${cnt}건 납품완료 처리됨`);
 }
