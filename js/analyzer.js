@@ -81,7 +81,7 @@ async function analyzeFile(file) {
     const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: 'google/gemini-2.5-flash', messages: [{ role: 'user', content }], temperature: 0, max_tokens: 1500 })
+      body: JSON.stringify({ model: 'google/gemini-2.5-flash:free', messages: [{ role: 'user', content }], temperature: 0, max_tokens: 1000 })
     });
     if (!resp.ok) { const err = await resp.json().catch(() => ({})); throw new Error(`[${resp.status}] ${err?.error?.message || resp.statusText}`); }
     const data = await resp.json();
