@@ -32,13 +32,17 @@ async function handleDeliveryFiles(files) {
         const pages = await pdfToImages(f);
         pages.forEach(dataUrl => parts.push(imagePart(dataUrl)));
       } else {
-        const b64 = await toB64(f);
-        parts.push(imagePart(`data:${f.type || 'image/jpeg'};base64,${b64}`));
+        // 리사이즈 적용
+        const dataUrl = await resizeImage(f, IMAGE_MAX_PX, IMAGE_QUALITY);
+        parts.push(imagePart(dataUrl));
       }
     }
     setDelProgress(50);
 
-    const orderSummary = orders.map(o => ({
+    const orderSummary = orders
+      .filter(o => o.deliveryStatus !== 'delivered')  // 미납품만 포함 (토큰 절약)
+      .slice(0, 30)                                    // 최대 30건
+      .map(o => ({
       id: o.id, ship: o.ship, docNo: o.docNo || '', poNo: o.poNo || '',
       date: o.date, total: o.total || 0, status: o.deliveryStatus || 'pending',
       items: (o.items || []).map(i => i.desc).join(', ')
@@ -64,11 +68,25 @@ ${JSON.stringify(orderSummary, null, 2)}
     parts.unshift(textPart(prompt));
     setDelProgress(70);
 
-    let txt = await callGemini(parts, 1000);
-    txt = txt.replace(/```json|```/g, '').trim();
+    let txt = await callGemini(parts, 2000);
+
+    // 1단계: 코드블록 제거 (```json ... ``` 또는 ``` ... ```)
+    txt = txt.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+
+    // 2단계: { } 범위만 추출
     const s = txt.indexOf('{'), e = txt.lastIndexOf('}');
     if (s !== -1 && e !== -1 && e > s) txt = txt.slice(s, e + 1);
-    const result = JSON.parse(txt);
+
+    console.log('[delivery] Gemini 원본 응답:', txt); // 디버그용
+
+    let result;
+    try {
+      result = JSON.parse(txt);
+    } catch (parseErr) {
+      console.warn('[delivery] JSON 파싱 실패:', parseErr.message, '\n원본:', txt);
+      // 파싱 실패 시 summary만 표시
+      result = { matched: [], unmatched: [], skipped_other_vendors: false, summary: `AI 응답 파싱 오류 — 다시 시도해주세요. (${parseErr.message})` };
+    }
 
     setDelProgress(90);
     renderDeliveryResult(result);

@@ -285,3 +285,112 @@ function fmtDate(dateStr) {
     return `${d.getMonth()+1}월 ${d.getDate()}일 (${days[d.getDay()]})`;
   } catch(e) { return dateStr; }
 }
+
+// ══════════════════════════════════════════════════════
+// renderDeliveryStatus — 납품현황 탭 (날짜별 선명·박스·금액)
+// ══════════════════════════════════════════════════════
+function renderDeliveryStatus() {
+  const el = document.getElementById('delivery-status-content');
+  if (!el) return;
+
+  // 납품완료 + 부분납품만
+  const done = orders.filter(o => o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial');
+
+  if (!done.length) {
+    el.innerHTML = `<div style="text-align:center;padding:60px 20px;color:var(--muted);">
+      <div style="font-size:40px;margin-bottom:12px;">📦</div>
+      <div style="font-size:14px;">납품 완료된 발주가 없습니다</div>
+    </div>`;
+    return;
+  }
+
+  // ── 날짜별 집계 ──
+  const byDay = {};
+  done.forEach(o => {
+    const d = o.date || '미상';
+    if (!byDay[d]) byDay[d] = { date: d, orders: [], totalAmt: 0, totalBoxes: 0 };
+    byDay[d].orders.push(o);
+    byDay[d].totalAmt   += calcNetDelivery(o);
+    byDay[d].totalBoxes += calcOrderBoxes(o);
+  });
+
+  const dayList = Object.values(byDay).sort((a, b) => b.date.localeCompare(a.date));
+
+  // ── 전체 합계 ──
+  const grandAmt   = done.reduce((s, o) => s + calcNetDelivery(o), 0);
+  const grandBoxes = done.reduce((s, o) => s + calcOrderBoxes(o), 0);
+
+  el.innerHTML = `
+    <!-- 전체 요약 바 -->
+    <div style="display:flex;gap:0;margin-bottom:14px;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);">
+      <div style="flex:1;background:var(--navy);color:#fff;padding:14px 16px;text-align:center;">
+        <div style="font-size:18px;font-weight:800;">${done.length}<span style="font-size:12px;font-weight:400;margin-left:2px;">건</span></div>
+        <div style="font-size:11px;opacity:.7;margin-top:2px;">납품완료</div>
+      </div>
+      <div style="flex:1;background:#1a3a6e;color:#fff;padding:14px 16px;text-align:center;">
+        <div style="font-size:18px;font-weight:800;">${formatBoxCount(grandBoxes)}</div>
+        <div style="font-size:11px;opacity:.7;margin-top:2px;">총 박스</div>
+      </div>
+      <div style="flex:1;background:var(--success);color:#fff;padding:14px 16px;text-align:center;">
+        <div style="font-size:15px;font-weight:800;">${fmt(grandAmt)}</div>
+        <div style="font-size:11px;opacity:.7;margin-top:2px;">납품금액</div>
+      </div>
+    </div>
+
+    <!-- 날짜별 카드 -->
+    ${dayList.map(day => `
+      <div style="background:#fff;border-radius:12px;overflow:hidden;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.07);">
+
+        <!-- 날짜 헤더 -->
+        <div style="display:flex;align-items:center;justify-content:space-between;
+                    padding:11px 14px;background:var(--navy);color:#fff;">
+          <div>
+            <span style="font-size:13px;font-weight:700;">📅 ${fmtDate(day.date)}</span>
+            <span style="font-size:11px;opacity:.65;margin-left:8px;">${day.orders.length}척</span>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:13px;font-weight:700;">${fmt(day.totalAmt)}</div>
+            <div style="font-size:10px;opacity:.65;">${formatBoxCount(day.totalBoxes)}</div>
+          </div>
+        </div>
+
+        <!-- 선명별 행 -->
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:#f8fafc;">
+              <th style="padding:7px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:700;letter-spacing:.5px;">선명</th>
+              <th style="padding:7px 10px;text-align:right;font-size:10px;color:var(--muted);font-weight:700;">박스</th>
+              <th style="padding:7px 14px;text-align:right;font-size:10px;color:var(--muted);font-weight:700;">금액</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${day.orders.map((o, i) => `
+            <tr style="border-top:1px solid var(--border);cursor:pointer;background:${o.deliveryStatus==='partial'?'#fffbeb':'#fff'};"
+                onclick="openModal('${o.id}')">
+              <td style="padding:10px 14px;">
+                <div style="font-size:13px;font-weight:600;color:var(--navy);
+                            white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">${o.ship}</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px;">${o.docNo||''}</div>
+              </td>
+              <td style="padding:10px;text-align:right;font-size:13px;font-weight:700;color:#1a3a6e;white-space:nowrap;">
+                ${formatBoxCount(calcOrderBoxes(o))}
+              </td>
+              <td style="padding:10px 14px;text-align:right;white-space:nowrap;">
+                <div style="font-size:13px;font-weight:700;color:var(--success);">${fmt(calcNetDelivery(o))}</div>
+                <div style="font-size:10px;margin-top:2px;">${statusBadge(o.deliveryStatus)}</div>
+              </td>
+            </tr>`).join('')}
+          </tbody>
+          <!-- 일별 소계 -->
+          <tfoot>
+            <tr style="background:#f1f5f9;border-top:2px solid var(--border);">
+              <td style="padding:9px 14px;font-size:12px;font-weight:700;color:var(--navy);">소계</td>
+              <td style="padding:9px 10px;text-align:right;font-size:12px;font-weight:700;color:#1a3a6e;">${formatBoxCount(day.totalBoxes)}</td>
+              <td style="padding:9px 14px;text-align:right;font-size:12px;font-weight:700;color:var(--success);">${fmt(day.totalAmt)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    `).join('')}
+  `;
+}

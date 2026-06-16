@@ -29,6 +29,7 @@ function goTo(idx, animate = true) {
   document.getElementById('tabInk').style.left = (idx * 20) + '%';
 
   if (idx === 0 || idx === 1) renderAll();
+  if (idx === 3) renderDeliveryStatus();
   if (idx === 4) renderStats();
   if (idx === 2 && !pendingOrders.length) {
     setStatus('');
@@ -140,7 +141,6 @@ function exportExcel() {
 // ── 앱 초기화 ──
 function init() {
   load();
-  resetManual();
   goTo(0, false);
   renderAll();
   loadApiKey();

@@ -4,6 +4,8 @@
 
 let pendingOrders = [];
 const PDF_MAX_PAGES = 5;
+const IMAGE_MAX_PX  = 2048;   // 리사이즈 한계 (px)
+const IMAGE_QUALITY = 0.85;   // JPEG 품질
 
 function onDrag(e, on) {
   e.preventDefault();
@@ -42,7 +44,7 @@ async function handleFiles(files) {
 
   for (let i = 0; i < all.length; i++) {
     setProgress(Math.round(((i + 0.5) / all.length) * 100));
-    setStatus(`분석 중 ${i + 1}/${all.length}: ${all[i].name}`);
+    setStatus(`분석 중 ${i + 1}/${all.length}: ${all[i].name} (서버 혼잡 시 자동 재시도)`);
     try { await analyzeFile(all[i]); }
     catch(e) { setProgress(100); return; }
   }
@@ -68,16 +70,25 @@ async function analyzeFile(file) {
       const pages = await pdfToImages(file);
       pages.forEach(dataUrl => parts.push(imagePart(dataUrl)));
     } else {
-      const b64 = await toB64(file);
-      parts.push(imagePart(`data:${file.type || 'image/jpeg'};base64,${b64}`));
+      // 이미지 리사이즈 후 전송 (대용량 오류 방지)
+      const dataUrl = await resizeImage(file, IMAGE_MAX_PX, IMAGE_QUALITY);
+      parts.push(imagePart(dataUrl));
     }
 
-    let txt = await callGemini(parts, 1000);
-    txt = txt.replace(/```json|```/g, '').trim();
+    let txt = await callGemini(parts, 2000);
+
+    // 코드블록 제거 후 { } 범위만 추출
+    txt = txt.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
     const s = txt.indexOf('{'), e = txt.lastIndexOf('}');
     if (s !== -1 && e !== -1 && e > s) txt = txt.slice(s, e + 1);
 
-    const parsed        = JSON.parse(txt);
+    let parsed;
+    try {
+      parsed = JSON.parse(txt);
+    } catch (parseErr) {
+      console.warn('[analyzer] JSON 파싱 실패:', parseErr.message, '\n원본:', txt);
+      throw new Error('AI 응답을 파싱할 수 없습니다. 다시 시도해주세요. (' + parseErr.message + ')');
+    }
     parsed.id           = parsed.docNo || ('UP-' + Date.now());
     parsed.source       = 'upload';
     parsed.fileName     = file.name;
@@ -104,6 +115,36 @@ function toB64(file) {
   });
 }
 
+// ── 이미지 리사이즈 (Canvas 활용, 대용량 이미지 → API 오류 방지) ──
+function resizeImage(file, maxPx, quality) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width: w, height: h } = img;
+      if (w <= maxPx && h <= maxPx) {
+        // 리사이즈 불필요 → 원본 base64 그대로
+        const r = new FileReader();
+        r.onload  = () => res(r.result);
+        r.onerror = () => rej(new Error('read fail'));
+        r.readAsDataURL(file);
+        return;
+      }
+      const ratio = Math.min(maxPx / w, maxPx / h);
+      w = Math.round(w * ratio);
+      h = Math.round(h * ratio);
+      const canvas = document.createElement('canvas');
+      canvas.width  = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      res(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('이미지 로드 실패')); };
+    img.src = url;
+  });
+}
+
 async function pdfToImages(file) {
   if (!window.pdfjsLib) throw new Error('PDF 렌더링 라이브러리 로드 실패');
   const buf    = await file.arrayBuffer();
@@ -113,11 +154,14 @@ async function pdfToImages(file) {
   for (let i = 1; i <= n; i++) {
     const page     = await pdf.getPage(i);
     const viewport = page.getViewport({ scale: 1.8 });
+    // 최대 크기 제한 (API 오류 방지)
+    const scale    = Math.min(1.8, IMAGE_MAX_PX / Math.max(viewport.width, viewport.height));
+    const vp2      = page.getViewport({ scale });
     const canvas   = document.createElement('canvas');
-    canvas.width   = viewport.width;
-    canvas.height  = viewport.height;
-    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-    images.push(canvas.toDataURL('image/jpeg', 0.85));
+    canvas.width   = vp2.width;
+    canvas.height  = vp2.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp2 }).promise;
+    images.push(canvas.toDataURL('image/jpeg', IMAGE_QUALITY));
   }
   return images;
 }
