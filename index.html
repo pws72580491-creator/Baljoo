@@ -2,7 +2,7 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.1.4
+  Version : v3.2.3
   Released: 2026-06-15
   ────────────────────────────────────────
   CHANGELOG
@@ -49,7 +49,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<title>이른아침 · 발주관리 v3.1.4</title>
+<title>이른아침 · 발주관리 v3.2.3</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -457,7 +457,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.1.4</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.3</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
@@ -569,18 +569,40 @@ body{
 
       <div class="sdiv" style="margin-top:4px;">발주서 등록</div>
       <div class="form-card" id="apiKeyCard" style="margin-bottom:14px;padding:13px 14px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-          <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.4px;text-transform:uppercase;">Google AI Studio API Key</span>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.4px;text-transform:uppercase;">Google AI Studio API Keys</span>
           <a href="https://aistudio.google.com/apikey" target="_blank" style="font-size:11px;color:var(--accent);text-decoration:none;">발급 →</a>
         </div>
-        <div style="display:flex;gap:8px;">
-          <input class="fi" id="geminiKeyInput" type="password" placeholder="AI Studio API Key"
-            style="font-size:13px;padding:9px 11px;flex:1;" autocomplete="off"/>
-          <button class="btn btn-g btn-sm" onclick="toggleGeminiKeyVisibility()" style="flex-shrink:0;font-size:13px;padding:0 12px;">👁</button>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">막히면 자동으로 다음 키로 교체 · 최대 4개</div>
+
+        <div style="display:flex;gap:6px;margin-bottom:7px;align-items:center;">
+          <span style="font-size:11px;font-weight:700;color:var(--navy);width:14px;flex-shrink:0;">1</span>
+          <input class="fi" id="geminiKey1" type="password" placeholder="API Key 1 (필수)"
+            style="font-size:12px;padding:8px 10px;flex:1;" autocomplete="off"/>
+          <button class="btn btn-g btn-sm" onclick="toggleKeyVis(1)" style="flex-shrink:0;padding:0 10px;font-size:12px;">👁</button>
         </div>
-        <div style="display:flex;gap:8px;margin-top:8px;">
-          <button class="btn btn-p btn-sm" onclick="saveGeminiKey()" style="flex:1;padding:8px 0;">저장</button>
-          <button class="btn btn-g btn-sm" onclick="resetGeminiKey()" style="flex:1;padding:8px 0;">초기화</button>
+        <div style="display:flex;gap:6px;margin-bottom:7px;align-items:center;">
+          <span style="font-size:11px;font-weight:700;color:var(--navy);width:14px;flex-shrink:0;">2</span>
+          <input class="fi" id="geminiKey2" type="password" placeholder="API Key 2 (선택)"
+            style="font-size:12px;padding:8px 10px;flex:1;" autocomplete="off"/>
+          <button class="btn btn-g btn-sm" onclick="toggleKeyVis(2)" style="flex-shrink:0;padding:0 10px;font-size:12px;">👁</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:7px;align-items:center;">
+          <span style="font-size:11px;font-weight:700;color:var(--navy);width:14px;flex-shrink:0;">3</span>
+          <input class="fi" id="geminiKey3" type="password" placeholder="API Key 3 (선택)"
+            style="font-size:12px;padding:8px 10px;flex:1;" autocomplete="off"/>
+          <button class="btn btn-g btn-sm" onclick="toggleKeyVis(3)" style="flex-shrink:0;padding:0 10px;font-size:12px;">👁</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:7px;align-items:center;">
+          <span style="font-size:11px;font-weight:700;color:var(--navy);width:14px;flex-shrink:0;">4</span>
+          <input class="fi" id="geminiKey4" type="password" placeholder="API Key 4 (선택)"
+            style="font-size:12px;padding:8px 10px;flex:1;" autocomplete="off"/>
+          <button class="btn btn-g btn-sm" onclick="toggleKeyVis(4)" style="flex-shrink:0;padding:0 10px;font-size:12px;">👁</button>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <button class="btn btn-p btn-sm" onclick="saveGeminiKeys()" style="flex:1;padding:8px 0;">저장</button>
+          <button class="btn btn-g btn-sm" onclick="resetGeminiKeys()" style="flex:1;padding:8px 0;">초기화</button>
         </div>
         <div style="font-size:11px;color:var(--muted);margin-top:6px;">Google AI Studio · 기기에만 저장 · 무료</div>
       </div>
