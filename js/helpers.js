@@ -24,13 +24,23 @@ const statusBadge = s => {
 // ── 박스 계산 ──
 function getBoxDivisor(unit) {
   if (!unit) return null;
-  const u = String(unit).toLowerCase();
+  const u = String(unit).toLowerCase().trim();
+
+  // CTN / CS / BOX 계열 → 1박스 (카톤, 케이스가 곧 박스)
+  if (u === 'ctn' || u === 'cs' || u === 'case' || u === 'carton' || u === 'box') return 1;
+
+  // DOZ / DOZEN 계열 → 30개/박스
   if (u.includes('doz')) return 30;
-  if (u.startsWith('pc')) return 360;
+
+  // PC / EA / PCS 계열 → 360개/박스
+  if (u.startsWith('pc') || u === 'ea' || u === 'pcs' || u === 'piece') return 360;
+
   return null;
 }
 
 function calcItemBoxCount(item) {
+  // boxes 필드가 직접 있으면 우선 사용
+  if (item.boxes != null && Number(item.boxes) > 0) return Number(item.boxes);
   const d = getBoxDivisor(item.unit);
   if (!d || !item.qty) return 0;
   return Number(item.qty) / d;

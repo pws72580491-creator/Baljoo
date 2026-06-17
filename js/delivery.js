@@ -40,35 +40,24 @@ async function handleDeliveryFiles(files) {
     setDelProgress(50);
 
     const orderSummary = orders
-      .filter(o => o.deliveryStatus !== 'delivered')  // 미납품만 포함 (토큰 절약)
-      .slice(0, 30)                                    // 최대 30건
-      .map(o => ({
-      id: o.id, ship: o.ship, docNo: o.docNo || '', poNo: o.poNo || '',
-      date: o.date, total: o.total || 0, status: o.deliveryStatus || 'pending',
-      items: (o.items || []).map(i => i.desc).join(', ')
-    }));
+      .filter(o => o.deliveryStatus !== 'delivered')
+      .slice(0, 40)
+      .map(o => `${o.id}|${o.ship}|${o.docNo||''}|${o.poNo||''}|${o.date||''}`)
+      .join('\n');
 
-    const prompt = `다음은 납품 확인서 또는 납품 리스트 이미지입니다.
+    const prompt = `납품 확인서/리스트 이미지입니다. "이른아침" 업체 항목만 추출하세요.
 
-⚠️ 중요: 반드시 **"이른아침"** 업체(공급자) 항목만 추출하세요.
-"이른아침"이 공급자/납품처/발행처로 표기된 행 또는 섹션만 대상입니다.
-다른 업체 항목은 무시하세요.
+발주목록(ID|선명|서류번호|발주번호|날짜):
+${orderSummary}
 
-발주 목록 (JSON):
-${JSON.stringify(orderSummary, null, 2)}
-
-이미지에서 이른아침 항목의 선명, 서류번호, 발주번호, 날짜, 품목명을 추출하고
-위 발주 목록에서 일치하는 항목의 id를 찾아주세요.
-
-응답은 반드시 아래 JSON만, 코드블록 없이:
-{"matched":[{"id":"발주ID","ship":"선명","reason":"매칭근거"}],"unmatched":["이른아침 항목이지만 미매칭"],"skipped_other_vendors":true,"summary":"이른아침 납품 요약 1-2줄"}
-
-이른아침 항목 없으면 matched 빈 배열, summary에 '이른아침 항목 없음'.`;
+이미지의 이른아침 항목과 위 발주목록을 매칭해 아래 JSON만 출력(코드블록 없이):
+{"matched":[{"id":"발주ID","ship":"선명","reason":"근거"}],"summary":"요약"}
+이른아침 항목 없으면: {"matched":[],"summary":"이른아침 항목 없음"}`;
 
     parts.unshift(textPart(prompt));
     setDelProgress(70);
 
-    let txt = await callGemini(parts, 2000);
+    let txt = await callGemini(parts, 3000);
 
     // 1단계: 코드블록 제거 (```json ... ``` 또는 ``` ... ```)
     txt = txt.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
@@ -85,7 +74,7 @@ ${JSON.stringify(orderSummary, null, 2)}
     } catch (parseErr) {
       console.warn('[delivery] JSON 파싱 실패:', parseErr.message, '\n원본:', txt);
       // 파싱 실패 시 summary만 표시
-      result = { matched: [], unmatched: [], skipped_other_vendors: false, summary: `AI 응답 파싱 오류 — 다시 시도해주세요. (${parseErr.message})` };
+      result = { matched: [], summary: `AI 응답 파싱 오류 — 다시 시도해주세요. (${parseErr.message})` };
     }
 
     setDelProgress(90);

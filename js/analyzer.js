@@ -4,8 +4,8 @@
 
 let pendingOrders = [];
 const PDF_MAX_PAGES = 5;
-const IMAGE_MAX_PX  = 2048;   // 리사이즈 한계 (px)
-const IMAGE_QUALITY = 0.85;   // JPEG 품질
+const IMAGE_MAX_PX  = 1024;   // 리사이즈 한계 (px) — 발주서는 1024로 충분
+const IMAGE_QUALITY = 0.75;   // JPEG 품질 — 속도 우선
 
 function onDrag(e, on) {
   e.preventDefault();
@@ -61,9 +61,9 @@ async function handleFiles(files) {
 
 async function analyzeFile(file) {
   try {
-    const prompt = `이 발주서 문서를 분석해 아래 JSON 형식으로만 응답하세요. 코드블록 없이 순수 JSON만:
-{"docNo":"","date":"YYYY-MM-DD","delivery":"YYYY-MM-DD","ship":"","poNo":"","category":"cruise or cargo","items":[{"desc":"","code":"","qty":0,"unit":"","price":0,"amount":0}],"total":0}
-규칙: date/delivery는 YYYY-MM-DD, category는 크루즈면 cruise 화물이면 cargo, 모르면 빈값`;
+    const prompt = `이 발주서를 분석해 아래 JSON 형식으로만 응답하세요. 코드블록 없이 순수 JSON만 출력:
+{"docNo":"","date":"YYYY-MM-DD","delivery":"YYYY-MM-DD","ship":"","poNo":"","category":"cruise","items":[{"desc":"","code":"","qty":0,"unit":"doz","price":0,"amount":0}],"total":0}
+규칙: date/delivery=YYYY-MM-DD, category=cruise또는cargo, unit은 doz/pc/ctn/cs/kg/l/btl 중 하나로만`;
 
     const parts = [textPart(prompt)];
     if (file.type === 'application/pdf') {
@@ -75,7 +75,7 @@ async function analyzeFile(file) {
       parts.push(imagePart(dataUrl));
     }
 
-    let txt = await callGemini(parts, 2000);
+    let txt = await callGemini(parts, 4000);
 
     // 코드블록 제거 후 { } 범위만 추출
     txt = txt.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
@@ -86,8 +86,22 @@ async function analyzeFile(file) {
     try {
       parsed = JSON.parse(txt);
     } catch (parseErr) {
-      console.warn('[analyzer] JSON 파싱 실패:', parseErr.message, '\n원본:', txt);
-      throw new Error('AI 응답을 파싱할 수 없습니다. 다시 시도해주세요. (' + parseErr.message + ')');
+      // JSON이 잘린 경우 복구 시도
+      try {
+        let fixed = txt;
+        // 열린 배열/객체 닫기
+        const opens = (fixed.match(/\[/g)||[]).length - (fixed.match(/\]/g)||[]).length;
+        const openb = (fixed.match(/\{/g)||[]).length - (fixed.match(/\}/g)||[]).length;
+        // 마지막 불완전한 항목 제거 (쉼표로 끝나는 경우)
+        fixed = fixed.replace(/,\s*$/, '');
+        for (let i = 0; i < opens; i++) fixed += ']';
+        for (let i = 0; i < openb; i++) fixed += '}';
+        parsed = JSON.parse(fixed);
+        console.warn('[analyzer] JSON 복구 성공');
+      } catch (e2) {
+        console.warn('[analyzer] JSON 파싱 실패:', parseErr.message, '\n원본:', txt);
+        throw new Error('AI 응답을 파싱할 수 없습니다. 다시 시도해주세요. (' + parseErr.message + ')');
+      }
     }
     parsed.id           = parsed.docNo || ('UP-' + Date.now());
     parsed.source       = 'upload';
@@ -155,7 +169,7 @@ async function pdfToImages(file) {
     const page     = await pdf.getPage(i);
     const viewport = page.getViewport({ scale: 1.8 });
     // 최대 크기 제한 (API 오류 방지)
-    const scale    = Math.min(1.8, IMAGE_MAX_PX / Math.max(viewport.width, viewport.height));
+    const scale    = Math.min(1.2, IMAGE_MAX_PX / Math.max(viewport.width, viewport.height));
     const vp2      = page.getViewport({ scale });
     const canvas   = document.createElement('canvas');
     canvas.width   = vp2.width;

@@ -140,7 +140,9 @@ function exportExcel() {
 
 // ── 앱 초기화 ──
 function init() {
+  migrateOldKey();
   load();
+  loadGeminiKeys();
   goTo(0, false);
   renderAll();
   loadApiKey();
