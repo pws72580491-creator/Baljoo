@@ -24,16 +24,16 @@ const statusBadge = s => {
 // ── 박스 계산 ──
 function getBoxDivisor(unit) {
   if (!unit) return null;
-  const u = String(unit).toLowerCase().trim();
+  const u = String(unit).toLowerCase().trim().replace(/[^a-z]/g, '');
 
-  // CTN / CS / BOX 계열 → 1박스 (카톤, 케이스가 곧 박스)
-  if (u === 'ctn' || u === 'cs' || u === 'case' || u === 'carton' || u === 'box') return 1;
+  // CTN / CS / BOX / CASE / CARTON → qty = 박스 수 (1:1)
+  if (u === 'ctn' || u === 'cs' || u === 'case' || u === 'carton' || u === 'box' || u === 'ct') return 1;
 
-  // DOZ / DOZEN 계열 → 30개/박스
-  if (u.includes('doz')) return 30;
+  // DOZ / DOZEN → 30doz = 1박스
+  if (u.startsWith('doz') || u === 'dozen') return 30;
 
-  // PC / EA / PCS 계열 → 360개/박스
-  if (u.startsWith('pc') || u === 'ea' || u === 'pcs' || u === 'piece') return 360;
+  // PC / PCS / EA / PIECE → 360pcs = 1박스
+  if (u.startsWith('pc') || u === 'pcs' || u === 'ea' || u === 'each' || u === 'piece' || u === 'pieces') return 360;
 
   return null;
 }

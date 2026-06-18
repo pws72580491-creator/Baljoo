@@ -62,8 +62,8 @@ async function handleFiles(files) {
 async function analyzeFile(file) {
   try {
     const prompt = `이 발주서를 분석해 아래 JSON 형식으로만 응답하세요. 코드블록 없이 순수 JSON만 출력:
-{"docNo":"","date":"YYYY-MM-DD","delivery":"YYYY-MM-DD","ship":"","poNo":"","category":"cruise","items":[{"desc":"","code":"","qty":0,"unit":"doz","price":0,"amount":0}],"total":0}
-규칙: date/delivery=YYYY-MM-DD, category=cruise또는cargo, unit은 doz/pc/ctn/cs/kg/l/btl 중 하나로만`;
+{"docNo":"","date":"YYYY-MM-DD","delivery":"YYYY-MM-DD","ship":"","poNo":"","category":"cruise","items":[{"desc":"","code":"","qty":0,"unit":"pcs","price":0,"amount":0}],"total":0}
+규칙: date/delivery=YYYY-MM-DD, category=cruise또는cargo, unit은 pcs/doz/cs/ctn/kg/l/btl 중 하나(박스단위=cs또는ctn, 낱개=pcs, 다스=doz)`;
 
     const parts = [textPart(prompt)];
     if (file.type === 'application/pdf') {
