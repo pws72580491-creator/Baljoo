@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<!--
+  이른아침 · 발주관리 PWA
+  ════════════════════════════════════════
+  Version : v3.2.12
+  Released: 2026-06-15
+  ────────────────────────────────────────
+  CHANGELOG
+  v2.3.0 (2026-06-14)
+    - [NEW] 업로드 탭 — 납품 리스트 사진 AI 자동 매칭
+            사진/PDF 업로드 → Gemini가 발주목록과 선명·서류번호·품목 매칭
+            → 납품완료 개별/일괄 처리, 비고 자동 기록 [납품사진 자동확인]
+    - [CHG] 대시보드 stat 카드 변경
+            총 발주건수 → 납품 건수 (납품완료+부분납품)
+            총 발주금액 → 납품 총금액 (실납품 기준, 반품 차감)
+            총 박스수   → 납품 박스수 (납품완료 발주 기준)
+
+  v2.2.0 (이전)
+    - [NEW] 납품 통계 탭 — 납품금액 요약, 선명별 납품 현황 테이블
+    - [NEW] 미납품 목록 / 반품 내역 섹션 분리 표시
+    - [NEW] 엑셀 내보내기 — 발주목록 + 납품통계 시트
+
+  v2.1.0 (이전)
+    - [NEW] 납품/반품/부분납품/미납품 상태 관리
+    - [NEW] 발주 모달 — 납품 처리 액션 버튼 그룹
+    - [NEW] 납품 금액 현황 블록 (발주금액·반품·실납품 표시)
+    - [NEW] 발주목록 납품 상태 칩 필터
+
+  v2.0.0 (이전)
+    - [NEW] OpenRouter API 연동 (Gemini 2.5 Flash)
+    - [NEW] PDF·이미지·ZIP 발주서 AI 자동 분석
+    - [NEW] localStorage 영구 저장 (v2 키)
+    - [NEW] 날짜 범위 필터
+    - [NEW] 박스 수량 자동 계산 (DOZ÷30, PCS÷360)
+    - [NEW] PWA — Service Worker, manifest, 홈 화면 추가
+    - [NEW] 5탭 스와이프 네비게이션
+  ════════════════════════════════════════
+-->
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="발주관리">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f1f3d">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
+<title>이른아침 · 발주관리 v3.2.12</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --navy:#0f1f3d;--navy-mid:#1a3057;
+  --accent:#2979d4;--accent-light:#4f9cf9;
+  --gold:#e8b84b;--bg:#f0f4fa;--surface:#fff;
+  --border:#dde3ef;--text:#1a2540;--muted:#6b7a99;
+  --danger:#ef4444;--success:#22c55e;
+  --warn:#f59e0b;
+  --delivered:#0ea5e9;--returned:#ef4444;--pending:#6b7a99;
+  --r:12px;--sh:0 2px 12px rgba(15,31,61,.08);
+  --nav-h:56px;--top-h:56px;
+}
+
+html,body{height:100%;overflow:hidden;}
+body{
+  font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);
+  display:flex;flex-direction:column;
+}
+
+/* ── TOP BAR ── */
+.topbar{
+  background:var(--navy);color:#fff;
+  height:var(--top-h);padding:0 16px;
+  display:flex;align-items:center;justify-content:space-between;
+  flex-shrink:0;
+  box-shadow:0 2px 12px rgba(0,0,0,.22);
+  position:relative;z-index:50;
+}
+.logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:16px;}
+.logo-badge{background:var(--gold);color:var(--navy);font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;}
+.topbar-stats{font-size:11px;color:rgba(255,255,255,.65);text-align:right;line-height:1.5;}
+.topbar-stats b{color:#fff;font-weight:700;}
+
+/* ── SWIPE CONTAINER ── */
+.swipe-root{flex:1;overflow:hidden;position:relative;width:100%;}
+.swipe-track{
+  display:flex;height:100%;
+  transition:transform .32s cubic-bezier(.4,0,.2,1);
+  will-change:transform;
+}
+.swipe-track.no-transition{transition:none;}
+
+/* ── VIEWS ── */
+.view{
+  min-width:100%;width:100%;height:100%;
+  overflow-y:auto;overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;
+  padding:16px 14px calc(var(--nav-h) + 16px);
+}
+
+/* ── BOTTOM NAV ── */
+.bottomnav{
+  height:var(--nav-h);background:var(--surface);
+  border-top:1px solid var(--border);
+  display:flex;align-items:stretch;flex-shrink:0;
+  position:relative;z-index:50;
+  box-shadow:0 -2px 12px rgba(15,31,61,.07);
+}
+.tab{
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:3px;border:none;background:none;cursor:pointer;
+  font-family:inherit;color:var(--muted);
+  font-size:10px;font-weight:500;
+  transition:color .15s;
+  -webkit-tap-highlight-color:transparent;
+  padding-bottom:env(safe-area-inset-bottom,0);
+}
+.tab .ti{font-size:20px;line-height:1;transition:transform .2s;}
+.tab.active{color:var(--accent);}
+.tab.active .ti{transform:scale(1.15);}
+.tab-ink{
+  position:absolute;bottom:0;height:2px;background:var(--accent);
+  border-radius:2px 2px 0 0;width:20%;
+  transition:left .32s cubic-bezier(.4,0,.2,1);
+}
+
+/* ── PAGE HEADER ── */
+.ph{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px;}
+.pt{font-size:20px;font-weight:700;letter-spacing:-.4px;}
+.ps{font-size:12px;color:var(--muted);margin-top:2px;}
+
+/* ── STAT CARDS ── */
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
+.stat-card{background:var(--surface);border-radius:var(--r);padding:14px 16px;border:1px solid var(--border);box-shadow:var(--sh);}
+.sc-label{font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;}
+.sc-val{font-size:22px;font-weight:700;letter-spacing:-.8px;line-height:1;}
+.sc-val.accent{color:var(--accent);}
+.sc-val.gold{color:#b8880a;}
+.sc-val.success{color:var(--success);}
+.sc-val.danger{color:var(--danger);}
+.sc-val.sm{font-size:16px;}
+.sc-val.xs{font-size:14px;}
+.sc-sub{font-size:11px;color:var(--muted);margin-top:3px;}
+
+/* ── 납품 현황 카드 ── */
+.delivery-summary{
+  background:var(--navy);border-radius:var(--r);
+  padding:16px;margin-bottom:16px;
+  box-shadow:0 4px 20px rgba(15,31,61,.18);
+}
+.ds-title{font-size:11px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:rgba(255,255,255,.5);margin-bottom:12px;}
+.ds-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+.ds-item{text-align:center;}
+.ds-val{font-size:18px;font-weight:700;line-height:1;margin-bottom:3px;}
+.ds-val.c-delivered{color:#38bdf8;}
+.ds-val.c-returned{color:#f87171;}
+.ds-val.c-pending{color:rgba(255,255,255,.45);}
+.ds-lbl{font-size:10px;color:rgba(255,255,255,.45);}
+.ds-amount{font-size:12px;color:rgba(255,255,255,.7);margin-top:2px;}
+.ds-net{
+  margin-top:12px;padding-top:12px;
+  border-top:1px solid rgba(255,255,255,.12);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.ds-net-lbl{font-size:11px;color:rgba(255,255,255,.5);}
+.ds-net-val{font-size:17px;font-weight:700;color:var(--gold);}
+
+/* ── ORDER CARD ── */
+.order-card{
+  background:var(--surface);border-radius:var(--r);
+  border:1px solid var(--border);box-shadow:var(--sh);
+  padding:14px 16px;margin-bottom:10px;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+  transition:box-shadow .15s;
+  position:relative;overflow:hidden;
+}
+.order-card::before{
+  content:'';position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:var(--border);border-radius:3px 0 0 3px;
+}
+.order-card.status-delivered::before{background:var(--delivered);}
+.order-card.status-returned::before{background:var(--returned);}
+.order-card.status-partial::before{background:var(--warn);}
+.order-card:active{box-shadow:0 4px 20px rgba(41,121,212,.12);}
+.oc-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;}
+.oc-ship{font-size:14px;font-weight:700;line-height:1.3;flex:1;padding-right:8px;}
+.oc-amount{font-size:15px;font-weight:700;color:var(--navy);white-space:nowrap;}
+.oc-meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px;}
+.oc-doc{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
+.oc-bottom{display:flex;align-items:center;justify-content:space-between;}
+.oc-item{font-size:12px;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.oc-dates{font-size:11px;color:var(--muted);white-space:nowrap;}
+.oc-qty{font-size:12px;font-family:'JetBrains Mono',monospace;font-weight:500;color:var(--text);}
+.oc-status-row{display:flex;gap:6px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--border);}
+.oc-net{font-size:12px;color:var(--muted);}
+.oc-net b{color:var(--text);}
+
+/* ── BADGES ── */
+.badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;}
+.b-cruise{background:#e0f0ff;color:#0a6abf;}
+.b-cargo{background:#fff3e0;color:#b35e00;}
+.b-manual{background:#f3e8ff;color:#7c3aed;}
+.b-delivered{background:#e0f7ff;color:#0369a1;}
+.b-returned{background:#fee2e2;color:#b91c1c;}
+.b-partial{background:#fef3c7;color:#92400e;}
+.b-pending{background:#f1f5f9;color:#64748b;}
+
+/* ── SECTION HEADER ── */
+.sec-hd{
+  display:flex;align-items:center;justify-content:space-between;
+  background:var(--surface);border-radius:var(--r);
+  border:1px solid var(--border);
+  padding:12px 14px;margin-bottom:10px;
+  box-shadow:var(--sh);
+}
+.sec-title{font-size:14px;font-weight:600;}
+.sec-count{font-size:12px;color:var(--muted);}
+
+/* ── SEARCH ── */
+.search-wrap{position:relative;margin-bottom:12px;}
+.search-input{
+  width:100%;padding:10px 14px 10px 36px;
+  border:1.5px solid var(--border);border-radius:var(--r);
+  font-size:14px;font-family:inherit;background:var(--surface);
+  color:var(--text);outline:none;
+}
+.search-input:focus{border-color:var(--accent);}
+.search-icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:15px;color:var(--muted);}
+
+/* ── FILTER CHIPS ── */
+.chips{display:flex;gap:6px;margin-bottom:12px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none;}
+.chips::-webkit-scrollbar{display:none;}
+.chip{
+  padding:5px 13px;border-radius:20px;border:1.5px solid var(--border);
+  background:var(--surface);font-size:12px;font-weight:600;
+  cursor:pointer;color:var(--muted);white-space:nowrap;
+  font-family:inherit;transition:all .15s;
+  -webkit-tap-highlight-color:transparent;
+  flex-shrink:0;
+}
+.chip.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+.chip.c-delivered.active{background:var(--delivered);border-color:var(--delivered);}
+.chip.c-returned.active{background:var(--returned);border-color:var(--returned);}
+
+/* ── UPLOAD ZONE ── */
+.upload-zone{
+  border:2px dashed var(--border);border-radius:14px;
+  padding:36px 20px;text-align:center;
+  background:var(--surface);cursor:pointer;
+  transition:all .2s;margin-bottom:16px;
+  -webkit-tap-highlight-color:transparent;
+}
+.upload-zone.drag,.upload-zone:active{border-color:var(--accent);background:#f0f5ff;}
+.uz-icon{font-size:44px;margin-bottom:10px;}
+.uz-title{font-size:16px;font-weight:700;margin-bottom:6px;}
+.uz-sub{font-size:12px;color:var(--muted);line-height:1.7;}
+.type-tags{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:14px;}
+.tt{background:var(--bg);border:1px solid var(--border);border-radius:20px;padding:3px 10px;font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--muted);}
+#fileInput{display:none;}
+
+/* progress */
+.prog-wrap{background:var(--border);border-radius:99px;height:5px;margin:10px 0;overflow:hidden;display:none;}
+.prog-bar{background:var(--accent);height:100%;border-radius:99px;transition:width .3s;}
+.upload-status{font-size:12px;color:var(--muted);text-align:center;min-height:18px;}
+
+/* preview card */
+.prev-card{background:var(--surface);border-radius:var(--r);border:1px solid var(--border);box-shadow:var(--sh);overflow:hidden;margin-bottom:10px;}
+.prev-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.prev-ship{font-size:14px;font-weight:700;flex:1;}
+.prev-meta{padding:10px 14px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:12px;}
+.pm-label{font-size:10px;color:var(--muted);display:block;margin-bottom:2px;}
+.prev-table{width:100%;border-collapse:collapse;font-size:12px;}
+.prev-table th{background:var(--bg);padding:6px 10px;text-align:left;color:var(--muted);font-weight:700;font-size:10px;text-transform:uppercase;}
+.prev-table td{padding:8px 10px;border-top:1px solid var(--border);}
+.prev-table .total-row td{background:var(--navy);color:#fff;font-weight:700;}
+.prev-actions{padding:12px 14px;display:flex;gap:8px;}
+
+/* ── FORM ── */
+.form-card{background:var(--surface);border-radius:var(--r);border:1px solid var(--border);box-shadow:var(--sh);padding:16px;margin-bottom:16px;}
+.fg{display:flex;flex-direction:column;gap:5px;margin-bottom:14px;}
+.fl{font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);}
+.fi,.fs{
+  padding:11px 12px;border:1.5px solid var(--border);border-radius:8px;
+  font-size:15px;font-family:inherit;color:var(--text);background:#fff;outline:none;
+  transition:border .15s;width:100%;
+  -webkit-appearance:none;appearance:none;
+}
+.fi:focus,.fs:focus{border-color:var(--accent);}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+
+/* item row */
+.item-row{background:var(--bg);border-radius:8px;padding:10px;margin-bottom:8px;}
+.ir-top{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin-bottom:8px;}
+.ir-bot{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+.item-sublabel{font-size:10px;color:var(--muted);margin-bottom:3px;display:block;}
+.rm-btn{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:4px 8px;border-radius:6px;-webkit-tap-highlight-color:transparent;}
+.rm-btn:active{background:#fee2e2;color:var(--danger);}
+.add-row-btn{
+  width:100%;padding:10px;border:1.5px dashed var(--border);border-radius:8px;
+  background:none;font-size:13px;color:var(--muted);cursor:pointer;
+  font-family:inherit;transition:all .15s;margin-bottom:14px;
+  -webkit-tap-highlight-color:transparent;
+}
+.add-row-btn:active{border-color:var(--accent);color:var(--accent);}
+
+/* ── BUTTONS ── */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  padding:12px 20px;border-radius:10px;border:none;
+  font-size:14px;font-weight:700;font-family:inherit;cursor:pointer;
+  transition:all .15s;-webkit-tap-highlight-color:transparent;
+}
+.btn-block{width:100%;}
+.btn-p{background:var(--accent);color:#fff;}
+.btn-p:active{background:var(--navy-mid);}
+.btn-g{background:var(--bg);color:var(--text);border:1px solid var(--border);}
+.btn-g:active{background:var(--border);}
+.btn-d{background:#fee2e2;color:var(--danger);}
+.btn-d:active{background:var(--danger);color:#fff;}
+.btn-success{background:#dcfce7;color:#15803d;}
+.btn-success:active{background:var(--success);color:#fff;}
+.btn-warn{background:#fef3c7;color:#92400e;}
+.btn-warn:active{background:var(--warn);color:#fff;}
+.btn-sm{padding:6px 12px;font-size:12px;border-radius:7px;}
+
+/* ── MODAL ── */
+.modal-ov{
+  position:fixed;inset:0;background:rgba(10,20,45,.55);
+  z-index:300;display:none;align-items:flex-end;justify-content:center;
+  padding:0;
+}
+.modal-ov.open{display:flex;}
+.modal{
+  background:#fff;border-radius:20px 20px 0 0;
+  width:100%;max-height:90vh;overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  box-shadow:0 -8px 40px rgba(0,0,0,.18);
+  padding-bottom:env(safe-area-inset-bottom,16px);
+}
+.modal-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:12px auto 0;}
+.modal-head{padding:16px 20px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:#fff;z-index:1;}
+.modal-title{font-size:17px;font-weight:700;margin-bottom:3px;}
+.modal-doc{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
+.modal-body{padding:16px 20px 24px;}
+.info-row{display:grid;grid-template-columns:1fr 1fr;gap:10px 20px;margin-bottom:16px;}
+.ir-lbl{font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;display:block;margin-bottom:2px;}
+.ir-val{font-size:14px;font-weight:500;}
+.items-tbl{width:100%;border-collapse:collapse;font-size:12px;}
+.items-tbl th{background:var(--bg);padding:7px 8px;text-align:left;color:var(--muted);font-weight:700;font-size:10px;text-transform:uppercase;border-bottom:1px solid var(--border);}
+.items-tbl td{padding:9px 8px;border-top:1px solid var(--border);}
+.items-tbl .tr{background:var(--navy);color:#fff;font-weight:700;}
+.items-tbl .tr td{border-top:none;}
+
+/* 납품/반품 액션 버튼 그룹 */
+.delivery-actions{
+  display:grid;grid-template-columns:1fr 1fr;gap:8px;
+  margin-top:16px;
+}
+.da-full{grid-column:1/-1;}
+
+/* 납품 현황 인라인 블록 */
+.delivery-block{
+  background:var(--bg);border-radius:10px;
+  padding:14px;margin:16px 0 0;
+}
+.db-title{font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--muted);margin-bottom:10px;}
+.db-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+.db-row:last-child{margin-bottom:0;}
+.db-label{font-size:13px;color:var(--text);}
+.db-val{font-size:13px;font-weight:700;font-family:'JetBrains Mono',monospace;}
+.db-val.plus{color:var(--delivered);}
+.db-val.minus{color:var(--returned);}
+.db-val.net{color:var(--navy);font-size:15px;}
+.db-divider{height:1px;background:var(--border);margin:8px 0;}
+
+/* divider */
+.sdiv{
+  font-size:10px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
+  color:var(--muted);margin:16px 0 10px;
+  display:flex;align-items:center;gap:8px;
+}
+.sdiv::after{content:'';flex:1;height:1px;background:var(--border);}
+
+/* toast */
+.toast{
+  position:fixed;bottom:calc(var(--nav-h) + 12px);left:50%;transform:translateX(-50%) translateY(8px);
+  background:var(--navy);color:#fff;padding:10px 20px;
+  border-radius:10px;font-size:13px;font-weight:500;
+  box-shadow:0 4px 20px rgba(0,0,0,.22);z-index:400;
+  opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;white-space:nowrap;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* empty */
+.empty{text-align:center;padding:48px 20px;color:var(--muted);}
+.empty-icon{font-size:44px;margin-bottom:10px;}
+.empty-t{font-size:16px;font-weight:600;color:var(--text);margin-bottom:6px;}
+
+/* section-divider in views */
+.view-divider{
+  background:var(--surface);border-radius:var(--r);
+  border:1px solid var(--border);
+  padding:10px 14px;margin-bottom:10px;
+  font-size:13px;font-weight:600;
+  box-shadow:var(--sh);
+  display:flex;align-items:center;justify-content:space-between;
+}
+
+/* 날짜 필터 */
+.date-filter{
+  display:flex;gap:8px;align-items:center;
+  background:var(--surface);border-radius:var(--r);
+  border:1px solid var(--border);
+  padding:10px 14px;margin-bottom:12px;
+  box-shadow:var(--sh);
+}
+.date-filter input{
+  border:1.5px solid var(--border);border-radius:8px;
+  font-size:12px;font-family:inherit;color:var(--text);
+  background:#fff;outline:none;padding:6px 8px;flex:1;
+  -webkit-appearance:none;
+}
+.date-filter input:focus{border-color:var(--accent);}
+.date-sep{font-size:11px;color:var(--muted);}
+.date-clear{font-size:11px;color:var(--accent);cursor:pointer;white-space:nowrap;font-weight:600;background:none;border:none;font-family:inherit;padding:0;}
+
+/* 태블릿/데스크탑 - 넓은 화면 자동 비율 */
+@media(min-width:700px){
+  .stat-grid{grid-template-columns:repeat(4,1fr);}
+  .modal-ov{align-items:center;padding:20px;}
+  .modal{border-radius:16px;max-width:640px;width:100%;}
+  .modal-handle{display:none;}
+  .row2{grid-template-columns:1fr 1fr;}
+  .fi{font-size:14px;} .fs{font-size:14px;}
+  .view{padding:20px 24px calc(var(--nav-h) + 20px);}
+  .ds-grid{grid-template-columns:repeat(3,1fr);}
+  :root{--top-h:60px;--nav-h:60px;}
+  .tab .ti{font-size:22px;}
+  .tab{font-size:11px;}
+  .pt{font-size:22px;}
+}
+/* ── 일별 납품 접기 ── */
+.day-orders { transition: max-height .25s ease, opacity .25s ease; max-height: 2000px; opacity: 1; overflow: hidden; }
+.day-orders.collapsed { max-height: 0; opacity: 0; }
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.12</span></div>
+  <div class="topbar-stats">
+    총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
+  </div>
+</div>
+
+<!-- SWIPE TRACK -->
+<div class="swipe-root" id="swipeRoot">
+  <div class="swipe-track" id="swipeTrack">
+
+    <!-- ── VIEW 0: DASHBOARD ── -->
+    <div class="view" id="v0">
+      <div class="ph">
+        <div><div class="pt">대시보드</div><div class="ps">전체 발주 현황</div></div>
+        <button class="btn btn-g btn-sm" onclick="exportExcel()">📥 엑셀</button>
+      </div>
+
+      <!-- 납품 현황 요약 -->
+      <div class="delivery-summary">
+        <div class="ds-title">납품 현황</div>
+        <div class="ds-grid">
+          <div class="ds-item">
+            <div class="ds-val c-delivered" id="ds-delivered-cnt">0</div>
+            <div class="ds-lbl">납품완료</div>
+            <div class="ds-amount" id="ds-delivered-amt">₩0</div>
+          </div>
+          <div class="ds-item">
+            <div class="ds-val c-returned" id="ds-returned-cnt">0</div>
+            <div class="ds-lbl">반품처리</div>
+            <div class="ds-amount" id="ds-returned-amt">₩0</div>
+          </div>
+          <div class="ds-item">
+            <div class="ds-val c-pending" id="ds-pending-cnt">0</div>
+            <div class="ds-lbl">미납품</div>
+            <div class="ds-amount" id="ds-pending-amt">₩0</div>
+          </div>
+        </div>
+        <div class="ds-net">
+          <div class="ds-net-lbl">실 납품금액 (납품 - 반품)</div>
+          <div class="ds-net-val" id="ds-net-amt">₩0</div>
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat-card"><div class="sc-label">납품 건수</div><div class="sc-val accent" id="s-cnt">0</div><div class="sc-sub">건</div></div>
+        <div class="stat-card"><div class="sc-label">납품 총금액</div><div class="sc-val sm success" id="s-tot">₩0</div><div class="sc-sub">실납품 기준</div></div>
+        <div class="stat-card"><div class="sc-label">선명 수</div><div class="sc-val gold" id="s-ships">0</div><div class="sc-sub">척</div></div>
+        <div class="stat-card"><div class="sc-label">납품 박스</div><div class="sc-val accent" id="s-boxes">0박스</div><div class="sc-sub">납품완료 기준</div></div>
+      </div>
+      <div class="sdiv">최근 발주 내역</div>
+      <div id="dash-list"></div>
+
+      <!-- Firebase 백업 -->
+      <div class="sdiv" style="margin-top:16px;">☁️ Firebase 백업</div>
+      <div class="form-card" style="padding:13px 14px;">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">발주 데이터를 Firebase에 백업하거나 복원합니다</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-p btn-sm" onclick="fbBackup()" style="flex:1;padding:9px 0;">☁️ 백업</button>
+          <button class="btn btn-g btn-sm" onclick="fbRestore()" style="flex:1;padding:9px 0;">📥 복원</button>
+        </div>
+        <div id="fb-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;"></div>
+      </div>
+    </div>
+
+    <!-- ── VIEW 1: ORDERS ── -->
+    <div class="view" id="v1">
+      <div class="ph">
+        <div><div class="pt">발주 목록</div><div class="ps" id="o-sub">전체 0건</div></div>
+        <button class="btn btn-g btn-sm" onclick="resetOrders()">초기화</button>
+      </div>
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input class="search-input" id="searchInput" placeholder="선명, 서류번호 검색..." oninput="searchOrders(this.value)" />
+      </div>
+      <!-- 날짜 필터 -->
+      <div class="date-filter">
+        <input type="date" id="fDateFrom" onchange="renderAll()" placeholder="시작일"/>
+        <span class="date-sep">~</span>
+        <input type="date" id="fDateTo" onchange="renderAll()" placeholder="종료일"/>
+        <button class="date-clear" onclick="clearDateFilter()">✕</button>
+      </div>
+      <!-- 구분 칩 -->
+      <div class="chips" id="cat-chips">
+        <button class="chip active" onclick="filterOrders('all',this)">전체</button>
+        <button class="chip" onclick="filterOrders('cruise',this)">크루즈</button>
+        <button class="chip" onclick="filterOrders('cargo',this)">카고</button>
+
+      </div>
+      <!-- 납품 상태 칩 -->
+      <div class="chips" id="status-chips">
+        <button class="chip active" onclick="filterStatus('all',this)">전체 상태</button>
+        <button class="chip c-delivered" onclick="filterStatus('delivered',this)">납품완료</button>
+        <button class="chip c-returned" onclick="filterStatus('returned',this)">반품</button>
+        <button class="chip" onclick="filterStatus('pending',this)">미납품</button>
+      </div>
+      <div id="orders-list"></div>
+    </div>
+
+    <!-- ── VIEW 2: UPLOAD ── -->
+    <div class="view" id="v2">
+      <div class="ph"><div><div class="pt">업로드</div><div class="ps">발주서 등록 · 납품 자동 확인</div></div></div>
+
+      <!-- 납품 리스트 사진 업로드 섹션 -->
+      <div class="form-card" style="margin-bottom:14px;border-left:3px solid var(--success);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <span style="font-size:13px;font-weight:700;color:var(--success);">📷 납품 리스트 사진으로 자동 확인</span>
+          <span style="font-size:10px;color:var(--muted);">AI 매칭</span>
+        </div>
+        <div class="upload-zone" id="deliveryZone" style="padding:24px 16px;margin-bottom:8px;"
+          onclick="document.getElementById('deliveryInput').click()"
+          ondragover="onDragDelivery(event,true)" ondragleave="onDragDelivery(event,false)" ondrop="onDropDelivery(event)">
+          <div class="uz-icon" style="font-size:32px;">🚚</div>
+          <div class="uz-title" style="font-size:14px;">납품 확인서 / 납품 리스트 사진</div>
+          <div class="uz-sub" style="font-size:11px;">사진을 업로드하면 AI가 발주목록과 자동 매칭하여<br>납품완료 처리합니다</div>
+        </div>
+        <input type="file" id="deliveryInput" multiple accept=".jpg,.jpeg,.png,.webp,.pdf" style="display:none;" onchange="handleDeliveryFiles(this.files)"/>
+        <div class="prog-wrap" id="delProgWrap"><div class="prog-bar" id="delProgBar" style="width:0%;background:var(--success);"></div></div>
+        <div class="upload-status" id="delStatus"></div>
+        <div id="del-result-section" style="display:none;margin-top:12px;"></div>
+      </div>
+
+      <div class="sdiv" style="margin-top:4px;">발주서 등록</div>
+      <div class="form-card" id="apiKeyCard" style="margin-bottom:14px;padding:13px 14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <span style="font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.4px;text-transform:uppercase;">Google AI Studio API Keys</span>
+          <a href="https://aistudio.google.com/apikey" target="_blank" style="font-size:11px;color:var(--accent);text-decoration:none;">발급 →</a>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">막히면 자동으로 다음 키로 교체 · 최대 4개</div>
+
+        <div style="display:flex;gap:6px;margin-bottom:7px;align-items:center;">
+          <span style="font-size:11px;font-weight:700;color:var(--navy);width:14px;flex-shrink:0;">1</span>
+          <input class="fi" id="geminiKey1" type="password" placeholder="API Key 1 (필수)"
+            style="font-size:12px;padding:8px 10px;flex:1;" autocomplete="off"/>
+          <button class="btn btn-g btn-sm" onclick="toggleKeyVis(1)" style="flex-shrink:0;padding:0 10px;font-size:12px;">👁</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:7px;align-items:center;">
+          <span style="font-size:11px;font-weight:700;color:var(--navy);width:14px;flex-shrink:0;">2</span>
+          <input class="fi" id="geminiKey2" type="password" placeholder="API Key 2 (선택)"
+            style="font-size:12px;padding:8px 10px;flex:1;" autocomplete="off"/>
+          <button class="btn btn-g btn-sm" onclick="toggleKeyVis(2)" style="flex-shrink:0;padding:0 10px;font-size:12px;">👁</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:7px;align-items:center;">
+          <span style="font-size:11px;font-weight:700;color:var(--navy);width:14px;flex-shrink:0;">3</span>
+          <input class="fi" id="geminiKey3" type="password" placeholder="API Key 3 (선택)"
+            style="font-size:12px;padding:8px 10px;flex:1;" autocomplete="off"/>
+          <button class="btn btn-g btn-sm" onclick="toggleKeyVis(3)" style="flex-shrink:0;padding:0 10px;font-size:12px;">👁</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:7px;align-items:center;">
+          <span style="font-size:11px;font-weight:700;color:var(--navy);width:14px;flex-shrink:0;">4</span>
+          <input class="fi" id="geminiKey4" type="password" placeholder="API Key 4 (선택)"
+            style="font-size:12px;padding:8px 10px;flex:1;" autocomplete="off"/>
+          <button class="btn btn-g btn-sm" onclick="toggleKeyVis(4)" style="flex-shrink:0;padding:0 10px;font-size:12px;">👁</button>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:10px;">
+          <button class="btn btn-p btn-sm" onclick="saveGeminiKeys()" style="flex:1;padding:8px 0;">저장</button>
+          <button class="btn btn-g btn-sm" onclick="resetGeminiKeys()" style="flex:1;padding:8px 0;">초기화</button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;">Google AI Studio · 기기에만 저장 · 무료</div>
+      </div>
+      <div class="upload-zone" id="uploadZone"
+        onclick="document.getElementById('fileInput').click()"
+        ondragover="onDrag(event,true)" ondragleave="onDrag(event,false)" ondrop="onDrop(event)">
+        <div class="uz-icon">📂</div>
+        <div class="uz-title">파일 선택 또는 드래그</div>
+        <div class="uz-sub">PDF 발주서, 이미지 스캔, ZIP 압축파일<br>AI가 날짜·선명·수량·단가·총액 자동 추출</div>
+        <div class="type-tags">
+          <span class="tt">.pdf</span><span class="tt">.jpg .png</span><span class="tt">.zip</span>
+        </div>
+      </div>
+      <div class="prog-wrap" id="progWrap"><div class="prog-bar" id="progBar" style="width:0%"></div></div>
+      <div class="upload-status" id="upStatus"></div>
+      <input type="file" id="fileInput" multiple accept=".pdf,.jpg,.jpeg,.png,.zip,.webp" onchange="handleFiles(this.files)"/>
+      <div id="prev-section" style="display:none;margin-top:16px;">
+        <div class="sdiv">분석 결과 확인</div>
+        <div id="prev-cards"></div>
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <button class="btn btn-p" style="flex:1;" onclick="saveAll()">✅ 전체 저장</button>
+          <button class="btn btn-g" onclick="clearPrev()">취소</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── VIEW 3: 납품현황 ── -->
+    <div class="view" id="v3">
+      <div class="ph"><div><div class="pt">납품현황</div><div class="ps">날짜별 납품 선명 · 박스 · 금액</div></div></div>
+      <div id="delivery-status-content"></div>
+    </div>
+
+    <!-- ── VIEW 4: STATS ── -->
+    <div class="view" id="v4">
+      <div class="ph"><div><div class="pt">통계</div><div class="ps">납품·반품 상세 현황</div></div></div>
+      <div id="stats-content"></div>
+    </div>
+
+  </div><!-- /swipe-track -->
+</div><!-- /swipe-root -->
+
+<!-- BOTTOM NAV (4탭) -->
+<nav class="bottomnav">
+  <div class="tab-ink" id="tabInk" style="width:25%"></div>
+  <button class="tab active" onclick="goTo(0)"><span class="ti">📊</span>대시보드</button>
+  <button class="tab" onclick="goTo(1)"><span class="ti">📋</span>발주목록</button>
+  <button class="tab" onclick="goTo(2)"><span class="ti">📤</span>업로드</button>
+  <button class="tab" onclick="goTo(3)"><span class="ti">🚢</span>납품현황</button>
+  <button class="tab" onclick="goTo(4)"><span class="ti">📈</span>통계</button>
+</nav>
+
+<!-- MODAL -->
+<div class="modal-ov" id="modalOv" onclick="closeModal(event)">
+  <div class="modal" id="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-head">
+      <div class="modal-title" id="m-title">-</div>
+      <div class="modal-doc" id="m-docid">-</div>
+    </div>
+    <div class="modal-body" id="m-body"></div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- JS 모듈 (로드 순서 중요) -->
+<script src="js/storage.js"></script>
+<script src="js/helpers.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/modal.js"></script>
+<script src="js/gemini.js"></script>
+<script src="js/analyzer.js"></script>
+<script src="js/delivery.js"></script>
+<script src="js/manual.js"></script>
+<!-- Firebase -->
+<script src="js/firebase.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
