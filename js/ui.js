@@ -192,8 +192,8 @@ function renderStats() {
       <div class="form-card" style="padding:0;overflow:hidden;margin-bottom:10px;">
         <!-- 날짜 헤더 -->
         <div style="display:flex;align-items:center;justify-content:space-between;
-                    padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border);"
-             onclick="this.nextElementSibling.classList.toggle('collapsed')" style="cursor:pointer;">
+                    padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border);cursor:pointer;"
+             onclick="this.nextElementSibling.classList.toggle('collapsed')">
           <div>
             <span style="font-size:13px;font-weight:700;color:var(--navy);">📅 ${fmtDate(day.date)}</span>
             <span style="font-size:11px;color:var(--muted);margin-left:8px;">${day.cnt}건 · ${formatBoxCount(day.boxes)}</span>

@@ -1,36 +1,61 @@
 // ══════════════════════════════════════════════════════
 // firebase.js — Firebase Realtime DB 백업/복원
 // ══════════════════════════════════════════════════════
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getDatabase, ref, set, get } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+
+// Firebase SDK (ESM → CDN global 방식으로 변경, module 충돌 방지)
+const FB_APP_URL = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+const FB_DB_URL  = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBdRMVcJWMoSA2cSbry90YVRYiKwPEg5WU",
-  authDomain: "baljoo.firebaseapp.com",
-  databaseURL: "https://baljoo-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "baljoo",
-  storageBucket: "baljoo.firebasestorage.app",
+  apiKey:            "AIzaSyBdRMVcJWMoSA2cSbry90YVRYiKwPEg5WU",
+  authDomain:        "baljoo.firebaseapp.com",
+  databaseURL:       "https://baljoo-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:         "baljoo",
+  storageBucket:     "baljoo.firebasestorage.app",
   messagingSenderId: "701062324268",
-  appId: "1:701062324268:web:614e44295dc1a30a597189",
-  measurementId: "G-MENVMYT1H2"
+  appId:             "1:701062324268:web:614e44295dc1a30a597189",
+  measurementId:     "G-MENVMYT1H2"
 };
 
-const app = initializeApp(firebaseConfig);
-const db  = getDatabase(app);
+let _db = null;
+
+// Firebase 지연 초기화 (버튼 클릭 시점에 로드)
+async function getDb() {
+  if (_db) return _db;
+  const { initializeApp } = await import(FB_APP_URL);
+  const { getDatabase }   = await import(FB_DB_URL);
+  const app = initializeApp(firebaseConfig);
+  _db = getDatabase(app);
+  return _db;
+}
 
 function setFbStatus(msg, color = 'var(--muted)') {
   const el = document.getElementById('fb-status');
   if (el) { el.textContent = msg; el.style.color = color; }
 }
 
+// 복원 데이터 하위 호환 처리 (storage.js load()와 동일한 로직)
+function normalizeOrders(arr) {
+  arr.forEach(o => {
+    if (!o.deliveryStatus)           o.deliveryStatus = 'pending';
+    if (o.returnAmount === undefined) o.returnAmount   = 0;
+    if (!o.deliveryNote)             o.deliveryNote    = '';
+    if (o.category === 'return')     o.deliveryStatus  = 'returned';
+  });
+  return arr;
+}
+
 // ── 백업: 로컬 → Firebase ──
 window.fbBackup = async function() {
   try {
     setFbStatus('백업 중...');
+    const { ref, set } = await import(FB_DB_URL);
+    const db   = await getDb();
     const data = {
       orders,
       backedAt: new Date().toISOString(),
-      count: orders.length
+      count:    orders.length,
+      version:  '3.2.12'
     };
     await set(ref(db, 'baljoo/backup'), data);
     setFbStatus(`✅ 백업 완료 — ${orders.length}건 (${new Date().toLocaleString('ko-KR')})`, 'var(--success)');
@@ -47,6 +72,8 @@ window.fbRestore = async function() {
   if (!confirm('Firebase에서 데이터를 복원할까요?\n현재 데이터는 백업 데이터로 교체됩니다.')) return;
   try {
     setFbStatus('복원 중...');
+    const { ref, get } = await import(FB_DB_URL);
+    const db   = await getDb();
     const snap = await get(ref(db, 'baljoo/backup'));
     if (!snap.exists()) {
       setFbStatus('⚠️ 백업 데이터가 없습니다', '#d69e2e');
@@ -57,7 +84,8 @@ window.fbRestore = async function() {
       setFbStatus('⚠️ 유효하지 않은 백업 데이터', '#d69e2e');
       return;
     }
-    orders = data.orders;
+    // 하위 호환 필드 정규화 후 저장
+    orders = normalizeOrders(data.orders);
     save();
     renderAll();
     const backedAt = data.backedAt ? new Date(data.backedAt).toLocaleString('ko-KR') : '알 수 없음';

@@ -2,9 +2,9 @@
 // gemini.js  —  Google AI Studio 직접 호출 유틸
 // ══════════════════════════════════════════════════════
 
-const GEMINI_MODEL    = 'gemini-3.5-flash';       // 주 모델 (현재 최신 GA)
-const GEMINI_MODEL_F2 = 'gemini-2.5-flash';       // 1차 폴백 (오늘부로 deprecated)
-const GEMINI_MODEL_FB = 'gemini-3.1-flash-lite';  // 최종 폴백 (가장 안정적·저비용)
+const GEMINI_MODEL    = 'gemini-2.5-flash';        // 주 모델 (현재 최신 GA)
+const GEMINI_MODEL_F2 = 'gemini-2.0-flash';        // 1차 폴백
+const GEMINI_MODEL_FB = 'gemini-1.5-flash';        // 최종 폴백 (가장 안정적·저비용)
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // ── Gemini API 직접 호출 (이미지+텍스트 멀티모달) ──
@@ -41,22 +41,38 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
     if (_keyRetry < keys.length - 1) {
       rotateGeminiKey();
       console.warn(`[Gemini] 키 ${_keyRetry + 2}로 교체 후 재시도`);
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 2000));
       return callGemini(parts, maxTokens, model, _retry, _keyRetry + 1);
     }
-    // 모든 키 실패 → 모델 폴백
-    if (model === GEMINI_MODEL)  return callGemini(parts, maxTokens, GEMINI_MODEL_F2, 0, 0);
+    // 모든 키 순환 완료 → 6초 대기 후 키1로 재시도
+    if (_retry < 1) {
+      _keyIndex = 0;
+      console.warn('[Gemini] 모든 키 순환 완료 → 6초 대기 후 키1로 재시도');
+      await new Promise(r => setTimeout(r, 6000));
+      return callGemini(parts, maxTokens, model, _retry + 1, 0);
+    }
+    // 모델 폴백
+    if (model === GEMINI_MODEL)    return callGemini(parts, maxTokens, GEMINI_MODEL_F2, 0, 0);
     if (model === GEMINI_MODEL_F2) return callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0);
     throw new Error('네트워크 오류 — 인터넷 연결을 확인하거나 잠시 후 다시 시도해주세요.');
   }
 
   // 429(한도초과) / 503(과부하) → 다음 키로 교체 후 재시도
-  if ((resp.status === 429 || resp.status === 503) && _keyRetry < getGeminiKeys().length - 1) {
-    const rotated = rotateGeminiKey();
-    if (rotated) {
-      console.warn(`[Gemini] ${resp.status} → 다음 키로 교체 후 재시도 (${_keyRetry + 1}회)`);
-      await new Promise(r => setTimeout(r, 1000));
+  if (resp.status === 429 || resp.status === 503) {
+    const keys = getGeminiKeys();
+    if (_keyRetry < keys.length - 1) {
+      rotateGeminiKey();
+      console.warn(`[Gemini] ${resp.status} → 키 ${_keyIndex + 1}로 교체 후 재시도 (${_keyRetry + 1}회)`);
+      await new Promise(r => setTimeout(r, 2000));
       return callGemini(parts, maxTokens, model, _retry, _keyRetry + 1);
+    }
+    // 모든 키 429/503 → 분당 한도 리셋 대기 후 키1로 재시도
+    if (_retry < 2) {
+      _keyIndex = 0;
+      const delay = (2 ** _retry) * 6000; // 6초, 12초
+      console.warn(`[Gemini] 모든 키 ${resp.status} → ${delay/1000}초 대기 후 키1로 재시도 (${_retry + 1}/2)`);
+      await new Promise(r => setTimeout(r, delay));
+      return callGemini(parts, maxTokens, model, _retry + 1, 0);
     }
   }
 

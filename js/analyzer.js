@@ -42,18 +42,23 @@ async function handleFiles(files) {
     }
   }
 
+  const failedFiles = [];
   for (let i = 0; i < all.length; i++) {
     setProgress(Math.round(((i + 0.5) / all.length) * 100));
     setStatus(`분석 중 ${i + 1}/${all.length}: ${all[i].name} (서버 혼잡 시 자동 재시도)`);
     try { await analyzeFile(all[i]); }
-    catch(e) { setProgress(100); return; }
+    catch(e) {
+      console.warn('[handleFiles] 파일 실패, 다음 파일로 계속:', all[i].name, e.message);
+      failedFiles.push(all[i].name);
+    }
   }
 
   setProgress(100);
   if (pendingOrders.length > 0) {
     renderPreview();
     document.getElementById('prev-section').style.display = 'block';
-    setStatus(`✅ ${pendingOrders.length}건 분석 완료. 확인 후 저장하세요.`);
+    const failMsg = failedFiles.length ? ` (실패 ${failedFiles.length}건: ${failedFiles.join(', ')})` : '';
+    setStatus(`✅ ${pendingOrders.length}건 분석 완료. 확인 후 저장하세요.${failMsg}`);
   } else {
     setStatus('❌ 발주서 데이터를 찾지 못했습니다. API 키와 파일 형식을 확인하세요.');
   }
@@ -238,7 +243,8 @@ function saveAll() {
   clearPrev();
   const msg = [added ? `✅ ${added}건 신규 추가` : '', updated ? `🔄 ${updated}건 업데이트` : ''].filter(Boolean).join(' · ');
   toast(msg || '저장 완료');
-  setTimeout(() => goTo(1), 700);
+  renderAll();
+  setStatus('✅ 저장 완료. 다음 발주서를 등록해주세요.');
 }
 
 function clearPrev() {
@@ -246,6 +252,8 @@ function clearPrev() {
   document.getElementById('prev-section').style.display = 'none';
   document.getElementById('progWrap').style.display     = 'none';
   setStatus('');
+  const input = document.getElementById('fileInput');
+  if (input) input.value = '';  // 같은 파일 재선택 가능하도록 초기화
 }
 
 function setProgress(p) { document.getElementById('progBar').style.width = p + '%'; }

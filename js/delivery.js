@@ -13,6 +13,7 @@ function onDropDelivery(e) {
 }
 
 function setDelStatus(m)   { document.getElementById('delStatus').textContent = m; }
+function escAttr(s) { return String(s).replace(/"/g, '&quot;'); }
 function setDelProgress(p) { document.getElementById('delProgBar').style.width = p + '%'; }
 
 async function handleDeliveryFiles(files) {
@@ -41,7 +42,8 @@ async function handleDeliveryFiles(files) {
 
     const orderSummary = orders
       .filter(o => o.deliveryStatus !== 'delivered')
-      .slice(0, 40)
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))  // 최근 날짜 우선
+      .slice(0, 60)  // 40 → 60건으로 확대
       .map(o => `${o.id}|${o.ship}|${o.docNo||''}|${o.poNo||''}|${o.date||''}`)
       .join('\n');
 
@@ -57,7 +59,7 @@ ${orderSummary}
     parts.unshift(textPart(prompt));
     setDelProgress(70);
 
-    let txt = await callGemini(parts, 3000);
+    let txt = await callGemini(parts, 4000);
 
     // 1단계: 코드블록 제거 (```json ... ``` 또는 ``` ... ```)
     txt = txt.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
@@ -72,15 +74,30 @@ ${orderSummary}
     try {
       result = JSON.parse(txt);
     } catch (parseErr) {
-      console.warn('[delivery] JSON 파싱 실패:', parseErr.message, '\n원본:', txt);
-      // 파싱 실패 시 summary만 표시
-      result = { matched: [], summary: `AI 응답 파싱 오류 — 다시 시도해주세요. (${parseErr.message})` };
+      console.warn('[delivery] JSON 파싱 실패, 복구 시도:', parseErr.message, '\n원본:', txt);
+      // JSON 잘린 경우 복구 시도
+      try {
+        let fixed = txt.replace(/,\s*$/, '');  // 끝 쉼표 제거
+        const opens = (fixed.match(/\[/g)||[]).length - (fixed.match(/\]/g)||[]).length;
+        const openb = (fixed.match(/\{/g)||[]).length - (fixed.match(/\}/g)||[]).length;
+        // 마지막 불완전한 객체 제거 (쉼표+불완전 객체로 끝나는 경우)
+        fixed = fixed.replace(/,\s*\{[^}]*$/, '');
+        for (let i = 0; i < opens; i++) fixed += ']';
+        for (let i = 0; i < openb; i++) fixed += '}';
+        result = JSON.parse(fixed);
+        console.warn('[delivery] JSON 복구 성공, matched:', result.matched?.length);
+      } catch (e2) {
+        console.warn('[delivery] JSON 복구도 실패:', e2.message);
+        result = { matched: [], summary: `AI 응답 파싱 오류 — 다시 시도해주세요. (${parseErr.message})` };
+      }
     }
 
     setDelProgress(90);
     renderDeliveryResult(result);
     setDelProgress(100);
     setDelStatus(`✅ 분석 완료 — ${result.matched?.length || 0}건 매칭됨`);
+    const delInput = document.getElementById('deliveryInput');
+    if (delInput) delInput.value = '';  // 같은 파일 재선택 가능하도록 초기화
 
   } catch(err) {
     console.error('[delivery] 오류:', err);
@@ -91,11 +108,14 @@ ${orderSummary}
   }
 }
 
+let _lastMatchedIds = [];  // onclick 속성 따옴표 충돌 방지용 보관소
+
 function renderDeliveryResult(result) {
   const matched   = result.matched   || [];
   const unmatched = result.unmatched || [];
   const sec       = document.getElementById('del-result-section');
   sec.style.display = 'block';
+  _lastMatchedIds = matched.map(m => m.id);
 
   const matchedOrders = matched.map(m => {
     const order = orders.find(o => o.id === m.id);
@@ -118,14 +138,14 @@ function renderDeliveryResult(result) {
           <div style="padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;">
             <div style="font-size:12px;color:var(--muted);">${m.order.docNo || '-'} · ${m.order.date} · ${fmt(m.order.total)}</div>
             ${m.order.deliveryStatus !== 'delivered' ? `
-              <button class="btn btn-success btn-sm" onclick="confirmDeliveryFromPhoto('${m.order.id}')">✅ 납품완료 처리</button>
+              <button class="btn btn-success btn-sm" data-confirm-id="${escAttr(m.order.id)}" onclick="confirmDeliveryFromPhoto(this.dataset.confirmId)">✅ 납품완료 처리</button>
             ` : `<span style="font-size:11px;color:var(--success);font-weight:700;">납품완료</span>`}
           </div>
         </div>
       `).join('')}
       ${matchedOrders.some(m => m.order.deliveryStatus !== 'delivered') ? `
         <button class="btn btn-success btn-block" style="margin-top:4px;"
-          onclick="confirmAllDelivery(${JSON.stringify(matched.map(m => m.id))})">
+          onclick="confirmAllDelivery(_lastMatchedIds)">
           ✅ 매칭된 전체 납품완료 처리
         </button>
       ` : ''}
@@ -144,10 +164,11 @@ function confirmDeliveryFromPhoto(id) {
   o.deliveryStatus = 'delivered';
   o.deliveryNote   = (o.deliveryNote ? o.deliveryNote + ' ' : '') + '[납품사진 자동확인]';
   save(); renderAll();
-  document.querySelectorAll(`button[onclick="confirmDeliveryFromPhoto('${id}')"]`).forEach(btn => {
+  document.querySelectorAll(`button[data-confirm-id="${CSS.escape(id)}"]`).forEach(btn => {
     btn.textContent = '✅ 납품완료'; btn.disabled = true; btn.style.opacity = '0.6';
   });
   toast(`✅ ${o.ship} 납품완료 처리됨`);
+  maybeResetDeliveryResult();
 }
 
 function confirmAllDelivery(ids) {
@@ -165,4 +186,24 @@ function confirmAllDelivery(ids) {
     btn.textContent = '✅ 납품완료'; btn.disabled = true; btn.style.opacity = '0.6';
   });
   toast(`✅ ${cnt}건 납품완료 처리됨`);
+  resetDeliveryZone();
+}
+
+// 매칭된 항목이 모두 처리되면 자동으로 업로드 준비 상태로 초기화
+function maybeResetDeliveryResult() {
+  const remaining = document.querySelectorAll('#del-result-section .btn-success:not([disabled])');
+  if (remaining.length === 0) resetDeliveryZone();
+}
+
+// 납품 매칭 영역을 다음 사진 업로드를 위한 초기 상태로 리셋
+function resetDeliveryZone() {
+  setTimeout(() => {
+    document.getElementById('del-result-section').style.display = 'none';
+    document.getElementById('del-result-section').innerHTML     = '';
+    document.getElementById('delProgWrap').style.display        = 'none';
+    setDelStatus('');
+    setDelProgress(0);
+    const delInput = document.getElementById('deliveryInput');
+    if (delInput) delInput.value = '';
+  }, 900);
 }
