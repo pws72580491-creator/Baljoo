@@ -41,6 +41,9 @@ function normalizeOrders(arr) {
     if (o.returnAmount === undefined) o.returnAmount   = 0;
     if (!o.deliveryNote)             o.deliveryNote    = '';
     if (o.category === 'return')     o.deliveryStatus  = 'returned';
+    if (o.deliveredDate === undefined) {
+      o.deliveredDate = (o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial') ? (o.date || '') : '';
+    }
   });
   return arr;
 }
@@ -55,7 +58,7 @@ window.fbBackup = async function() {
       orders,
       backedAt: new Date().toISOString(),
       count:    orders.length,
-      version:  '3.2.12'
+      version:  '3.2.13'
     };
     await set(ref(db, 'baljoo/backup'), data);
     setFbStatus(`✅ 백업 완료 — ${orders.length}건 (${new Date().toLocaleString('ko-KR')})`, 'var(--success)');

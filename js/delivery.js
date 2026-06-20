@@ -52,9 +52,9 @@ async function handleDeliveryFiles(files) {
 발주목록(ID|선명|서류번호|발주번호|날짜):
 ${orderSummary}
 
-이미지의 이른아침 항목과 위 발주목록을 매칭해 아래 JSON만 출력(코드블록 없이):
-{"matched":[{"id":"발주ID","ship":"선명","reason":"근거"}],"summary":"요약"}
-이른아침 항목 없으면: {"matched":[],"summary":"이른아침 항목 없음"}`;
+이미지에서 "이른아침" 항목(선명/척수)을 모두 세고, 위 발주목록과 매칭해 아래 JSON만 출력(코드블록 없이):
+{"totalCount":이미지속이른아침전체항목수(숫자),"matched":[{"id":"발주ID","ship":"선명","reason":"근거"}],"summary":"요약"}
+이른아침 항목 없으면: {"totalCount":0,"matched":[],"summary":"이른아침 항목 없음"}`;
 
     parts.unshift(textPart(prompt));
     setDelProgress(70);
@@ -95,7 +95,9 @@ ${orderSummary}
     setDelProgress(90);
     renderDeliveryResult(result);
     setDelProgress(100);
-    setDelStatus(`✅ 분석 완료 — ${result.matched?.length || 0}건 매칭됨`);
+    const totalCnt = result.totalCount ?? result.matched?.length ?? 0;
+    const matchedCnt = result.matched?.length || 0;
+    setDelStatus(`✅ 분석 완료 — 전체 ${totalCnt}척 중 ${matchedCnt}척 매칭됨`);
     const delInput = document.getElementById('deliveryInput');
     if (delInput) delInput.value = '';  // 같은 파일 재선택 가능하도록 초기화
 
@@ -122,7 +124,13 @@ function renderDeliveryResult(result) {
     return order ? { ...m, order } : null;
   }).filter(Boolean);
 
+  const totalCnt = result.totalCount ?? matched.length;
+
   sec.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:10px 12px;background:${matched.length < totalCnt ? '#fffbeb' : '#f0fdf4'};border-radius:8px;">
+      <span style="font-size:13px;font-weight:700;color:${matched.length < totalCnt ? '#b45309' : 'var(--success)'};">📦 전체 ${totalCnt}척 중 ${matched.length}척 매칭</span>
+      ${matched.length < totalCnt ? `<span style="font-size:11px;color:#b45309;">미매칭 ${totalCnt - matched.length}척</span>` : ''}
+    </div>
     ${result.summary ? `<div style="font-size:12px;color:var(--muted);margin-bottom:10px;padding:8px 10px;background:var(--bg);border-radius:8px;">📋 ${result.summary}</div>` : ''}
     ${matchedOrders.length ? `
       <div class="sdiv" style="margin-top:0;">이른아침 매칭된 발주 (${matchedOrders.length}건)</div>
@@ -163,6 +171,7 @@ function confirmDeliveryFromPhoto(id) {
   if (!o) return;
   o.deliveryStatus = 'delivered';
   o.deliveryNote   = (o.deliveryNote ? o.deliveryNote + ' ' : '') + '[납품사진 자동확인]';
+  o.deliveredDate  = todayStr();
   save(); renderAll();
   document.querySelectorAll(`button[data-confirm-id="${CSS.escape(id)}"]`).forEach(btn => {
     btn.textContent = '✅ 납품완료'; btn.disabled = true; btn.style.opacity = '0.6';
@@ -178,6 +187,7 @@ function confirmAllDelivery(ids) {
     if (o && o.deliveryStatus !== 'delivered') {
       o.deliveryStatus = 'delivered';
       o.deliveryNote   = (o.deliveryNote ? o.deliveryNote + ' ' : '') + '[납품사진 자동확인]';
+      o.deliveredDate  = todayStr();
       cnt++;
     }
   });

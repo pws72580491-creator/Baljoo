@@ -82,7 +82,8 @@ function saveManual() {
     total,
     source:         'manual',
     deliveryStatus: cat === 'return' ? 'returned' : 'pending',
-    returnAmount:   cat === 'return' ? total : 0
+    returnAmount:   cat === 'return' ? total : 0,
+    deliveredDate:  ''
   };
 
   orders.push(o);

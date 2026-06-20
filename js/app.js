@@ -58,7 +58,7 @@ root.addEventListener('touchmove', e => {
   const dx = e.touches[0].clientX - touchStartX;
   const dy = e.touches[0].clientY - touchStartY;
   if (!isDragging && Math.abs(dy) > Math.abs(dx)) return;
-  if (!isDragging && Math.abs(dx) > 8) { isDragging = true; }
+  if (!isDragging && Math.abs(dx) > 12) { isDragging = true; }
   if (!isDragging) return;
   dragX = dx;
   const W     = root.offsetWidth;
@@ -75,9 +75,9 @@ root.addEventListener('touchend', e => {
   track.classList.remove('no-transition');
   const dt        = Date.now() - touchStartTime;
   const velocity  = Math.abs(dragX) / dt;
-  const threshold = root.offsetWidth * 0.3;
-  if      (dragX < -threshold || (velocity > 0.4 && dragX < -20)) goTo(curView + 1);
-  else if (dragX >  threshold || (velocity > 0.4 && dragX >  20)) goTo(curView - 1);
+  const threshold = root.offsetWidth * 0.4;
+  if      (dragX < -threshold || (velocity > 0.6 && dragX < -50)) goTo(curView + 1);
+  else if (dragX >  threshold || (velocity > 0.6 && dragX >  50)) goTo(curView - 1);
   else goTo(curView);
 }, { passive: true });
 
@@ -156,6 +156,63 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW 등록 실패:', e));
   });
 }
+
+// ── Pull-to-Refresh ──
+(function() {
+  const PTR_THRESHOLD = 70;   // 이 거리(px) 이상 당기면 새로고침
+  const PTR_MAX      = 90;    // 인디케이터 최대 높이(px)
+  let ptrStartY = 0, ptrDeltaY = 0, ptrActive = false, ptrTriggered = false;
+
+  const indicator = document.getElementById('ptrIndicator');
+  const spinner   = document.getElementById('ptrSpinner');
+  const ptrText   = document.getElementById('ptrText');
+
+  function setPTRHeight(h) {
+    indicator.style.height = h + 'px';
+    // 화살표 회전: threshold 넘으면 180도
+    const ratio = Math.min(h / PTR_THRESHOLD, 1);
+    spinner.style.transform = `rotate(${ratio * 180}deg)`;
+    ptrText.textContent = h >= PTR_THRESHOLD ? '놓으면 새로고침' : '당겨서 새로고침';
+  }
+
+  document.addEventListener('touchstart', e => {
+    if (curView !== 0) return;  // 대시보드 탭에서만
+    const view0 = document.getElementById('v0');
+    if (view0.scrollTop > 0) return;  // 이미 스크롤된 상태면 무시
+    ptrStartY   = e.touches[0].clientY;
+    ptrDeltaY   = 0;
+    ptrActive   = true;
+    ptrTriggered = false;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', e => {
+    if (!ptrActive) return;
+    ptrDeltaY = e.touches[0].clientY - ptrStartY;
+    if (ptrDeltaY <= 0) { ptrActive = false; setPTRHeight(0); return; }
+    const h = Math.min(ptrDeltaY * 0.6, PTR_MAX);
+    setPTRHeight(h);
+    if (ptrDeltaY >= PTR_THRESHOLD) ptrTriggered = true;
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => {
+    if (!ptrActive) return;
+    ptrActive = false;
+    if (ptrTriggered) {
+      // 새로고침 실행
+      spinner.style.transform = 'rotate(0deg)';
+      ptrText.textContent = '새로고침 중...';
+      indicator.style.height = '48px';
+      indicator.style.transition = 'none';
+      setTimeout(() => {
+        location.reload();
+      }, 400);
+    } else {
+      // 원위치
+      indicator.style.transition = 'height 0.2s ease';
+      setPTRHeight(0);
+    }
+  }, { passive: true });
+})();
 
 // ── 핀치줌 / 더블탭 확대 차단 (터치 전용) ──
 const isTouchOnly = window.matchMedia('(pointer:coarse) and (max-width:699px)').matches;

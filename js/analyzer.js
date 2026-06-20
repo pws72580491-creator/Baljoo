@@ -68,7 +68,12 @@ async function analyzeFile(file) {
   try {
     const prompt = `이 발주서를 분석해 아래 JSON 형식으로만 응답하세요. 코드블록 없이 순수 JSON만 출력:
 {"docNo":"","date":"YYYY-MM-DD","delivery":"YYYY-MM-DD","ship":"","poNo":"","category":"cruise","items":[{"desc":"","code":"","qty":0,"unit":"pcs","price":0,"amount":0}],"total":0}
-규칙: date/delivery=YYYY-MM-DD, category=cruise또는cargo, unit은 pcs/doz/cs/ctn/kg/l/btl 중 하나(박스단위=cs또는ctn, 낱개=pcs, 다스=doz)`;
+규칙: date/delivery=YYYY-MM-DD, category=cruise또는cargo
+unit 선택 기준(중요):
+- 수량 단위가 DOZ·DOZEN·다스 → unit="doz" (절대 cs/ctn으로 쓰지 말것)
+- 수량 단위가 CS·CTN·BOX·CASE·박스 → unit="ctn"
+- 수량 단위가 PCS·EA·낱개 → unit="pcs"
+- 그 외: kg/l/btl 중 해당하는 것`;
 
     const parts = [textPart(prompt)];
     if (file.type === 'application/pdf') {
@@ -114,6 +119,7 @@ async function analyzeFile(file) {
     parsed.category     = parsed.category || 'cargo';
     parsed.deliveryStatus = 'pending';
     parsed.returnAmount = 0;
+    parsed.deliveredDate = '';
     parsed.updatedAt    = Date.now();
     pendingOrders.push(parsed);
 

@@ -130,10 +130,10 @@ function renderStats() {
   const partialAmt   = partial.reduce((s, o) => s + (o.partialAmount || 0), 0);
   const netAmt       = deliveredAmt + partialAmt - returnedAmt;
 
-  // ── 일별 납품 집계 (납품완료 + 부분납품, 날짜 기준) ──
+  // ── 일별 납품 집계 (납품완료 + 부분납품, 실제 납품일 기준) ──
   const byDay = {};
   [...delivered, ...partial].forEach(o => {
-    const d = o.date || '미상';
+    const d = o.deliveredDate || o.date || '미상';
     if (!byDay[d]) byDay[d] = { date: d, cnt: 0, amt: 0, boxes: 0, orders: [] };
     byDay[d].cnt++;
     byDay[d].amt   += calcNetDelivery(o);
@@ -304,10 +304,10 @@ function renderDeliveryStatus() {
     return;
   }
 
-  // ── 날짜별 집계 ──
+  // ── 날짜별 집계 (실제 납품일 기준) ──
   const byDay = {};
   done.forEach(o => {
-    const d = o.date || '미상';
+    const d = o.deliveredDate || o.date || '미상';
     if (!byDay[d]) byDay[d] = { date: d, orders: [], totalAmt: 0, totalBoxes: 0 };
     byDay[d].orders.push(o);
     byDay[d].totalAmt   += calcNetDelivery(o);

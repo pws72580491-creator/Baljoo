@@ -29,6 +29,19 @@ function load() {
         if (o.returnAmount === undefined) o.returnAmount  = 0;
         if (!o.deliveryNote)            o.deliveryNote   = '';
         if (o.category === 'return')    o.deliveryStatus = 'returned';
+        // 실 납품일 필드 없는 구버전 데이터 보정: 이미 납품/부분납품 상태면 발주일로 대체
+        if (o.deliveredDate === undefined) {
+          o.deliveredDate = (o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial') ? (o.date || '') : '';
+        }
+        // unit=cs 인데 실제 단위가 doz인 경우 자동 보정
+        (o.items || []).forEach(item => {
+          if (item.unit === 'cs') {
+            const desc = String(item.desc || '').toUpperCase();
+            if (/DOZ|DOZEN/.test(desc)) {
+              item.unit = 'doz';
+            }
+          }
+        });
       });
       save();
     }

@@ -115,6 +115,7 @@ function toggleDelivered(id) {
     o.deliveryNote   = '';
     o.returnAmount   = 0;
     o.partialAmount  = 0;
+    o.deliveredDate  = '';
     save();
     closeModalBtn();
     renderAll();
@@ -125,6 +126,7 @@ function toggleDelivered(id) {
     if (note === null) return;
     o.deliveryNote   = note.trim();
     o.deliveryStatus = 'delivered';
+    o.deliveredDate  = todayStr();
     save();
     closeModalBtn();
     renderAll();
@@ -163,6 +165,9 @@ function setDelivery(id, status) {
     o.returnAmount  = 0;
     o.partialAmount = 0;
   }
+
+  if (status === 'delivered' || status === 'partial') o.deliveredDate = todayStr();
+  if (status === 'pending') o.deliveredDate = '';
 
   o.deliveryStatus = status;
   save();

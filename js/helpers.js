@@ -2,6 +2,15 @@
 // helpers.js  —  순수 유틸리티 (DOM 의존 없음)
 // ══════════════════════════════════════════════════════
 
+// ── 오늘 날짜 (YYYY-MM-DD, 로컬 기준) ──
+function todayStr() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 // ── 포맷 ──
 const fmt  = n => (n != null && n !== '') ? '₩' + Number(n).toLocaleString() : '-';
 const fmtQ = i => i.qty ? `${Number(i.qty).toLocaleString()} ${i.unit || ''}` : '-';
@@ -41,6 +50,23 @@ function getBoxDivisor(unit) {
 function calcItemBoxCount(item) {
   // boxes 필드가 직접 있으면 우선 사용
   if (item.boxes != null && Number(item.boxes) > 0) return Number(item.boxes);
+
+  // desc에서 "NNN PCS/BOX" 또는 "NNN DOZ/BOX" 패턴 파싱
+  // 예: "QUAIL EGG (10GRM X 480PCS/BOX)" → 박스당 480pcs
+  // 예: "EGGS FRESH (30DOZ/BOX)" → 박스당 30doz
+  if (item.desc) {
+    const mPcs = String(item.desc).match(/(\d+)\s*(?:PCS|EA)[\s\/]*(?:BOX|CTN|CS|CASE)/i);
+    if (mPcs) {
+      const perBox = Number(mPcs[1]);
+      if (perBox > 0 && item.qty) return Number(item.qty) / perBox;
+    }
+    const mDoz = String(item.desc).match(/(\d+)\s*(?:DOZ|DOZEN)[\s\/]*(?:BOX|CTN|CS|CASE)/i);
+    if (mDoz) {
+      const perBox = Number(mDoz[1]);
+      if (perBox > 0 && item.qty) return Number(item.qty) / perBox;
+    }
+  }
+
   const d = getBoxDivisor(item.unit);
   if (!d || !item.qty) return 0;
   return Number(item.qty) / d;
