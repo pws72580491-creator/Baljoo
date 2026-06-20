@@ -2,7 +2,7 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.2.12
+  Version : v3.2.18
   Released: 2026-06-15
   ────────────────────────────────────────
   CHANGELOG
@@ -49,7 +49,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<title>이른아침 · 발주관리 v3.2.12</title>
+<title>이른아침 · 발주관리 v3.2.18</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -457,10 +457,16 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.12</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.18</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
+</div>
+
+<!-- PULL TO REFRESH INDICATOR -->
+<div id="ptrIndicator" style="position:fixed;top:48px;left:0;right:0;z-index:200;display:flex;align-items:center;justify-content:center;gap:8px;height:0;overflow:hidden;background:#1a3a5c;color:#fff;font-size:13px;font-weight:600;transition:height 0.15s ease;pointer-events:none;">
+  <span id="ptrSpinner" style="display:inline-block;font-size:18px;transition:transform 0.2s;">↓</span>
+  <span id="ptrText">당겨서 새로고침</span>
 </div>
 
 <!-- SWIPE TRACK -->
