@@ -42,16 +42,21 @@ async function handleFiles(files) {
     }
   }
 
+  // 백그라운드 처리 유지 시작 (화면 꺼짐·앱 전환 대응)
+  await BG.start();
+
   const failedFiles = [];
   for (let i = 0; i < all.length; i++) {
     setProgress(Math.round(((i + 0.5) / all.length) * 100));
-    setStatus(`분석 중 ${i + 1}/${all.length}: ${all[i].name} (서버 혼잡 시 자동 재시도)`);
+    setStatus(`분석 중 ${i + 1}/${all.length}: ${all[i].name} (백그라운드 처리 중)`);
     try { await analyzeFile(all[i]); }
     catch(e) {
       console.warn('[handleFiles] 파일 실패, 다음 파일로 계속:', all[i].name, e.message);
       failedFiles.push(all[i].name);
     }
   }
+
+  await BG.end();
 
   setProgress(100);
   if (pendingOrders.length > 0) {

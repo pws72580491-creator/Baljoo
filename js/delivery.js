@@ -26,6 +26,9 @@ async function handleDeliveryFiles(files) {
   setDelStatus('납품 리스트 분석 중...');
   setDelProgress(20);
 
+  // 백그라운드 처리 유지 시작
+  await BG.start();
+
   try {
     const parts = [];
     for (const f of files) {
@@ -100,8 +103,10 @@ ${orderSummary}
     setDelStatus(`✅ 분석 완료 — 전체 ${totalCnt}척 중 ${matchedCnt}척 매칭됨`);
     const delInput = document.getElementById('deliveryInput');
     if (delInput) delInput.value = '';  // 같은 파일 재선택 가능하도록 초기화
+    await BG.end();
 
   } catch(err) {
+    await BG.end();
     console.error('[delivery] 오류:', err);
     const msg = err.message === 'API_KEY_MISSING' ? '⚠️ API 키를 먼저 입력해주세요.' : '❌ ' + (err.message || '분석 실패');
     setDelStatus(msg);

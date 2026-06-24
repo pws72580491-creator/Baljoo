@@ -35,25 +35,39 @@ function getBoxDivisor(unit) {
   if (!unit) return null;
   const u = String(unit).toLowerCase().trim().replace(/[^a-z]/g, '');
 
-  // CTN / CS / BOX / CASE / CARTON → qty = 박스 수 (1:1)
-  if (u === 'ctn' || u === 'cs' || u === 'case' || u === 'carton' || u === 'box' || u === 'ct') return 1;
+  // CTN / BOX / CASE / CARTON → qty = 박스 수 (1:1)
+  if (u === 'ctn' || u === 'case' || u === 'carton' || u === 'box' || u === 'ct') return 1;
 
   // DOZ / DOZEN → 30doz = 1박스
   if (u.startsWith('doz') || u === 'dozen') return 30;
 
-  // PC / PCS / EA / PIECE → 360pcs = 1박스
-  if (u.startsWith('pc') || u === 'pcs' || u === 'ea' || u === 'each' || u === 'piece' || u === 'pieces') return 360;
+  // CS / PC / PCS / EA / PIECE → 360pcs = 1박스  (cs는 pcs와 동일 취급)
+  if (u === 'cs' || u.startsWith('pc') || u === 'pcs' || u === 'ea' || u === 'each' || u === 'piece' || u === 'pieces') return 360;
 
   return null;
+}
+
+// 생메추리알 여부 판단 (품목명에 QUAIL 또는 메추리 포함)
+function _isQuailEgg(item) {
+  const d = String(item.desc || '').toUpperCase();
+  return d.includes('QUAIL') || d.includes('메추리');
 }
 
 function calcItemBoxCount(item) {
   // boxes 필드가 직접 있으면 우선 사용
   if (item.boxes != null && Number(item.boxes) > 0) return Number(item.boxes);
 
-  // desc에서 "NNN PCS/BOX" 또는 "NNN DOZ/BOX" 패턴 파싱
-  // 예: "QUAIL EGG (10GRM X 480PCS/BOX)" → 박스당 480pcs
-  // 예: "EGGS FRESH (30DOZ/BOX)" → 박스당 30doz
+  // 생메추리알 특별 처리: 40doz = 1박스 고정
+  if (_isQuailEgg(item)) {
+    const qty = Number(item.qty) || 0;
+    if (qty > 0) {
+      const u = String(item.unit || '').toLowerCase().replace(/[^a-z]/g, '');
+      const isDoz = u.startsWith('doz') || u === 'dozen';
+      return qty / (isDoz ? 40 : 480);
+    }
+  }
+
+  // 일반 품목: desc에서 "NNN PCS/BOX" 또는 "NNN DOZ/BOX" 패턴 파싱
   if (item.desc) {
     const mPcs = String(item.desc).match(/(\d+)\s*(?:PCS|EA)[\s\/]*(?:BOX|CTN|CS|CASE)/i);
     if (mPcs) {

@@ -228,3 +228,54 @@ if (isTouchOnly) {
     lastTap = now;
   }, { passive: false });
 }
+
+// ── Wake Lock / 백그라운드 처리 유지 ──
+// 발주서 업로드·납품리스트 등록 중 화면이 꺼지거나 백그라운드로 전환돼도
+// 처리가 중단되지 않도록 Wake Lock을 획득하고, 복귀 시 자동 재개한다.
+const BG = (() => {
+  let _lock = null;
+  let _processing = false;   // 현재 처리 중인지
+  let _resumeFn  = null;     // visibilitychange 복귀 시 호출할 콜백
+
+  // Wake Lock 획득
+  async function acquire() {
+    if (!('wakeLock' in navigator)) return;
+    try {
+      _lock = await navigator.wakeLock.request('screen');
+      _lock.addEventListener('release', () => { _lock = null; });
+    } catch (e) {
+      console.warn('[BG] wakeLock 획득 실패:', e.message);
+    }
+  }
+
+  // Wake Lock 해제
+  async function release() {
+    if (_lock) { try { await _lock.release(); } catch(_) {} _lock = null; }
+  }
+
+  // 처리 시작 알림 (analyzer/delivery에서 호출)
+  async function start(resumeFn) {
+    _processing = true;
+    _resumeFn   = resumeFn || null;
+    await acquire();
+  }
+
+  // 처리 완료 알림
+  async function end() {
+    _processing = false;
+    _resumeFn   = null;
+    await release();
+  }
+
+  // visibilitychange: 화면 복귀 시 Wake Lock 재획득 + 필요시 재개
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible' && _processing) {
+      await acquire();  // 백그라운드 전환으로 해제된 경우 재획득
+      if (typeof _resumeFn === 'function') {
+        try { await _resumeFn(); } catch(e) { console.warn('[BG] resume 실패:', e); }
+      }
+    }
+  });
+
+  return { start, end };
+})();
