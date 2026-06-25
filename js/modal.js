@@ -81,7 +81,10 @@ function openModal(id) {
     </div>
 
     <div style="margin-top:12px;">
-      <button class="btn btn-d btn-block" onclick="delOrder('${o.id}');closeModalBtn()">🗑 이 발주 삭제</button>
+      <div style="margin-top:12px;display:flex;gap:8px;">
+        <button class="btn btn-g" style="flex:1;" onclick="openEditModal('${o.id}')">✏️ 수정</button>
+        <button class="btn btn-d" style="flex:1;" onclick="delOrder('${o.id}');closeModalBtn()">🗑 삭제</button>
+      </div>
     </div>
   `;
 
@@ -190,4 +193,162 @@ function delOrder(id) {
   save();
   renderAll();
   toast('삭제되었습니다.');
+}
+
+// ══════════════════════════════════════════════════════
+// 발주 수정 모달
+// ══════════════════════════════════════════════════════
+let _editId = null;
+
+function openEditModal(id) {
+  const o = orders.find(x => x.id === id);
+  if (!o) return;
+  _editId = id;
+  closeModalBtn();   // 상세 모달 닫기
+
+  // 품목 행 렌더
+  function itemRow(item, idx) {
+    return `
+    <div class="edit-item-row" id="eitem-${idx}">
+      <input type="text"   id="ei-desc-${idx}"   value="${(item.desc||'').replace(/"/g,'&quot;')}" placeholder="품목명">
+      <input type="text"   id="ei-code-${idx}"   value="${item.code||''}" placeholder="CODE">
+      <input type="number" id="ei-qty-${idx}"    value="${item.qty||0}"   step="any" min="0">
+      <select id="ei-unit-${idx}">
+        ${[['box','박스'],['pcs','pcs'],['doz','doz']].map(([v,l]) =>
+          `<option value="${v}"${item.unit===v?' selected':''}>${l}</option>`
+        ).join('')}
+      </select>
+      <input type="number" id="ei-price-${idx}"  value="${item.price||0}" step="any" min="0" placeholder="단가">
+      <button class="edit-del-btn" onclick="removeEditItem(${idx})">×</button>
+    </div>`;
+  }
+
+  document.getElementById('edit-body').innerHTML = `
+    <div class="edit-row">
+      <div class="edit-field">
+        <label>선명</label>
+        <input id="ef-ship" type="text" value="${(o.ship||'').replace(/"/g,'&quot;')}">
+      </div>
+      <div class="edit-field">
+        <label>구분</label>
+        <select id="ef-cat">
+          <option value="cruise"${o.category==='cruise'?' selected':''}>크루즈</option>
+          <option value="cargo"${o.category==='cargo'?' selected':''}>카고</option>
+        </select>
+      </div>
+    </div>
+    <div class="edit-row">
+      <div class="edit-field">
+        <label>발주일자</label>
+        <input id="ef-date" type="date" value="${o.date||''}">
+      </div>
+      <div class="edit-field">
+        <label>납기일자</label>
+        <input id="ef-delivery" type="date" value="${o.delivery||''}">
+      </div>
+    </div>
+    <div class="edit-row">
+      <div class="edit-field">
+        <label>서류번호</label>
+        <input id="ef-docno" type="text" value="${(o.docNo||'').replace(/"/g,'&quot;')}">
+      </div>
+      <div class="edit-field">
+        <label>거래처발주번호</label>
+        <input id="ef-pono" type="text" value="${(o.poNo||'').replace(/"/g,'&quot;')}">
+      </div>
+    </div>
+
+    <div class="sdiv" style="margin-top:4px;">품목</div>
+    <div class="edit-item-hdr">
+      <span>품목명</span><span>CODE</span><span>수량</span><span>단위</span><span>단가</span><span></span>
+    </div>
+    <div id="edit-items-list">
+      ${(o.items||[]).map((item,idx) => itemRow(item,idx)).join('')}
+    </div>
+    <button class="edit-add-btn" onclick="addEditItem()">+ 품목 추가</button>
+
+    <div style="display:flex;gap:8px;margin-top:20px;padding-bottom:8px;">
+      <button class="btn btn-g" style="flex:1;" onclick="closeEditModal()">취소</button>
+      <button class="btn btn-success" style="flex:1;" onclick="saveEditOrder()">💾 저장</button>
+    </div>
+  `;
+
+  document.getElementById('editModalOv').classList.add('open');
+
+  // 스와이프 닫기
+  const em = document.getElementById('editModal');
+  let _sy = 0;
+  em.addEventListener('touchstart', e => { _sy = e.touches[0].clientY; }, { passive: true });
+  em.addEventListener('touchmove', e => {
+    if (em.scrollTop > 0) return;
+    if (e.touches[0].clientY - _sy > 60) closeEditModal();
+  }, { passive: true });
+}
+
+function closeEditModal() {
+  document.getElementById('editModalOv').classList.remove('open');
+  _editId = null;
+}
+
+function closeEditModalOv(e) {
+  if (e.target === document.getElementById('editModalOv')) closeEditModal();
+}
+
+function addEditItem() {
+  const list = document.getElementById('edit-items-list');
+  const idx  = list.querySelectorAll('.edit-item-row').length;
+  const div  = document.createElement('div');
+  div.innerHTML = `
+    <div class="edit-item-row" id="eitem-${idx}">
+      <input type="text"   id="ei-desc-${idx}"  placeholder="품목명">
+      <input type="text"   id="ei-code-${idx}"  placeholder="CODE">
+      <input type="number" id="ei-qty-${idx}"   value="0" step="any" min="0">
+      <select id="ei-unit-${idx}">
+        <option value="box">박스</option>
+        <option value="pcs">pcs</option>
+        <option value="doz">doz</option>
+      </select>
+      <input type="number" id="ei-price-${idx}" value="0" step="any" min="0" placeholder="단가">
+      <button class="edit-del-btn" onclick="removeEditItem(${idx})">×</button>
+    </div>`;
+  list.appendChild(div.firstElementChild);
+}
+
+function removeEditItem(idx) {
+  const row = document.getElementById(`eitem-${idx}`);
+  if (row) row.remove();
+}
+
+function saveEditOrder() {
+  const o = orders.find(x => x.id === _editId);
+  if (!o) return;
+
+  o.ship     = document.getElementById('ef-ship').value.trim();
+  o.category = document.getElementById('ef-cat').value;
+  o.date     = document.getElementById('ef-date').value;
+  o.delivery = document.getElementById('ef-delivery').value;
+  o.docNo    = document.getElementById('ef-docno').value.trim();
+  o.poNo     = document.getElementById('ef-pono').value.trim();
+
+  // 품목 수집
+  const rows = document.getElementById('edit-items-list').querySelectorAll('.edit-item-row');
+  o.items = [];
+  rows.forEach((row, i) => {
+    const idx   = row.id.replace('eitem-', '');
+    const desc  = (document.getElementById(`ei-desc-${idx}`)?.value  || '').trim();
+    const code  = (document.getElementById(`ei-code-${idx}`)?.value  || '').trim();
+    const qty   = parseFloat(document.getElementById(`ei-qty-${idx}`)?.value  || 0) || 0;
+    const unit  = document.getElementById(`ei-unit-${idx}`)?.value   || 'pcs';
+    const price = parseFloat(document.getElementById(`ei-price-${idx}`)?.value || 0) || 0;
+    const amount = Math.round(qty * price * 100) / 100;
+    if (desc || qty) o.items.push({ desc, code, qty, unit, price, amount });
+  });
+
+  // 합계 재계산
+  o.total = o.items.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+
+  save();
+  renderAll();
+  closeEditModal();
+  toast('✅ 수정되었습니다.');
 }

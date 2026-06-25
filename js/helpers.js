@@ -68,7 +68,10 @@ function calcItemBoxCount(item) {
   }
 
   // 일반 품목: desc에서 "NNN PCS/BOX" 또는 "NNN DOZ/BOX" 패턴 파싱
-  if (item.desc) {
+  // 단, 단위가 이미 box/ctn/case이면 qty = 박스 수 (1:1) → desc 패턴 무시
+  const unitNorm = String(item.unit || '').toLowerCase().replace(/[^a-z]/g, '');
+  const isBoxUnit = unitNorm === 'box' || unitNorm === 'ctn' || unitNorm === 'case' || unitNorm === 'carton' || unitNorm === 'ct';
+  if (!isBoxUnit && item.desc) {
     const mPcs = String(item.desc).match(/(\d+)\s*(?:PCS|EA)[\s\/]*(?:BOX|CTN|CS|CASE)/i);
     if (mPcs) {
       const perBox = Number(mPcs[1]);
