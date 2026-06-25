@@ -2,7 +2,7 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.2.22
+  Version : v3.2.25
   Released: 2026-06-15
   ────────────────────────────────────────
   CHANGELOG
@@ -49,7 +49,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<title>이른아침 · 발주관리 v3.2.22</title>
+<title>이른아침 · 발주관리 v3.2.25</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -367,6 +367,20 @@ body{
 }
 .da-full{grid-column:1/-1;}
 
+/* 수정 폼 */
+.edit-field{margin-bottom:14px;}
+.edit-field label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px;letter-spacing:.5px;}
+.edit-field input,.edit-field select{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;color:var(--text);outline:none;}
+.edit-field input:focus,.edit-field select:focus{border-color:var(--navy);}
+.edit-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.edit-items-wrap{overflow-x:auto;margin:0 -4px;}
+.edit-item-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:6px;align-items:end;margin-bottom:8px;font-size:12px;}
+.edit-item-row input{padding:7px 6px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;box-sizing:border-box;}
+.edit-item-row select{padding:7px 4px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;box-sizing:border-box;}
+.edit-item-hdr{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:6px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:4px;padding:0 2px;}
+.edit-del-btn{background:#fee2e2;border:none;border-radius:6px;color:var(--danger);font-size:14px;width:28px;height:32px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.edit-add-btn{background:var(--bg);border:1px dashed var(--border);border-radius:8px;width:100%;padding:10px;font-size:13px;color:var(--muted);cursor:pointer;margin-top:4px;}
+
 /* 납품 현황 인라인 블록 */
 .delivery-block{
   background:var(--bg);border-radius:10px;
@@ -457,7 +471,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.22</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.25</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
@@ -680,6 +694,17 @@ body{
       <div class="modal-doc" id="m-docid">-</div>
     </div>
     <div class="modal-body" id="m-body"></div>
+  </div>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="modal-ov" id="editModalOv" onclick="closeEditModalOv(event)">
+  <div class="modal" id="editModal" style="max-height:92vh;">
+    <div class="modal-handle"></div>
+    <div class="modal-head">
+      <div class="modal-title">✏️ 발주 수정</div>
+    </div>
+    <div class="modal-body" id="edit-body"></div>
   </div>
 </div>
 
