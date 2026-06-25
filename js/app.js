@@ -229,6 +229,23 @@ if (isTouchOnly) {
   }, { passive: false });
 }
 
+// ── 안드로이드 뒤로가기 → 모달 닫기 ──
+window.addEventListener('popstate', e => {
+  // 편집 모달이 열려있으면 닫기
+  const editOv = document.getElementById('editModalOv');
+  if (editOv && editOv.classList.contains('open')) {
+    editOv.classList.remove('open');
+    if (typeof _editId !== 'undefined') window._editId = null;
+    return;
+  }
+  // 상세 모달이 열려있으면 닫기
+  const modalOv = document.getElementById('modalOv');
+  if (modalOv && modalOv.classList.contains('open')) {
+    modalOv.classList.remove('open');
+    return;
+  }
+});
+
 // ── Wake Lock / 백그라운드 처리 유지 ──
 // 발주서 업로드·납품리스트 등록 중 화면이 꺼지거나 백그라운드로 전환돼도
 // 처리가 중단되지 않도록 Wake Lock을 획득하고, 복귀 시 자동 재개한다.

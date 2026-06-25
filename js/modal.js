@@ -89,6 +89,7 @@ function openModal(id) {
   `;
 
   document.getElementById('modalOv').classList.add('open');
+  history.pushState({ modal: 'detail' }, '');
 
   const modal = document.getElementById('modal');
   modal.addEventListener('touchstart', e => { modalSwipeY = e.touches[0].clientY; }, { passive: true });
@@ -104,6 +105,7 @@ function closeModal(e) {
 
 function closeModalBtn() {
   document.getElementById('modalOv').classList.remove('open');
+  if (history.state && history.state.modal === 'detail') history.back();
 }
 
 // ── 납품완료 토글 (완료 → 취소 / 미납품 → 완료) ──
@@ -274,6 +276,7 @@ function openEditModal(id) {
   `;
 
   document.getElementById('editModalOv').classList.add('open');
+  history.pushState({ modal: 'edit' }, '');
 
   // 스와이프 닫기
   const em = document.getElementById('editModal');
@@ -288,6 +291,7 @@ function openEditModal(id) {
 function closeEditModal() {
   document.getElementById('editModalOv').classList.remove('open');
   _editId = null;
+  if (history.state && history.state.modal === 'edit') history.back();
 }
 
 function closeEditModalOv(e) {

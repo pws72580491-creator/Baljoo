@@ -371,6 +371,15 @@ function renderDeliveryStatus() {
                 <div style="font-size:13px;font-weight:600;color:var(--navy);
                             white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">${o.ship}</div>
                 <div style="font-size:10px;color:var(--muted);margin-top:2px;">${o.docNo||''}</div>
+                ${(o.items||[]).map(item => {
+                  const boxes = calcItemBoxCount(item);
+                  const boxStr = boxes ? ` · ${formatBoxCount(boxes)}` : '';
+                  const desc = (item.desc||'').length > 18 ? item.desc.slice(0,18)+'…' : (item.desc||'');
+                  return `<div style="font-size:10px;color:var(--muted);margin-top:3px;display:flex;gap:4px;align-items:center;">
+                    <span style="color:var(--navy);font-weight:600;">${desc}</span>
+                    <span>${item.qty}${item.unit}${boxStr}</span>
+                  </div>`;
+                }).join('')}
               </td>
               <td style="padding:10px;text-align:right;font-size:13px;font-weight:700;color:#1a3a6e;white-space:nowrap;">
                 ${formatBoxCount(calcOrderBoxes(o))}
