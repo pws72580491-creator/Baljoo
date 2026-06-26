@@ -304,10 +304,10 @@ function renderDeliveryStatus() {
     return;
   }
 
-  // ── 날짜별 집계 (실제 납품일 기준) ──
+  // ── 날짜별 집계 (발주일자 기준) ──
   const byDay = {};
   done.forEach(o => {
-    const d = o.deliveredDate || o.date || '미상';
+    const d = o.date || '미상';
     if (!byDay[d]) byDay[d] = { date: d, orders: [], totalAmt: 0, totalBoxes: 0 };
     byDay[d].orders.push(o);
     byDay[d].totalAmt   += calcNetDelivery(o);
