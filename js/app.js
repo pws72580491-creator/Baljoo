@@ -134,6 +134,43 @@ function exportExcel() {
   const ws2 = XLSX.utils.json_to_sheet(statsRows);
   XLSX.utils.book_append_sheet(wb, ws2, '납품통계');
 
+  // ── 월별 결산 시트 ──
+  const monthSet = new Set();
+  orders.forEach(o => {
+    const d = o.deliveredDate || o.date || '';
+    if (d && d.length >= 7) monthSet.add(d.slice(0, 7));
+  });
+  const months = Array.from(monthSet).sort();
+  if (months.length > 0) {
+    const monthlyRows = months.map(m => {
+      const [y, mo] = m.split('-');
+      const mOrders   = orders.filter(o => (o.deliveredDate || o.date || '').slice(0,7) === m);
+      const mDel      = mOrders.filter(o => o.deliveryStatus === 'delivered');
+      const mRet      = mOrders.filter(o => o.deliveryStatus === 'returned');
+      const mPar      = mOrders.filter(o => o.deliveryStatus === 'partial');
+      const mPend     = mOrders.filter(o => !o.deliveryStatus || o.deliveryStatus === 'pending');
+      const mDelAmt   = mDel.reduce((s,o) => s+(o.total||0), 0);
+      const mRetAmt   = mRet.reduce((s,o) => s+(o.isReturn ? Math.abs(o.total||0) : (o.returnAmount||Math.abs(o.total)||0)), 0);
+      const mParAmt   = mPar.reduce((s,o) => s+(o.partialAmount||0), 0);
+      const mNet      = mDelAmt + mParAmt - mRetAmt;
+      const mBoxes    = [...mDel, ...mPar].reduce((s,o) => s+calcOrderBoxes(o), 0);
+      return {
+        '년월':       `${y}년 ${Number(mo)}월`,
+        '납품완료건': mDel.length,
+        '납품완료금액': mDelAmt,
+        '반품건':     mRet.length,
+        '반품금액':   mRetAmt,
+        '부분납품건': mPar.length,
+        '부분납품금액': mParAmt,
+        '미납품건':   mPend.length,
+        '실납품금액': mNet,
+        '납품박스':   Math.round(mBoxes * 10) / 10,
+      };
+    });
+    const ws3 = XLSX.utils.json_to_sheet(monthlyRows);
+    XLSX.utils.book_append_sheet(wb, ws3, '월별결산');
+  }
+
   XLSX.writeFile(wb, `발주관리_${new Date().toISOString().slice(0, 10)}.xlsx`);
   toast('📥 엑셀 파일 다운로드 완료');
 }
@@ -296,40 +333,3 @@ const BG = (() => {
 
   return { start, end };
 })();
-
-// ── 반품 진단 / 수정 (임시) ──
-function diagReturns() {
-  const el = document.getElementById('diag-status');
-  const total = orders.length;
-  const isReturnTrue = orders.filter(o => o.isReturn === true);
-  const statusReturned = orders.filter(o => o.deliveryStatus === 'returned');
-  const mismatch = orders.filter(o => o.isReturn === true && o.deliveryStatus !== 'returned');
-
-  let msg = `전체: ${total}건\n`;
-  msg += `isReturn=true: ${isReturnTrue.length}건\n`;
-  msg += `deliveryStatus='returned': ${statusReturned.length}건\n`;
-  msg += `⚠️ 불일치(isReturn=true이지만 status≠returned): ${mismatch.length}건\n`;
-  if (mismatch.length > 0) {
-    mismatch.forEach(o => {
-      msg += `  → [${o.id}] ${o.ship} | status=${o.deliveryStatus} | total=${o.total}\n`;
-    });
-  }
-  el.textContent = msg;
-  el.style.color = mismatch.length > 0 ? '#dc2626' : 'var(--success)';
-}
-
-function fixReturns() {
-  const el = document.getElementById('diag-status');
-  const mismatch = orders.filter(o => o.isReturn === true && o.deliveryStatus !== 'returned');
-  if (mismatch.length === 0) {
-    el.textContent = '✅ 수정할 항목 없음';
-    el.style.color = 'var(--success)';
-    return;
-  }
-  mismatch.forEach(o => { o.deliveryStatus = 'returned'; });
-  save();
-  renderAll();
-  el.textContent = `✅ ${mismatch.length}건 수정 완료 → deliveryStatus를 'returned'로 변경했습니다.`;
-  el.style.color = 'var(--success)';
-  toast(`🔧 반품 ${mismatch.length}건 상태 수정 완료`);
-}

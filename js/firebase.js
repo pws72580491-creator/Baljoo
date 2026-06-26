@@ -50,26 +50,41 @@ function normalizeOrders(arr) {
   return arr;
 }
 
-// ── 자동 동기화 (save() 후 debounce 3초) ──
-let _autoSyncTimer = null;
-function scheduleAutoSync() {
-  clearTimeout(_autoSyncTimer);
-  _autoSyncTimer = setTimeout(async () => {
-    try {
-      const { ref, set } = await import(FB_DB_URL);
-      const db = await getDb();
-      await set(ref(db, 'baljoo/backup'), {
-        orders,
-        backedAt: new Date().toISOString(),
-        count:    orders.length,
-        version:  document.title.match(/v[\d.]+/)?.[0] || 'unknown'
-      });
-      setFbStatus(`☁️ 자동 동기화 완료 (${new Date().toLocaleTimeString('ko-KR')})`, 'var(--success)');
-    } catch (e) {
-      console.warn('[firebase] 자동 동기화 실패:', e.message);
+// ── 자동 동기화 (save() 후 debounce 3초, 실패 시 backoff 재시도) ──
+let _autoSyncTimer  = null;
+let _syncRetryCount = 0;
+const SYNC_MAX_RETRY = 3;
+const SYNC_RETRY_BASE = 5000; // 5초, 10초, 20초
+
+async function _doAutoSync() {
+  try {
+    const { ref, set } = await import(FB_DB_URL);
+    const db = await getDb();
+    await set(ref(db, 'baljoo/backup'), {
+      orders,
+      backedAt: new Date().toISOString(),
+      count:    orders.length,
+      version:  document.title.match(/v[\d.]+/)?.[0] || 'unknown'
+    });
+    _syncRetryCount = 0;  // 성공 시 재시도 카운터 초기화
+    setFbStatus(`☁️ 자동 동기화 완료 (${new Date().toLocaleTimeString('ko-KR')})`, 'var(--success)');
+  } catch (e) {
+    console.warn('[firebase] 자동 동기화 실패:', e.message);
+    if (_syncRetryCount < SYNC_MAX_RETRY) {
+      _syncRetryCount++;
+      const delay = SYNC_RETRY_BASE * _syncRetryCount;
+      setFbStatus(`⚠️ 동기화 실패 — ${_syncRetryCount}/${SYNC_MAX_RETRY}회 재시도 (${delay/1000}초 후)`, '#d69e2e');
+      setTimeout(_doAutoSync, delay);
+    } else {
+      _syncRetryCount = 0;
       setFbStatus('⚠️ 동기화 실패 (수동 백업 권장)', '#d69e2e');
     }
-  }, 3000);
+  }
+}
+
+function scheduleAutoSync() {
+  clearTimeout(_autoSyncTimer);
+  _autoSyncTimer = setTimeout(_doAutoSync, 3000);
 }
 
 // ── 백업: 로컬 → Firebase ──

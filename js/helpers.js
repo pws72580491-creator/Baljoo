@@ -2,6 +2,27 @@
 // helpers.js  —  순수 유틸리티 (DOM 의존 없음)
 // ══════════════════════════════════════════════════════
 
+// ── XSS 방어: HTML 이스케이프 ──
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g,  '&amp;')
+    .replace(/</g,  '&lt;')
+    .replace(/>/g,  '&gt;')
+    .replace(/"/g,  '&quot;')
+    .replace(/'/g,  '&#x27;');
+}
+
+// ── 안전한 JSON 파싱 ──
+function safeParse(txt, fallback = null) {
+  try {
+    return JSON.parse(txt);
+  } catch (e) {
+    console.warn('[safeParse] 파싱 실패:', e.message);
+    return fallback;
+  }
+}
+
 // ── 오늘 날짜 (YYYY-MM-DD, 로컬 기준) ──
 function todayStr() {
   const d = new Date();

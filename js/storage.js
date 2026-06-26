@@ -19,14 +19,20 @@ function save() {
 
 function load() {
   try {
-    let d = localStorage.getItem(STORE_KEY);
+    let raw = localStorage.getItem(STORE_KEY);
     // 구버전 sessionStorage 마이그레이션
-    if (!d) {
+    if (!raw) {
       const old = sessionStorage.getItem('orders');
-      if (old) d = old;
+      if (old) raw = old;
     }
-    if (d) {
-      orders = JSON.parse(d);
+    if (raw) {
+      const parsed = safeParse(raw);
+      if (!Array.isArray(parsed)) {
+        console.warn('[storage] 저장 데이터 형식 오류 — 초기화합니다.');
+        orders = [];
+        return;
+      }
+      orders = parsed;
       // 기존 데이터 필드 초기화 (하위 호환)
       orders.forEach(o => {
         if (!o.deliveryStatus)          o.deliveryStatus = 'pending';

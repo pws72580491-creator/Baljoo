@@ -150,6 +150,8 @@ unit 선택 기준(중요):
     parsed.category      = parsed.category || 'cargo';
     parsed.deliveredDate = '';
     parsed.updatedAt     = Date.now();
+    // 선명 누락 플래그
+    parsed._shipMissing  = !parsed.ship || !parsed.ship.trim();
     pendingOrders.push(parsed);
 
   } catch(e) {
@@ -223,7 +225,8 @@ async function pdfToImages(file) {
 function renderPreview() {
   document.getElementById('prev-cards').innerHTML = pendingOrders.map((o, idx) => {
     // 반품서는 중복 판별 대상에서 완전히 제외
-    const isReturnDoc = !!o.isReturn;
+    const isReturnDoc  = !!o.isReturn;
+    const shipMissing  = !!o._shipMissing;
     const existing = isReturnDoc ? null : orders.find(x =>
       (o.docNo && x.docNo && x.docNo === o.docNo) ||
       (o.poNo  && x.poNo  && x.poNo  === o.poNo)  ||
@@ -231,33 +234,42 @@ function renderPreview() {
     );
     const isDup = !!existing;
 
-    // 뱃지: 반품서 / 중복 / 신규
+    // 뱃지: 반품서 / 선명누락 / 중복 / 신규
     const statusBadgeHtml = isReturnDoc
       ? `<span class="badge b-returned" style="margin-left:4px;">↩️ 반품서</span>`
-      : isDup
-        ? `<span class="badge" style="background:#fef3c7;color:#92400e;margin-left:4px;">⚠️ 중복</span>`
-        : `<span class="badge" style="background:#dcfce7;color:#15803d;margin-left:4px;">신규</span>`;
+      : shipMissing
+        ? `<span class="badge" style="background:#fee2e2;color:#991b1b;margin-left:4px;">⚠️ 선명 누락</span>`
+        : isDup
+          ? `<span class="badge" style="background:#fef3c7;color:#92400e;margin-left:4px;">⚠️ 중복</span>`
+          : `<span class="badge" style="background:#dcfce7;color:#15803d;margin-left:4px;">신규</span>`;
 
-    // 카드 테두리: 반품서=빨강, 중복=노랑, 신규=기본
+    // 카드 테두리: 반품서=빨강, 선명누락=주황-빨강, 중복=노랑, 신규=기본
     const cardStyle = isReturnDoc
       ? 'border:2px solid #dc2626;background:#fff5f5;'
-      : isDup
-        ? 'border:2px solid #f59e0b;background:#fffbeb;'
-        : '';
+      : shipMissing
+        ? 'border:2px solid #f97316;background:#fff7ed;'
+        : isDup
+          ? 'border:2px solid #f59e0b;background:#fffbeb;'
+          : '';
 
     // 안내 메시지
     const infoMsg = isReturnDoc
       ? `<div style="font-size:11px;color:#991b1b;background:#fee2e2;border-radius:6px;padding:5px 8px;grid-column:1/-1;">↩️ 반품서로 인식되었습니다. 기존 발주서는 유지되고 반품 내역으로 별도 추가됩니다.</div>`
-      : isDup
-        ? `<div style="font-size:11px;color:#92400e;background:#fde68a;border-radius:6px;padding:5px 8px;grid-column:1/-1;">⚠️ 이미 등록된 발주서입니다. 제거하거나 저장 시 기존 데이터를 덮어씁니다.</div>`
-        : '';
+      : shipMissing
+        ? `<div style="font-size:11px;color:#9a3412;background:#ffedd5;border-radius:6px;padding:5px 8px;grid-column:1/-1;">⚠️ AI가 선명을 인식하지 못했습니다. 저장 전 선명을 직접 확인하거나 수정 후 저장하세요.</div>`
+        : isDup
+          ? `<div style="font-size:11px;color:#92400e;background:#fde68a;border-radius:6px;padding:5px 8px;grid-column:1/-1;">⚠️ 이미 등록된 발주서입니다. 제거하거나 저장 시 기존 데이터를 덮어씁니다.</div>`
+          : '';
 
     const totalStyle = isReturnDoc ? 'color:#dc2626;font-weight:700;' : '';
+    const shipDisplay = shipMissing
+      ? `<span style="color:#f97316;font-style:italic;">선명 미확인</span>`
+      : o.ship;
 
     return `
     <div class="prev-card" id="pcard-${idx}" style="${cardStyle}">
       <div class="prev-head">
-        <div class="prev-ship">${o.ship || '선명 미확인'}</div>
+        <div class="prev-ship">${shipDisplay}</div>
         <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
           ${badge(o.category)}${statusBadgeHtml}
           <button onclick="removePending(${idx})" style="background:#fee2e2;border:none;border-radius:6px;color:#dc2626;font-size:12px;font-weight:700;padding:3px 8px;cursor:pointer;flex-shrink:0;">✕ 제거</button>
@@ -289,7 +301,8 @@ function renderPreview() {
     </div>`;
   }).join('');
 
-  // 중복/반품 건수 상태 메시지 (반품서는 중복 카운트 제외)
+  // 상태 메시지 — 선명누락 / 중복 / 반품서 건수 표시
+  const shipMissingCnt = pendingOrders.filter(o => o._shipMissing).length;
   const dupCnt = pendingOrders.filter(o =>
     !o.isReturn &&
     orders.find(x =>
@@ -300,8 +313,9 @@ function renderPreview() {
   ).length;
   const retCnt = pendingOrders.filter(o => o.isReturn).length;
   const parts  = [];
-  if (dupCnt > 0) parts.push(`⚠️ 중복 ${dupCnt}건`);
-  if (retCnt > 0) parts.push(`↩️ 반품서 ${retCnt}건`);
+  if (shipMissingCnt > 0) parts.push(`🚢 선명 누락 ${shipMissingCnt}건`);
+  if (dupCnt > 0)         parts.push(`⚠️ 중복 ${dupCnt}건`);
+  if (retCnt > 0)         parts.push(`↩️ 반품서 ${retCnt}건`);
   if (parts.length > 0) {
     setStatus(`📋 ${pendingOrders.length}건 확인 중 — ${parts.join(' · ')}. 확인 후 저장하세요.`);
   }
