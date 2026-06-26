@@ -88,7 +88,7 @@ function orderCard(o, showDel) {
   // 금액 색상: 반품서는 빨간색
   const amtStyle = isReturnDoc ? 'color:#dc2626;font-weight:700;' : '';
   return `
-  <div class="order-card ${statusClass}" onclick="openModal('${o.id}')">
+  <div class="order-card ${statusClass}${isReturnDoc ? ' is-return-doc' : ''}" onclick="openModal('${o.id}')">
     <div class="oc-top">
       <div class="oc-ship">${o.ship}</div>
       <div class="oc-amount" style="${amtStyle}">${fmt(o.total)}</div>
@@ -321,10 +321,10 @@ function renderDeliveryStatus() {
     return;
   }
 
-  // ── 날짜별 집계 (발주일자 기준) ──
+  // ── 날짜별 집계 (납품처리 날짜 기준) ──
   const byDay = {};
   done.forEach(o => {
-    const d = o.date || '미상';
+    const d = o.deliveredDate || o.date || '미상';
     if (!byDay[d]) byDay[d] = { date: d, orders: [], totalAmt: 0, totalBoxes: 0 };
     byDay[d].orders.push(o);
     byDay[d].totalAmt   += calcNetDelivery(o);
@@ -444,7 +444,7 @@ function renderDashByDate() {
 
   const byDay = {};
   target.forEach(o => {
-    const d = o.date || '날짜없음';
+    const d = o.deliveredDate || o.date || '날짜없음';
     if (!byDay[d]) byDay[d] = { date: d, orders: [], amt: 0, boxes: 0 };
     byDay[d].orders.push(o);
     byDay[d].amt   += calcNetDelivery(o);
