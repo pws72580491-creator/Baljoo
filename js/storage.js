@@ -5,9 +5,13 @@
 const STORE_KEY = 'baljuOrders_v2';
 let orders = [];
 
+let _loadInProgress = false;  // load() 중 save() 시 자동동기화 방지
+
 function save() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(orders));
+    // Firebase 자동 동기화 (3초 debounce) — 앱 초기 로드 중엔 건너뜀
+    if (!_loadInProgress && typeof scheduleAutoSync === 'function') scheduleAutoSync();
   } catch(e) {
     console.error('[storage] 저장 실패:', e);
   }
@@ -43,7 +47,9 @@ function load() {
           }
         });
       });
+      _loadInProgress = true;
       save();
+      _loadInProgress = false;
     }
   } catch(e) {
     console.error('[storage] 불러오기 실패:', e);

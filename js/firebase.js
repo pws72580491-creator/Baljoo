@@ -1,5 +1,5 @@
 // ══════════════════════════════════════════════════════
-// firebase.js — Firebase Realtime DB 백업/복원
+// firebase.js — Firebase Realtime DB 백업/복원 + 자동 동기화
 // ══════════════════════════════════════════════════════
 
 // Firebase SDK (ESM → CDN global 방식으로 변경, module 충돌 방지)
@@ -48,6 +48,28 @@ function normalizeOrders(arr) {
   return arr;
 }
 
+// ── 자동 동기화 (save() 후 debounce 3초) ──
+let _autoSyncTimer = null;
+function scheduleAutoSync() {
+  clearTimeout(_autoSyncTimer);
+  _autoSyncTimer = setTimeout(async () => {
+    try {
+      const { ref, set } = await import(FB_DB_URL);
+      const db = await getDb();
+      await set(ref(db, 'baljoo/backup'), {
+        orders,
+        backedAt: new Date().toISOString(),
+        count:    orders.length,
+        version:  document.title.match(/v[\d.]+/)?.[0] || 'unknown'
+      });
+      setFbStatus(`☁️ 자동 동기화 완료 (${new Date().toLocaleTimeString('ko-KR')})`, 'var(--success)');
+    } catch (e) {
+      console.warn('[firebase] 자동 동기화 실패:', e.message);
+      setFbStatus('⚠️ 동기화 실패 (수동 백업 권장)', '#d69e2e');
+    }
+  }, 3000);
+}
+
 // ── 백업: 로컬 → Firebase ──
 window.fbBackup = async function() {
   try {
@@ -58,7 +80,7 @@ window.fbBackup = async function() {
       orders,
       backedAt: new Date().toISOString(),
       count:    orders.length,
-      version:  '3.2.13'
+      version:  document.title.match(/v[\d.]+/)?.[0] || 'unknown'
     };
     await set(ref(db, 'baljoo/backup'), data);
     setFbStatus(`✅ 백업 완료 — ${orders.length}건 (${new Date().toLocaleString('ko-KR')})`, 'var(--success)');
@@ -89,7 +111,10 @@ window.fbRestore = async function() {
     }
     // 하위 호환 필드 정규화 후 저장
     orders = normalizeOrders(data.orders);
+    // 복원 중 자동 동기화 방지 (복원 데이터가 즉시 덮어써지는 것 방지)
+    clearTimeout(_autoSyncTimer);
     save();
+    clearTimeout(_autoSyncTimer);  // save()가 scheduleAutoSync 예약한 것 취소
     renderAll();
     const backedAt = data.backedAt ? new Date(data.backedAt).toLocaleString('ko-KR') : '알 수 없음';
     setFbStatus(`✅ 복원 완료 — ${orders.length}건 (백업일: ${backedAt})`, 'var(--success)');
