@@ -98,7 +98,7 @@ function orderCard(o, showDel) {
       <span class="oc-doc">${o.docNo || ''}</span>
       ${badge(o.category)}
       ${returnDocBadge}
-      ${statusBadge(isReturnDoc ? '' : (o.deliveryStatus || 'pending'))}
+      ${isReturnDoc ? '' : statusBadge(o.deliveryStatus || 'pending')}
       ${delBtn}
     </div>
     <div class="oc-bottom">
@@ -142,15 +142,19 @@ function renderStats() {
   const partial   = orders.filter(o => o.deliveryStatus === 'partial');
   const pending   = orders.filter(o => !o.deliveryStatus || o.deliveryStatus === 'pending');
 
+  // 디버그: 반품 건 확인
+  console.log('[통계] 전체 orders:', orders.length, '건');
+  console.log('[통계] returned 건수:', returned.length, returned.map(o => ({ ship: o.ship, status: o.deliveryStatus, isReturn: o.isReturn, total: o.total, returnAmount: o.returnAmount })));
+
   const deliveredAmt = delivered.reduce((s, o) => s + (o.total || 0), 0);
   // 반품서(isReturn): total이 이미 음수이므로 Math.abs 사용; 수동반품: returnAmount는 양수
   const returnedAmt  = returned.reduce((s, o) => s + (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount || Math.abs(o.total) || 0)), 0);
   const partialAmt   = partial.reduce((s, o) => s + (o.partialAmount || 0), 0);
   const netAmt       = deliveredAmt + partialAmt - returnedAmt;
 
-  // ── 일별 납품 집계 (납품완료 + 부분납품, 실제 납품일 기준) ──
+  // ── 일별 납품 집계 (납품완료 + 부분납품 + 반품, 실제 납품일 기준) ──
   const byDay = {};
-  [...delivered, ...partial].forEach(o => {
+  [...delivered, ...partial, ...returned].forEach(o => {
     const d = o.deliveredDate || o.date || '미상';
     if (!byDay[d]) byDay[d] = { date: d, cnt: 0, amt: 0, boxes: 0, orders: [] };
     byDay[d].cnt++;
@@ -168,7 +172,7 @@ function renderStats() {
     byShip[o.ship].total    += (o.total || 0);
     byShip[o.ship].net      += calcNetDelivery(o);
     if (o.deliveryStatus === 'returned')
-      byShip[o.ship].returned += (o.returnAmount || o.total || 0);
+      byShip[o.ship].returned += (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount || Math.abs(o.total) || 0));
   });
   const ships = Object.values(byShip).sort((a, b) => b.net - a.net);
 
@@ -224,14 +228,15 @@ function renderStats() {
             <div onclick="openModal('${o.id}')"
                  style="display:flex;align-items:center;justify-content:space-between;
                         padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;
-                        background:${o.deliveryStatus==='partial'?'#fffbeb':'#fff'};">
+                        background:${o.isReturn ? '#fff0f0' : o.deliveryStatus==='partial'?'#fffbeb':'#fff'};
+                        border-left:${o.isReturn ? '3px solid #dc2626' : 'none'};">
               <div style="flex:1;min-width:0;">
                 <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${o.ship}</div>
                 <div style="font-size:11px;color:var(--muted);margin-top:2px;">${o.docNo||'-'} ${o.items?.[0]?.desc?'· '+o.items[0].desc:''}</div>
               </div>
               <div style="text-align:right;flex-shrink:0;margin-left:8px;">
-                <div style="font-size:13px;font-weight:700;">${fmt(calcNetDelivery(o))}</div>
-                <div style="font-size:10px;margin-top:2px;">${statusBadge(o.deliveryStatus)}</div>
+                <div style="font-size:13px;font-weight:700;color:${o.isReturn ? '#dc2626' : 'inherit'};">${fmt(calcNetDelivery(o))}</div>
+                <div style="font-size:10px;margin-top:2px;">${o.isReturn ? '<span class="badge b-returned">↩️ 반품서</span>' : statusBadge(o.deliveryStatus)}</div>
               </div>
             </div>
           `).join('')}
@@ -261,8 +266,8 @@ function renderStats() {
     <div class="sdiv">반품 내역 (${returned.length}건)</div>
     ${returned.map(o => `
       <div class="order-card status-returned" onclick="openModal('${o.id}')">
-        <div class="oc-top"><div class="oc-ship">${o.ship}</div><div class="oc-amount" style="color:var(--danger);">-${fmt(o.returnAmount || o.total)}</div></div>
-        <div class="oc-meta"><span class="oc-doc">${o.docNo || ''}</span>${statusBadge('returned')}</div>
+        <div class="oc-top"><div class="oc-ship">${o.ship}</div><div class="oc-amount" style="color:var(--danger);">-${fmt(o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount || Math.abs(o.total) || 0))}</div></div>
+        <div class="oc-meta"><span class="oc-doc">${o.docNo || ''}</span>${o.isReturn ? '<span class="badge b-returned">↩️ 반품서</span>' : statusBadge('returned')}</div>
         <div class="oc-bottom"><div class="oc-item">${o.deliveryNote || '-'}</div><div class="oc-dates">${o.date}</div></div>
       </div>
     `).join('')}` : ''}
