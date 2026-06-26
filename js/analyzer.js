@@ -281,8 +281,7 @@ function renderPreview() {
             <td style="font-family:monospace;font-weight:700;${(i.amount||0)<0?'color:#dc2626;':''}">${i.amount ? '\u20a9' + Number(i.amount).toLocaleString() : '-'}</td>
           </tr>`).join('')}
           <tr class="total-row">
-            <td colspan="2">TOTAL</td>
-            <td>${formatBoxCount(calcOrderBoxes(o))}</td>
+            <td colspan="3">TOTAL</td>
             <td colspan="2" style="${isReturnDoc?'color:#dc2626;':''}">${fmt(o.total)}</td>
           </tr>
         </tbody>

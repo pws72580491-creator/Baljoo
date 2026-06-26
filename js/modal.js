@@ -39,8 +39,7 @@ function openModal(id) {
           <td style="font-family:monospace;font-weight:700;">${i.amount ? '₩' + Number(i.amount).toLocaleString() : '-'}</td>
         </tr>`).join('')}
         <tr class="tr">
-          <td colspan="3">TOTAL</td>
-          <td style="font-family:monospace;">${formatBoxCount(boxes)}</td>
+          <td colspan="4">TOTAL</td>
           <td colspan="2" style="font-family:monospace;">${fmt(o.total)}</td>
         </tr>
       </tbody>

@@ -57,10 +57,10 @@ function calcItemBoxCount(item) {
   // boxes 필드가 직접 있으면 우선 사용
   if (item.boxes != null && Number(item.boxes) > 0) return Number(item.boxes);
 
-  // 생메추리알 특별 처리: 40doz = 1박스 고정
+  // 생메추리알 특별 처리: 40doz = 1박스 고정 (반품서 음수 qty도 처리)
   if (_isQuailEgg(item)) {
     const qty = Number(item.qty) || 0;
-    if (qty > 0) {
+    if (qty !== 0) {
       const u = String(item.unit || '').toLowerCase().replace(/[^a-z]/g, '');
       const isDoz = u.startsWith('doz') || u === 'dozen';
       return qty / (isDoz ? 40 : 480);
