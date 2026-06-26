@@ -40,7 +40,7 @@ function openModal(id) {
         </tr>`).join('')}
         <tr class="tr">
           <td colspan="4">TOTAL</td>
-          <td colspan="2" style="font-family:monospace;">${fmt(o.total)}</td>
+          <td style="font-family:monospace;">${fmt(o.total)}</td>
         </tr>
       </tbody>
     </table>
@@ -204,7 +204,8 @@ function openEditModal(id) {
   const o = orders.find(x => x.id === id);
   if (!o) return;
   _editId = id;
-  closeModalBtn();   // 상세 모달 닫기
+  // 상세 모달 닫기 (history.back() 없이 직접 닫아야 popstate 충돌 방지)
+  document.getElementById('modalOv').classList.remove('open');
 
   // 품목 행 렌더
   function itemRow(item, idx) {
@@ -273,8 +274,11 @@ function openEditModal(id) {
     </div>
   `;
 
-  document.getElementById('editModalOv').classList.add('open');
-  history.pushState({ modal: 'edit' }, '');
+  // setTimeout으로 popstate 이벤트가 먼저 처리된 후 editModal 열기
+  setTimeout(() => {
+    document.getElementById('editModalOv').classList.add('open');
+    history.pushState({ modal: 'edit' }, '');
+  }, 50);
 
   // 스와이프 닫기
   const em = document.getElementById('editModal');
