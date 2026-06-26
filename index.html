@@ -2,7 +2,7 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.2.45
+  Version : v3.2.46
   Released: 2026-06-15
   ────────────────────────────────────────
   CHANGELOG
@@ -49,7 +49,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<title>이른아침 · 발주관리 v3.2.45</title>
+<title>이른아침 · 발주관리 v3.2.46</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -473,7 +473,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.45</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.46</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
@@ -546,6 +546,17 @@ body{
           <button class="btn btn-g btn-sm" onclick="fbRestore()" style="flex:1;padding:9px 0;">📥 복원</button>
         </div>
         <div id="fb-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;"></div>
+      </div>
+
+      <!-- 반품 진단 (임시) -->
+      <div class="sdiv" style="margin-top:16px;">🔍 반품 진단</div>
+      <div class="form-card" style="padding:13px 14px;">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">반품 관련 데이터 상태를 확인하고 수정합니다</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <button class="btn btn-g btn-sm" onclick="diagReturns()" style="flex:1;padding:9px 0;">🔍 반품 진단</button>
+          <button class="btn btn-p btn-sm" onclick="fixReturns()" style="flex:1;padding:9px 0;">🔧 반품 수정</button>
+        </div>
+        <div id="diag-status" style="font-size:11px;color:var(--muted);margin-top:8px;white-space:pre-wrap;word-break:break-all;"></div>
       </div>
     </div>
 

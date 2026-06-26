@@ -1,3 +1,16 @@
+## v3.2.46 · 2026-06-27
+
+### 🐛 버그수정 (핵심)
+- **반품서 `deliveryStatus` 불일치 근본 수정** (storage.js, firebase.js)
+  - 원인: `isReturn=true`로 저장된 반품서가 앱 재시작 또는 Firebase 복원 후 `deliveryStatus`가 `'returned'` 이외 값으로 바뀌는 케이스 존재
+  - 수정: `load()` 및 `normalizeOrders()` 마이그레이션에 `isReturn === true → deliveryStatus = 'returned'` 강제 보정 추가
+  - 결과: 대시보드 반품처리 건수 및 통계 탭 반품차감 금액이 정상 집계됨
+- **반품 진단/수정 도구 추가** (대시보드 하단)
+  - `🔍 반품 진단`: `isReturn=true`이지만 `deliveryStatus !== 'returned'`인 불일치 레코드를 화면에 표시
+  - `🔧 반품 수정`: 불일치 레코드를 일괄 수정 후 저장
+
+---
+
 # 이른아침 · 발주관리 PWA — 변경 이력
 
 ---
