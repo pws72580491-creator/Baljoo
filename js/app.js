@@ -184,7 +184,41 @@ function init() {
   renderAll();
   loadApiKey();
   document.getElementById('tabInk').style.left = '0%';
+
+  // ── 더블탭/더블클릭 → 텍스트·비밀번호 input 전체선택 ──
+  // 정적 input (index.html에 이미 존재하는 것)
+  document.querySelectorAll('input[type="text"], input[type="password"], input:not([type])')
+    .forEach(el => attachSelectAll(el));
+
+  // 동적으로 추가되는 input (모달 등) — document 전체에 위임
+  document.addEventListener('dblclick', e => {
+    const el = e.target;
+    if (el.tagName === 'INPUT' &&
+        (el.type === 'text' || el.type === 'password' || el.type === '')) {
+      el.select();
+    }
+  });
+  // 모바일 더블탭 (touchend 2회 300ms 이내)
+  let _lastTap = 0, _lastEl = null;
+  document.addEventListener('touchend', e => {
+    const el = e.target;
+    if (el.tagName !== 'INPUT') return;
+    if (el.type !== 'text' && el.type !== 'password' && el.type !== '') return;
+    const now = Date.now();
+    if (_lastEl === el && now - _lastTap < 300) {
+      e.preventDefault();
+      el.select();
+      _lastTap = 0; _lastEl = null;
+    } else {
+      _lastTap = now; _lastEl = el;
+    }
+  }, { passive: false });
 }
+
+function attachSelectAll(el) {
+  el.addEventListener('dblclick', () => el.select());
+}
+
 init();
 
 // ── Service Worker 등록 ──
