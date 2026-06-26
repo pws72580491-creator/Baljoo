@@ -33,6 +33,8 @@ function load() {
         if (o.returnAmount === undefined) o.returnAmount  = 0;
         if (!o.deliveryNote)            o.deliveryNote   = '';
         if (o.category === 'return')    o.deliveryStatus = 'returned';
+        // isReturn=true인 반품서는 항상 deliveryStatus='returned' 보장
+        if (o.isReturn === true && o.deliveryStatus !== 'returned') o.deliveryStatus = 'returned';
         // 실 납품일 필드 없는 구버전 데이터 보정: 이미 납품/부분납품 상태면 발주일로 대체
         if (o.deliveredDate === undefined) {
           o.deliveredDate = (o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial') ? (o.date || '') : '';

@@ -296,3 +296,40 @@ const BG = (() => {
 
   return { start, end };
 })();
+
+// ── 반품 진단 / 수정 (임시) ──
+function diagReturns() {
+  const el = document.getElementById('diag-status');
+  const total = orders.length;
+  const isReturnTrue = orders.filter(o => o.isReturn === true);
+  const statusReturned = orders.filter(o => o.deliveryStatus === 'returned');
+  const mismatch = orders.filter(o => o.isReturn === true && o.deliveryStatus !== 'returned');
+
+  let msg = `전체: ${total}건\n`;
+  msg += `isReturn=true: ${isReturnTrue.length}건\n`;
+  msg += `deliveryStatus='returned': ${statusReturned.length}건\n`;
+  msg += `⚠️ 불일치(isReturn=true이지만 status≠returned): ${mismatch.length}건\n`;
+  if (mismatch.length > 0) {
+    mismatch.forEach(o => {
+      msg += `  → [${o.id}] ${o.ship} | status=${o.deliveryStatus} | total=${o.total}\n`;
+    });
+  }
+  el.textContent = msg;
+  el.style.color = mismatch.length > 0 ? '#dc2626' : 'var(--success)';
+}
+
+function fixReturns() {
+  const el = document.getElementById('diag-status');
+  const mismatch = orders.filter(o => o.isReturn === true && o.deliveryStatus !== 'returned');
+  if (mismatch.length === 0) {
+    el.textContent = '✅ 수정할 항목 없음';
+    el.style.color = 'var(--success)';
+    return;
+  }
+  mismatch.forEach(o => { o.deliveryStatus = 'returned'; });
+  save();
+  renderAll();
+  el.textContent = `✅ ${mismatch.length}건 수정 완료 → deliveryStatus를 'returned'로 변경했습니다.`;
+  el.style.color = 'var(--success)';
+  toast(`🔧 반품 ${mismatch.length}건 상태 수정 완료`);
+}

@@ -41,6 +41,8 @@ function normalizeOrders(arr) {
     if (o.returnAmount === undefined) o.returnAmount   = 0;
     if (!o.deliveryNote)             o.deliveryNote    = '';
     if (o.category === 'return')     o.deliveryStatus  = 'returned';
+    // isReturn=true인 반품서는 항상 deliveryStatus='returned' 보장
+    if (o.isReturn === true && o.deliveryStatus !== 'returned') o.deliveryStatus = 'returned';
     if (o.deliveredDate === undefined) {
       o.deliveredDate = (o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial') ? (o.date || '') : '';
     }
