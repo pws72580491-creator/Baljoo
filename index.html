@@ -2,7 +2,7 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.2.31
+  Version : v3.2.34
   Released: 2026-06-15
   ────────────────────────────────────────
   CHANGELOG
@@ -49,7 +49,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<title>이른아침 · 발주관리 v3.2.31</title>
+<title>이른아침 · 발주관리 v3.2.34</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -471,7 +471,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.31</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.34</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
@@ -526,8 +526,14 @@ body{
         <div class="stat-card"><div class="sc-label">선명 수</div><div class="sc-val gold" id="s-ships">0</div><div class="sc-sub">척</div></div>
         <div class="stat-card"><div class="sc-label">납품 박스</div><div class="sc-val accent" id="s-boxes">0박스</div><div class="sc-sub">납품완료 기준</div></div>
       </div>
-      <div class="sdiv">최근 발주 내역</div>
+      <div class="sdiv">최근 납품·반품 내역</div>
       <div id="dash-list"></div>
+
+      <div class="sdiv" style="margin-top:16px;display:flex;align-items:center;justify-content:space-between;">
+        <span>날짜별 기록</span>
+        <button class="btn btn-g btn-sm" onclick="toggleDashByDate()" id="dash-bydate-btn">펼치기 ▾</button>
+      </div>
+      <div id="dash-bydate" style="display:none;"></div>
 
       <!-- Firebase 백업 -->
       <div class="sdiv" style="margin-top:16px;">☁️ Firebase 백업</div>
