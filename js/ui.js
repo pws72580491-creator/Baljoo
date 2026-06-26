@@ -466,7 +466,12 @@ function renderDeliveryStatus() {
   `;
 
   // ── 월 필터 적용 ──
-  const allDone = orders.filter(o => o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial');
+  // 납품완료/부분납품 + 반품서(isReturn) 포함 → 납품현황에서 반품 차감 표시
+  const allDone = orders.filter(o =>
+    o.deliveryStatus === 'delivered' ||
+    o.deliveryStatus === 'partial'   ||
+    o.isReturn === true
+  );
   const done = _delivMonth === 'all'
     ? allDone
     : allDone.filter(o => (o.deliveredDate || o.date || '').slice(0,7) === _delivMonth);
@@ -498,20 +503,25 @@ function renderDeliveryStatus() {
     if (!byDay[d]) byDay[d] = { date: d, orders: [], totalAmt: 0, totalBoxes: 0 };
     byDay[d].orders.push(o);
     byDay[d].totalAmt   += calcNetDelivery(o);
-    byDay[d].totalBoxes += calcOrderBoxes(o);
+    byDay[d].totalBoxes += o.isReturn ? -calcOrderBoxes(o) : calcOrderBoxes(o);
   });
 
   const dayList = Object.values(byDay).sort((a, b) => b.date.localeCompare(a.date));
 
-  // ── 합계 ──
+  // ── 합계 (납품/반품 분리) ──
+  const delivDone  = done.filter(o => !o.isReturn);
+  const returnDone = done.filter(o => !!o.isReturn);
   const grandAmt   = done.reduce((s, o) => s + calcNetDelivery(o), 0);
-  const grandBoxes = done.reduce((s, o) => s + calcOrderBoxes(o), 0);
+  const grandBoxes = delivDone.reduce((s, o) => s + calcOrderBoxes(o), 0)
+                   - returnDone.reduce((s, o) => s + calcOrderBoxes(o), 0);
+  const returnAmt  = returnDone.reduce((s, o) => s + Math.abs(calcNetDelivery(o)), 0);
+  const returnCount = returnDone.length;
 
   el.innerHTML = monthChipsHtml + monthTitleHtml + `
     <!-- 요약 바 -->
-    <div style="display:flex;gap:0;margin-bottom:14px;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);">
+    <div style="display:flex;gap:0;margin-bottom:${returnCount>0?'8px':'14px'};border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);">
       <div style="flex:1;background:var(--navy);color:#fff;padding:14px 16px;text-align:center;">
-        <div style="font-size:18px;font-weight:800;">${done.length}<span style="font-size:12px;font-weight:400;margin-left:2px;">건</span></div>
+        <div style="font-size:18px;font-weight:800;">${delivDone.length}<span style="font-size:12px;font-weight:400;margin-left:2px;">건</span></div>
         <div style="font-size:11px;opacity:.7;margin-top:2px;">납품완료</div>
       </div>
       <div style="flex:1;background:#1a3a6e;color:#fff;padding:14px 16px;text-align:center;">
@@ -523,6 +533,18 @@ function renderDeliveryStatus() {
         <div style="font-size:11px;opacity:.7;margin-top:2px;">납품금액</div>
       </div>
     </div>
+    ${returnCount > 0 ? `
+    <!-- 반품 요약 바 -->
+    <div style="display:flex;gap:0;margin-bottom:14px;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);border:2px solid #fca5a5;">
+      <div style="flex:1;background:#fff0f0;color:#dc2626;padding:10px 16px;text-align:center;">
+        <div style="font-size:14px;font-weight:800;">↩️ 반품 ${returnCount}건</div>
+        <div style="font-size:11px;opacity:.7;margin-top:2px;">반품서 포함</div>
+      </div>
+      <div style="flex:1;background:#fff0f0;color:#dc2626;padding:10px 16px;text-align:center;">
+        <div style="font-size:14px;font-weight:800;">-${fmt(returnAmt)}</div>
+        <div style="font-size:11px;opacity:.7;margin-top:2px;">반품금액</div>
+      </div>
+    </div>` : ''}
 
     <!-- 날짜별 카드 -->
     ${dayList.map(day => `
