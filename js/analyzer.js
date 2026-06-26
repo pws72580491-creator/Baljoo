@@ -197,23 +197,38 @@ async function pdfToImages(file) {
 }
 
 function renderPreview() {
-  document.getElementById('prev-cards').innerHTML = pendingOrders.map(o => {
-    const existing = orders.find(x => x.docNo && x.docNo === o.docNo);
-    const dupBadge = existing
+  document.getElementById('prev-cards').innerHTML = pendingOrders.map((o, idx) => {
+    // 중복 판별: docNo 우선, 없으면 ship+date 조합으로 체크
+    const existing = orders.find(x =>
+      (o.docNo && x.docNo && x.docNo === o.docNo) ||
+      (o.poNo  && x.poNo  && x.poNo  === o.poNo)  ||
+      (!o.docNo && !o.poNo && x.ship === o.ship && x.date === o.date)
+    );
+    const isDup = !!existing;
+    const dupBadge = isDup
       ? `<span class="badge" style="background:#fef3c7;color:#92400e;margin-left:4px;">⚠️ 중복</span>`
       : `<span class="badge" style="background:#dcfce7;color:#15803d;margin-left:4px;">신규</span>`;
+
+    // 중복이면 카드 테두리·배경 강조
+    const cardStyle = isDup
+      ? 'border:2px solid #f59e0b;background:#fffbeb;'
+      : '';
+
     return `
-    <div class="prev-card">
+    <div class="prev-card" id="pcard-${idx}" style="${cardStyle}">
       <div class="prev-head">
         <div class="prev-ship">${o.ship || '선명 미확인'}</div>
-        ${badge(o.category)}${dupBadge}
+        <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+          ${badge(o.category)}${dupBadge}
+          <button onclick="removePending(${idx})" style="background:#fee2e2;border:none;border-radius:6px;color:#dc2626;font-size:12px;font-weight:700;padding:3px 8px;cursor:pointer;flex-shrink:0;">✕ 제거</button>
+        </div>
       </div>
       <div class="prev-meta">
         <div><span class="pm-label">서류번호</span>${o.docNo || '-'}</div>
         <div><span class="pm-label">발주일자</span>${o.date || '-'}</div>
         <div><span class="pm-label">납기일자</span>${o.delivery || '-'}</div>
         <div><span class="pm-label">총액</span><strong>${fmt(o.total)}</strong></div>
-        ${existing ? `<div style="font-size:11px;color:#92400e;grid-column:1/-1;">기존 데이터를 최신 내용으로 업데이트합니다</div>` : ''}
+        ${isDup ? `<div style="font-size:11px;color:#92400e;background:#fde68a;border-radius:6px;padding:5px 8px;grid-column:1/-1;">⚠️ 이미 등록된 발주서입니다. 제거하거나 저장 시 기존 데이터를 덮어씁니다.</div>` : ''}
       </div>
       <table class="prev-table">
         <thead><tr><th>품목</th><th>수량</th><th>박스</th><th>단가</th><th>금액</th></tr></thead>
@@ -234,6 +249,29 @@ function renderPreview() {
       </table>
     </div>`;
   }).join('');
+
+  // 중복 건수 상태 메시지 업데이트
+  const dupCnt = pendingOrders.filter(o =>
+    orders.find(x =>
+      (o.docNo && x.docNo && x.docNo === o.docNo) ||
+      (o.poNo  && x.poNo  && x.poNo  === o.poNo)  ||
+      (!o.docNo && !o.poNo && x.ship === o.ship && x.date === o.date)
+    )
+  ).length;
+  if (dupCnt > 0) {
+    setStatus(`📋 ${pendingOrders.length}건 확인 중 — ⚠️ 중복 ${dupCnt}건 포함. 제거 후 저장하세요.`);
+  }
+}
+
+function removePending(idx) {
+  pendingOrders.splice(idx, 1);
+  if (pendingOrders.length === 0) {
+    document.getElementById('prev-section').style.display = 'none';
+    setStatus('분석 결과가 없습니다. 파일을 다시 업로드해주세요.');
+  } else {
+    renderPreview();
+    setStatus(`📋 ${pendingOrders.length}건 확인 중. 확인 후 저장하세요.`);
+  }
 }
 
 function saveAll() {

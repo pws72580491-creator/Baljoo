@@ -44,14 +44,18 @@ function renderAll() {
   document.getElementById('ds-pending-amt').textContent   = fmt(pendingAmt);
   document.getElementById('ds-net-amt').textContent       = fmt(netAmt);
 
-  // 대시보드 최근 목록 — 납품완료만 표시
+  // 대시보드 최근 목록 — 납품완료 + 반품 표시
   const recent = [...orders]
-    .filter(o => o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial')
+    .filter(o => o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial' || o.deliveryStatus === 'returned')
     .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 8);
+    .slice(0, 10);
   document.getElementById('dash-list').innerHTML = recent.length
     ? recent.map(o => orderCard(o, false)).join('')
     : '<div class="empty"><div class="empty-icon">📦</div><div class="empty-t">납품완료 내역 없음</div></div>';
+
+  // 날짜별 기록 (펼쳐진 상태면 즉시 재렌더)
+  const bydateEl = document.getElementById('dash-bydate');
+  if (bydateEl && bydateEl.style.display !== 'none') renderDashByDate();
 
   // 발주 목록
   const list = filtered();
@@ -405,4 +409,89 @@ function renderDeliveryStatus() {
       </div>
     `).join('')}
   `;
+}
+
+// ── 대시보드 날짜별 기록 ──
+function toggleDashByDate() {
+  const el  = document.getElementById('dash-bydate');
+  const btn = document.getElementById('dash-bydate-btn');
+  const open = el.style.display === 'none';
+  el.style.display = open ? 'block' : 'none';
+  btn.textContent  = open ? '접기 ▴' : '펼치기 ▾';
+  if (open) renderDashByDate();
+}
+
+function renderDashByDate() {
+  const el = document.getElementById('dash-bydate');
+  if (!el) return;
+
+  // 날짜별 그룹핑 (납품완료 + 반품 전체)
+  const target = orders.filter(o =>
+    o.deliveryStatus === 'delivered' ||
+    o.deliveryStatus === 'partial'   ||
+    o.deliveryStatus === 'returned'
+  );
+
+  const byDay = {};
+  target.forEach(o => {
+    const d = o.date || '날짜없음';
+    if (!byDay[d]) byDay[d] = { date: d, orders: [], amt: 0, boxes: 0 };
+    byDay[d].orders.push(o);
+    byDay[d].amt   += calcNetDelivery(o);
+    byDay[d].boxes += calcOrderBoxes(o);
+  });
+
+  const dayList = Object.values(byDay).sort((a, b) => b.date.localeCompare(a.date));
+
+  if (!dayList.length) {
+    el.innerHTML = '<div class="empty" style="padding:20px;"><div class="empty-icon">📅</div><div class="empty-t">기록 없음</div></div>';
+    return;
+  }
+
+  el.innerHTML = dayList.map(day => {
+    const dateObj = new Date(day.date);
+    const weekDay = ['일','월','화','수','목','금','토'][dateObj.getDay()];
+    const dateStr = `${dateObj.getMonth()+1}월 ${dateObj.getDate()}일 (${weekDay})`;
+
+    return `
+    <div style="margin-bottom:12px;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+      <div style="background:var(--navy);color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;"
+           onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
+        <span style="font-size:13px;font-weight:700;">📅 ${dateStr} · ${day.orders.length}건</span>
+        <span style="font-size:12px;opacity:.85;">${formatBoxCount(day.boxes)} · ${fmt(day.amt)}</span>
+      </div>
+      <div>
+        ${day.orders.map(o => {
+          const isReturn  = o.deliveryStatus === 'returned';
+          const isPartial = o.deliveryStatus === 'partial';
+          const statusColor = isReturn ? '#fef2f2' : isPartial ? '#fffbeb' : '#f0fdf4';
+          const statusText  = isReturn ? '반품' : isPartial ? '부분납품' : '납품완료';
+          const statusCol   = isReturn ? '#dc2626' : isPartial ? '#d97706' : '#16a34a';
+          return `
+          <div style="padding:10px 14px;border-top:1px solid var(--border);background:${statusColor};cursor:pointer;"
+               onclick="openModal('${o.id}')">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+              <div>
+                <div style="font-size:13px;font-weight:700;color:var(--navy);">${o.ship}</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px;">${o.docNo||''}</div>
+                ${(o.items||[]).map(i => {
+                  const b = calcItemBoxCount(i);
+                  return `<div style="font-size:11px;color:#555;margin-top:3px;">${(i.desc||'').slice(0,22)} · ${i.qty}${i.unit}${b ? ' · '+formatBoxCount(b) : ''}</div>`;
+                }).join('')}
+              </div>
+              <div style="text-align:right;flex-shrink:0;margin-left:8px;">
+                <div style="font-size:13px;font-weight:700;color:${statusCol};">${fmt(calcNetDelivery(o))}</div>
+                <div style="font-size:10px;color:${statusCol};margin-top:3px;font-weight:600;">${statusText}</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px;">${formatBoxCount(calcOrderBoxes(o))}</div>
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+        <div style="padding:8px 14px;background:#f8fafc;display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--navy);border-top:1px solid var(--border);">
+          <span>소계 ${day.orders.length}건</span>
+          <span>${formatBoxCount(day.boxes)} · ${fmt(day.amt)}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
 }
