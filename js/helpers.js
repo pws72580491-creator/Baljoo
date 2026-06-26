@@ -57,20 +57,24 @@ function calcItemBoxCount(item) {
   // boxes 필드가 직접 있으면 우선 사용
   if (item.boxes != null && Number(item.boxes) > 0) return Number(item.boxes);
 
-  // 생메추리알 특별 처리: 40doz = 1박스 고정 (반품서 음수 qty도 처리)
+  // 단위가 box/ctn/case/carton이면 qty = 박스 수 (1:1) — 생메추리 포함 모든 품목
+  const unitNorm = String(item.unit || '').toLowerCase().replace(/[^a-z]/g, '');
+  const isBoxUnit = unitNorm === 'box' || unitNorm === 'ctn' || unitNorm === 'case' || unitNorm === 'carton' || unitNorm === 'ct';
+  if (isBoxUnit) {
+    return Number(item.qty) || 0;
+  }
+
+  // 생메추리알 특별 처리: pcs → 480pcs=1박스 / doz → 40doz=1박스 (반품서 음수 qty도 처리)
   if (_isQuailEgg(item)) {
     const qty = Number(item.qty) || 0;
     if (qty !== 0) {
-      const u = String(item.unit || '').toLowerCase().replace(/[^a-z]/g, '');
+      const u = unitNorm;
       const isDoz = u.startsWith('doz') || u === 'dozen';
       return qty / (isDoz ? 40 : 480);
     }
   }
 
   // 일반 품목: desc에서 "NNN PCS/BOX" 또는 "NNN DOZ/BOX" 패턴 파싱
-  // 단, 단위가 이미 box/ctn/case이면 qty = 박스 수 (1:1) → desc 패턴 무시
-  const unitNorm = String(item.unit || '').toLowerCase().replace(/[^a-z]/g, '');
-  const isBoxUnit = unitNorm === 'box' || unitNorm === 'ctn' || unitNorm === 'case' || unitNorm === 'carton' || unitNorm === 'ct';
   if (!isBoxUnit && item.desc) {
     const mPcs = String(item.desc).match(/(\d+)\s*(?:PCS|EA)[\s\/]*(?:BOX|CTN|CS|CASE)/i);
     if (mPcs) {
