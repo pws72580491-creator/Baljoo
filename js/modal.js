@@ -29,11 +29,10 @@ function openModal(id) {
 
     <div class="sdiv" style="margin-top:0;">품목 상세</div>
     <table class="items-tbl">
-      <thead><tr><th>품목</th><th>CODE</th><th>수량</th><th>박스</th><th>단가</th><th>금액</th></tr></thead>
+      <thead><tr><th>품목</th><th>수량</th><th>박스</th><th>단가</th><th>금액</th></tr></thead>
       <tbody>
         ${o.items.map(i => `<tr>
           <td>${i.desc}</td>
-          <td style="font-family:monospace;">${i.code || '-'}</td>
           <td style="font-family:monospace;">${fmtQ(i)}</td>
           <td style="font-family:monospace;">${formatBoxCount(calcItemBoxCount(i))}</td>
           <td style="font-family:monospace;">${i.price ? '₩' + Number(i.price).toLocaleString() : '-'}</td>

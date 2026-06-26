@@ -44,11 +44,14 @@ function renderAll() {
   document.getElementById('ds-pending-amt').textContent   = fmt(pendingAmt);
   document.getElementById('ds-net-amt').textContent       = fmt(netAmt);
 
-  // 대시보드 최근 목록
-  const recent = [...orders].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
+  // 대시보드 최근 목록 — 납품완료만 표시
+  const recent = [...orders]
+    .filter(o => o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial')
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 8);
   document.getElementById('dash-list').innerHTML = recent.length
     ? recent.map(o => orderCard(o, false)).join('')
-    : '<div class="empty"><div class="empty-icon">📭</div><div class="empty-t">발주 내역 없음</div></div>';
+    : '<div class="empty"><div class="empty-icon">📦</div><div class="empty-t">납품완료 내역 없음</div></div>';
 
   // 발주 목록
   const list = filtered();
