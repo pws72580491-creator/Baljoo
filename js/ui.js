@@ -42,6 +42,7 @@ function renderAll() {
   document.getElementById('ds-pending-cnt').textContent   = pending.length + partial.length;
   document.getElementById('ds-delivered-amt').textContent = fmt(deliveredAmt);
   document.getElementById('ds-returned-amt').textContent  = returned.length ? '-' + fmt(returnedAmt) : fmt(0);
+  document.getElementById('ds-returned-amt').style.color = returned.length ? '#f87171' : '';
   document.getElementById('ds-pending-amt').textContent   = fmt(pendingAmt);
   document.getElementById('ds-net-amt').textContent       = fmt(netAmt);
 
@@ -381,8 +382,13 @@ function renderDeliveryStatus() {
             </tr>
           </thead>
           <tbody>
-            ${day.orders.map((o, i) => `
-            <tr style="border-top:1px solid var(--border);cursor:pointer;background:${o.deliveryStatus==='partial'?'#fffbeb':'#fff'};"
+            ${day.orders.map((o, i) => {
+              const isReturnDoc = !!o.isReturn;
+              const rowBg  = isReturnDoc ? '#fff0f0' : o.deliveryStatus==='partial' ? '#fffbeb' : '#fff';
+              const rowBdl = isReturnDoc ? 'border-left:3px solid #dc2626;' : '';
+              const amtCol = isReturnDoc ? '#dc2626' : 'var(--success)';
+              return `
+            <tr style="border-top:1px solid var(--border);cursor:pointer;background:${rowBg};${rowBdl}"
                 onclick="openModal('${o.id}')">
               <td style="padding:10px 14px;">
                 <div style="font-size:13px;font-weight:600;color:var(--navy);
@@ -392,20 +398,22 @@ function renderDeliveryStatus() {
                   const boxes = calcItemBoxCount(item);
                   const boxStr = boxes ? ` · ${formatBoxCount(boxes)}` : '';
                   const desc = (item.desc||'').length > 18 ? item.desc.slice(0,18)+'…' : (item.desc||'');
+                  const qtyCol = (item.qty||0) < 0 ? 'color:#dc2626;' : '';
                   return `<div style="font-size:10px;color:var(--muted);margin-top:3px;display:flex;gap:4px;align-items:center;">
                     <span style="color:var(--navy);font-weight:600;">${desc}</span>
-                    <span>${item.qty}${item.unit}${boxStr}</span>
+                    <span style="${qtyCol}">${item.qty}${item.unit}${boxStr}</span>
                   </div>`;
                 }).join('')}
               </td>
-              <td style="padding:10px;text-align:right;font-size:13px;font-weight:700;color:#1a3a6e;white-space:nowrap;">
+              <td style="padding:10px;text-align:right;font-size:13px;font-weight:700;color:${isReturnDoc?'#dc2626':'#1a3a6e'};white-space:nowrap;">
                 ${formatBoxCount(calcOrderBoxes(o))}
               </td>
               <td style="padding:10px 14px;text-align:right;white-space:nowrap;">
-                <div style="font-size:13px;font-weight:700;color:var(--success);">${fmt(calcNetDelivery(o))}</div>
-                <div style="font-size:10px;margin-top:2px;">${statusBadge(o.deliveryStatus)}</div>
+                <div style="font-size:13px;font-weight:700;color:${amtCol};">${fmt(calcNetDelivery(o))}</div>
+                <div style="font-size:10px;margin-top:2px;">${isReturnDoc ? '<span class="badge b-returned">↩️ 반품서</span>' : statusBadge(o.deliveryStatus)}</div>
               </td>
-            </tr>`).join('')}
+            </tr>`;
+            }).join('')}
           </tbody>
           <!-- 일별 소계 -->
           <tfoot>
@@ -472,13 +480,17 @@ function renderDashByDate() {
       </div>
       <div>
         ${day.orders.map(o => {
-          const isReturn  = o.deliveryStatus === 'returned';
-          const isPartial = o.deliveryStatus === 'partial';
-          const statusColor = isReturn ? '#fef2f2' : isPartial ? '#fffbeb' : '#f0fdf4';
-          const statusText  = isReturn ? '반품' : isPartial ? '부분납품' : '납품완료';
+          const isReturnDoc = !!o.isReturn;
+          const isReturn    = o.deliveryStatus === 'returned';
+          const isPartial   = o.deliveryStatus === 'partial';
+          // 반품서(업로드) → 빨간 배경+테두리 / 수동반품 → 연분홍 / 부분납품 → 노랑 / 납품완료 → 연초록
+          const statusColor = isReturnDoc ? '#fff0f0' : isReturn ? '#fef2f2' : isPartial ? '#fffbeb' : '#f0fdf4';
+          const borderLeft  = isReturnDoc ? '3px solid #dc2626' : 'none';
+          const statusText  = isReturnDoc ? '↩️ 반품서' : isReturn ? '반품' : isPartial ? '부분납품' : '납품완료';
           const statusCol   = isReturn ? '#dc2626' : isPartial ? '#d97706' : '#16a34a';
+          const amtCol      = isReturnDoc ? '#dc2626' : statusCol;
           return `
-          <div style="padding:10px 14px;border-top:1px solid var(--border);background:${statusColor};cursor:pointer;"
+          <div style="padding:10px 14px;border-top:1px solid var(--border);background:${statusColor};border-left:${borderLeft};cursor:pointer;"
                onclick="openModal('${o.id}')">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;">
               <div>
@@ -486,12 +498,13 @@ function renderDashByDate() {
                 <div style="font-size:10px;color:var(--muted);margin-top:2px;">${o.docNo||''}</div>
                 ${(o.items||[]).map(i => {
                   const b = calcItemBoxCount(i);
-                  return `<div style="font-size:11px;color:#555;margin-top:3px;">${(i.desc||'').slice(0,22)} · ${i.qty}${i.unit}${b ? ' · '+formatBoxCount(b) : ''}</div>`;
+                  const qtyCol = (i.qty||0) < 0 ? 'color:#dc2626;' : '';
+                  return `<div style="font-size:11px;color:#555;margin-top:3px;${qtyCol}">${(i.desc||'').slice(0,22)} · ${i.qty}${i.unit}${b ? ' · '+formatBoxCount(b) : ''}</div>`;
                 }).join('')}
               </div>
               <div style="text-align:right;flex-shrink:0;margin-left:8px;">
-                <div style="font-size:13px;font-weight:700;color:${statusCol};">${fmt(calcNetDelivery(o))}</div>
-                <div style="font-size:10px;color:${statusCol};margin-top:3px;font-weight:600;">${statusText}</div>
+                <div style="font-size:13px;font-weight:700;color:${amtCol};">${fmt(calcNetDelivery(o))}</div>
+                <div style="font-size:10px;color:${amtCol};margin-top:3px;font-weight:600;">${statusText}</div>
                 <div style="font-size:10px;color:var(--muted);margin-top:2px;">${formatBoxCount(calcOrderBoxes(o))}</div>
               </div>
             </div>
