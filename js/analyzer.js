@@ -71,9 +71,12 @@ async function handleFiles(files) {
 
 async function analyzeFile(file) {
   try {
-    const prompt = `이 발주서를 분석해 아래 JSON 형식으로만 응답하세요. 코드블록 없이 순수 JSON만 출력:
-{"docNo":"","date":"YYYY-MM-DD","delivery":"YYYY-MM-DD","ship":"","poNo":"","category":"cruise","items":[{"desc":"","code":"","qty":0,"unit":"pcs","price":0,"amount":0}],"total":0}
-규칙: date/delivery=YYYY-MM-DD, category=cruise또는cargo
+    const prompt = `이 문서를 분석해 아래 JSON 형식으로만 응답하세요. 코드블록 없이 순수 JSON만 출력:
+{"docNo":"","date":"YYYY-MM-DD","delivery":"YYYY-MM-DD","ship":"","poNo":"","category":"cruise","isReturn":false,"items":[{"desc":"","code":"","qty":0,"unit":"pcs","price":0,"amount":0}],"total":0}
+규칙:
+- date/delivery=YYYY-MM-DD, category=cruise또는cargo
+- isReturn: 문서가 반품서(RETURN, CREDIT NOTE, 반품, 수량/금액이 음수)이면 true, 일반 발주서이면 false
+- 반품서인 경우 qty와 amount, total은 반드시 음수(-)로 표기
 unit 선택 기준(중요):
 - 수량 단위가 DOZ·DOZEN·다스 → unit="doz" (절대 cs/ctn으로 쓰지 말것)
 - 수량 단위가 CS·CTN·BOX·CASE·박스 → unit="ctn"
@@ -118,14 +121,35 @@ unit 선택 기준(중요):
         throw new Error('AI 응답을 파싱할 수 없습니다. 다시 시도해주세요. (' + parseErr.message + ')');
       }
     }
-    parsed.id           = parsed.docNo || ('UP-' + Date.now());
-    parsed.source       = 'upload';
-    parsed.fileName     = file.name;
-    parsed.category     = parsed.category || 'cargo';
-    parsed.deliveryStatus = 'pending';
-    parsed.returnAmount = 0;
+    // 반품서 판별: AI가 isReturn 반환 OR total이 음수 OR 모든 items qty가 음수
+    const aiIsReturn  = !!parsed.isReturn;
+    const totalNeg    = (parsed.total || 0) < 0;
+    const allQtyNeg   = (parsed.items || []).length > 0 && (parsed.items || []).every(i => (i.qty || 0) < 0);
+    const isReturnDoc = aiIsReturn || totalNeg || allQtyNeg;
+
+    if (isReturnDoc) {
+      // 반품서: 고유 id 부여 (원본 발주서와 분리), deliveryStatus='returned'로 저장
+      parsed.id             = 'RET-' + (parsed.docNo || Date.now()) + '-' + Date.now();
+      parsed.isReturn       = true;
+      parsed.deliveryStatus = 'returned';
+      // total/amount 음수 보정 (AI가 양수로 반환한 경우 강제 음수화)
+      if ((parsed.total || 0) > 0) parsed.total = -Math.abs(parsed.total);
+      (parsed.items || []).forEach(i => {
+        if ((i.qty    || 0) > 0) i.qty    = -Math.abs(i.qty);
+        if ((i.amount || 0) > 0) i.amount = -Math.abs(i.amount);
+      });
+      parsed.returnAmount = Math.abs(parsed.total);
+    } else {
+      parsed.id             = parsed.docNo || ('UP-' + Date.now());
+      parsed.isReturn       = false;
+      parsed.deliveryStatus = 'pending';
+      parsed.returnAmount   = 0;
+    }
+    parsed.source        = 'upload';
+    parsed.fileName      = file.name;
+    parsed.category      = parsed.category || 'cargo';
     parsed.deliveredDate = '';
-    parsed.updatedAt    = Date.now();
+    parsed.updatedAt     = Date.now();
     pendingOrders.push(parsed);
 
   } catch(e) {
@@ -198,28 +222,44 @@ async function pdfToImages(file) {
 
 function renderPreview() {
   document.getElementById('prev-cards').innerHTML = pendingOrders.map((o, idx) => {
-    // 중복 판별: docNo 우선, 없으면 ship+date 조합으로 체크
-    const existing = orders.find(x =>
+    // 반품서는 중복 판별 대상에서 완전히 제외
+    const isReturnDoc = !!o.isReturn;
+    const existing = isReturnDoc ? null : orders.find(x =>
       (o.docNo && x.docNo && x.docNo === o.docNo) ||
       (o.poNo  && x.poNo  && x.poNo  === o.poNo)  ||
       (!o.docNo && !o.poNo && x.ship === o.ship && x.date === o.date)
     );
     const isDup = !!existing;
-    const dupBadge = isDup
-      ? `<span class="badge" style="background:#fef3c7;color:#92400e;margin-left:4px;">⚠️ 중복</span>`
-      : `<span class="badge" style="background:#dcfce7;color:#15803d;margin-left:4px;">신규</span>`;
 
-    // 중복이면 카드 테두리·배경 강조
-    const cardStyle = isDup
-      ? 'border:2px solid #f59e0b;background:#fffbeb;'
-      : '';
+    // 뱃지: 반품서 / 중복 / 신규
+    const statusBadgeHtml = isReturnDoc
+      ? `<span class="badge b-returned" style="margin-left:4px;">↩️ 반품서</span>`
+      : isDup
+        ? `<span class="badge" style="background:#fef3c7;color:#92400e;margin-left:4px;">⚠️ 중복</span>`
+        : `<span class="badge" style="background:#dcfce7;color:#15803d;margin-left:4px;">신규</span>`;
+
+    // 카드 테두리: 반품서=빨강, 중복=노랑, 신규=기본
+    const cardStyle = isReturnDoc
+      ? 'border:2px solid #dc2626;background:#fff5f5;'
+      : isDup
+        ? 'border:2px solid #f59e0b;background:#fffbeb;'
+        : '';
+
+    // 안내 메시지
+    const infoMsg = isReturnDoc
+      ? `<div style="font-size:11px;color:#991b1b;background:#fee2e2;border-radius:6px;padding:5px 8px;grid-column:1/-1;">↩️ 반품서로 인식되었습니다. 기존 발주서는 유지되고 반품 내역으로 별도 추가됩니다.</div>`
+      : isDup
+        ? `<div style="font-size:11px;color:#92400e;background:#fde68a;border-radius:6px;padding:5px 8px;grid-column:1/-1;">⚠️ 이미 등록된 발주서입니다. 제거하거나 저장 시 기존 데이터를 덮어씁니다.</div>`
+        : '';
+
+    const totalStyle = isReturnDoc ? 'color:#dc2626;font-weight:700;' : '';
 
     return `
     <div class="prev-card" id="pcard-${idx}" style="${cardStyle}">
       <div class="prev-head">
         <div class="prev-ship">${o.ship || '선명 미확인'}</div>
         <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
-          ${badge(o.category)}${dupBadge}
+          ${badge(o.category)}${statusBadgeHtml}
           <button onclick="removePending(${idx})" style="background:#fee2e2;border:none;border-radius:6px;color:#dc2626;font-size:12px;font-weight:700;padding:3px 8px;cursor:pointer;flex-shrink:0;">✕ 제거</button>
         </div>
       </div>
@@ -227,39 +267,44 @@ function renderPreview() {
         <div><span class="pm-label">서류번호</span>${o.docNo || '-'}</div>
         <div><span class="pm-label">발주일자</span>${o.date || '-'}</div>
         <div><span class="pm-label">납기일자</span>${o.delivery || '-'}</div>
-        <div><span class="pm-label">총액</span><strong>${fmt(o.total)}</strong></div>
-        ${isDup ? `<div style="font-size:11px;color:#92400e;background:#fde68a;border-radius:6px;padding:5px 8px;grid-column:1/-1;">⚠️ 이미 등록된 발주서입니다. 제거하거나 저장 시 기존 데이터를 덮어씁니다.</div>` : ''}
+        <div><span class="pm-label">총액</span><strong style="${totalStyle}">${fmt(o.total)}</strong></div>
+        ${infoMsg}
       </div>
       <table class="prev-table">
         <thead><tr><th>품목</th><th>수량</th><th>박스</th><th>단가</th><th>금액</th></tr></thead>
         <tbody>
           ${(o.items || []).map(i => `<tr>
             <td>${i.desc || '-'}</td>
-            <td style="font-family:monospace;">${fmtQ(i)}</td>
-            <td style="font-family:monospace;">${formatBoxCount(calcItemBoxCount(i))}</td>
-            <td style="font-family:monospace;">${i.price ? '₩' + Number(i.price).toLocaleString() : '-'}</td>
-            <td style="font-family:monospace;font-weight:700;">${i.amount ? '₩' + Number(i.amount).toLocaleString() : '-'}</td>
+            <td style="font-family:monospace;${(i.qty||0)<0?'color:#dc2626;':''}">${fmtQ(i)}</td>
+            <td style="font-family:monospace;${(i.qty||0)<0?'color:#dc2626;':''}">${formatBoxCount(calcItemBoxCount(i))}</td>
+            <td style="font-family:monospace;">${i.price ? '\u20a9' + Number(i.price).toLocaleString() : '-'}</td>
+            <td style="font-family:monospace;font-weight:700;${(i.amount||0)<0?'color:#dc2626;':''}">${i.amount ? '\u20a9' + Number(i.amount).toLocaleString() : '-'}</td>
           </tr>`).join('')}
           <tr class="total-row">
             <td colspan="2">TOTAL</td>
             <td>${formatBoxCount(calcOrderBoxes(o))}</td>
-            <td colspan="2">${fmt(o.total)}</td>
+            <td colspan="2" style="${isReturnDoc?'color:#dc2626;':''}">${fmt(o.total)}</td>
           </tr>
         </tbody>
       </table>
     </div>`;
   }).join('');
 
-  // 중복 건수 상태 메시지 업데이트
+  // 중복/반품 건수 상태 메시지 (반품서는 중복 카운트 제외)
   const dupCnt = pendingOrders.filter(o =>
+    !o.isReturn &&
     orders.find(x =>
       (o.docNo && x.docNo && x.docNo === o.docNo) ||
       (o.poNo  && x.poNo  && x.poNo  === o.poNo)  ||
       (!o.docNo && !o.poNo && x.ship === o.ship && x.date === o.date)
     )
   ).length;
-  if (dupCnt > 0) {
-    setStatus(`📋 ${pendingOrders.length}건 확인 중 — ⚠️ 중복 ${dupCnt}건 포함. 제거 후 저장하세요.`);
+  const retCnt = pendingOrders.filter(o => o.isReturn).length;
+  const parts  = [];
+  if (dupCnt > 0) parts.push(`⚠️ 중복 ${dupCnt}건`);
+  if (retCnt > 0) parts.push(`↩️ 반품서 ${retCnt}건`);
+  if (parts.length > 0) {
+    setStatus(`📋 ${pendingOrders.length}건 확인 중 — ${parts.join(' · ')}. 확인 후 저장하세요.`);
   }
 }
 
@@ -275,11 +320,18 @@ function removePending(idx) {
 }
 
 function saveAll() {
-  let added = 0, updated = 0;
+  let added = 0, updated = 0, returnAdded = 0;
   pendingOrders.forEach(newOrder => {
+    // 반품서: 항상 신규 추가 (기존 발주서 덮어쓰기 금지)
+    if (newOrder.isReturn) {
+      orders.push({ ...newOrder, updatedAt: Date.now() });
+      returnAdded++;
+      return;
+    }
+    // 일반 발주서: docNo 일치 시 업데이트
     const docNo = (newOrder.docNo || '').trim();
     if (docNo) {
-      const idx = orders.findIndex(x => (x.docNo || '').trim() === docNo);
+      const idx = orders.findIndex(x => !x.isReturn && (x.docNo || '').trim() === docNo);
       if (idx !== -1) {
         const prev = orders[idx];
         orders[idx] = { ...newOrder, deliveryStatus: prev.deliveryStatus, deliveryNote: prev.deliveryNote, returnAmount: prev.returnAmount, partialAmount: prev.partialAmount, updatedAt: Date.now() };
@@ -290,7 +342,11 @@ function saveAll() {
   });
   save();
   clearPrev();
-  const msg = [added ? `✅ ${added}건 신규 추가` : '', updated ? `🔄 ${updated}건 업데이트` : ''].filter(Boolean).join(' · ');
+  const msg = [
+    added       ? `✅ ${added}건 신규 추가`    : '',
+    updated     ? `🔄 ${updated}건 업데이트`   : '',
+    returnAdded ? `↩️ ${returnAdded}건 반품 등록` : '',
+  ].filter(Boolean).join(' · ');
   toast(msg || '저장 완료');
   renderAll();
   setStatus('✅ 저장 완료. 다음 발주서를 등록해주세요.');

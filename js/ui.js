@@ -32,7 +32,8 @@ function renderAll() {
   const partial     = orders.filter(o => o.deliveryStatus === 'partial');
 
   const deliveredAmt = delivered.reduce((s, o) => s + (o.total || 0), 0);
-  const returnedAmt  = returned.reduce((s, o) => s + (o.returnAmount || o.total || 0), 0);
+  // 반품서(isReturn): total이 이미 음수이므로 Math.abs 사용; 수동반품: returnAmount는 양수
+  const returnedAmt  = returned.reduce((s, o) => s + (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount || Math.abs(o.total) || 0)), 0);
   const pendingAmt   = [...pending, ...partial].reduce((s, o) => s + (o.total || 0), 0);
   const netAmt       = deliveredAmt - returnedAmt;
 
@@ -67,8 +68,9 @@ function renderAll() {
 
 // ── 발주 카드 HTML ──
 function orderCard(o, showDel) {
-  const item      = o.items?.[0] || {};
-  const delBtn    = showDel
+  const item        = o.items?.[0] || {};
+  const isReturnDoc = !!o.isReturn;
+  const delBtn      = showDel
     ? `<button class="btn btn-d btn-sm" onclick="event.stopPropagation();delOrder('${o.id}')">삭제</button>`
     : '';
   const net       = calcNetDelivery(o);
@@ -79,16 +81,23 @@ function orderCard(o, showDel) {
     : o.deliveryStatus === 'returned' ? 'status-returned'
     : o.deliveryStatus === 'partial'  ? 'status-partial'
     : '';
+  // 반품서 뱃지 (업로드된 반품서만)
+  const returnDocBadge = isReturnDoc
+    ? `<span class="badge b-returned" style="font-size:10px;">↩️ 반품서</span>`
+    : '';
+  // 금액 색상: 반품서는 빨간색
+  const amtStyle = isReturnDoc ? 'color:#dc2626;font-weight:700;' : '';
   return `
   <div class="order-card ${statusClass}" onclick="openModal('${o.id}')">
     <div class="oc-top">
       <div class="oc-ship">${o.ship}</div>
-      <div class="oc-amount">${fmt(o.total)}</div>
+      <div class="oc-amount" style="${amtStyle}">${fmt(o.total)}</div>
     </div>
     <div class="oc-meta">
       <span class="oc-doc">${o.docNo || ''}</span>
       ${badge(o.category)}
-      ${statusBadge(o.deliveryStatus || 'pending')}
+      ${returnDocBadge}
+      ${statusBadge(isReturnDoc ? '' : (o.deliveryStatus || 'pending'))}
       ${delBtn}
     </div>
     <div class="oc-bottom">
@@ -133,7 +142,8 @@ function renderStats() {
   const pending   = orders.filter(o => !o.deliveryStatus || o.deliveryStatus === 'pending');
 
   const deliveredAmt = delivered.reduce((s, o) => s + (o.total || 0), 0);
-  const returnedAmt  = returned.reduce((s, o) => s + (o.returnAmount || o.total || 0), 0);
+  // 반품서(isReturn): total이 이미 음수이므로 Math.abs 사용; 수동반품: returnAmount는 양수
+  const returnedAmt  = returned.reduce((s, o) => s + (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount || Math.abs(o.total) || 0)), 0);
   const partialAmt   = partial.reduce((s, o) => s + (o.partialAmount || 0), 0);
   const netAmt       = deliveredAmt + partialAmt - returnedAmt;
 

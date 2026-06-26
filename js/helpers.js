@@ -102,7 +102,12 @@ function calcOrderBoxes(order) {
 function calcNetDelivery(order) {
   const total = order.total || 0;
   if (order.deliveryStatus === 'delivered') return total;
-  if (order.deliveryStatus === 'returned')  return -(order.returnAmount || total);
+  if (order.deliveryStatus === 'returned') {
+    // 업로드된 반품서(isReturn=true): total이 이미 음수
+    if (order.isReturn) return total;
+    // 수동 반품 처리: returnAmount는 양수, 음수로 반환
+    return -(order.returnAmount || Math.abs(total));
+  }
   if (order.deliveryStatus === 'partial')   return order.partialAmount || 0;
   return 0;
 }
