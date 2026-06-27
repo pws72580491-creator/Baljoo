@@ -220,28 +220,50 @@ function attachSelectAll(el) {
 }
 
 // ══════════════════════════════════════════════
-// 일괄납품 (Bulk Deliver)
+// 일괄납품 / 일괄보관 (Bulk Deliver / Archive)
 // ══════════════════════════════════════════════
-function toggleBulkMode() {
-  isBulkMode = !isBulkMode;
+function toggleBulkMode(mode) {
+  // 같은 모드 버튼을 다시 누르면 종료, 다른 모드면 전환
+  const entering = isBulkMode !== mode;
+  isBulkMode = entering ? mode : false;
   bulkSelected.clear();
 
-  const btn = document.getElementById('bulkDelivBtn');
-  const bar = document.getElementById('bulkBar');
-  const list = document.getElementById('orders-list');
+  const delivBtn = document.getElementById('bulkDelivBtn');
+  const archBtn  = document.getElementById('bulkArchBtn');
+  const bar      = document.getElementById('bulkBar');
+  const list     = document.getElementById('orders-list');
+  const delivRow = document.getElementById('bulkDeliverRow');
+  const archRow  = document.getElementById('bulkArchiveRow');
 
-  if (isBulkMode) {
-    btn.textContent = '✕ 취소';
-    btn.classList.add('active');
-    bar.style.display = 'flex';
+  if (isBulkMode === 'deliver') {
+    delivBtn.textContent = '✕ 취소';
+    delivBtn.classList.add('active');
+    archBtn.textContent  = '📦 일괄보관';
+    archBtn.classList.remove('active');
+    bar.style.display    = 'flex';
     list.classList.add('bulk-mode');
-    // 오늘 날짜 기본값
+    delivRow.style.display = 'flex';
+    archRow.style.display  = 'none';
     document.getElementById('bulkDate').value = todayStr();
+  } else if (isBulkMode === 'archive') {
+    archBtn.textContent  = '✕ 취소';
+    archBtn.classList.add('active');
+    delivBtn.textContent = '☑️ 일괄납품';
+    delivBtn.classList.remove('active');
+    bar.style.display    = 'flex';
+    list.classList.add('bulk-mode');
+    archRow.style.display  = 'flex';
+    delivRow.style.display = 'none';
   } else {
-    btn.textContent = '☑️ 일괄납품';
-    btn.classList.remove('active');
-    bar.style.display = 'none';
+    // 모드 종료
+    delivBtn.textContent = '☑️ 일괄납품';
+    delivBtn.classList.remove('active');
+    archBtn.textContent  = '📦 일괄보관';
+    archBtn.classList.remove('active');
+    bar.style.display    = 'none';
     list.classList.remove('bulk-mode');
+    delivRow.style.display = 'none';
+    archRow.style.display  = 'none';
   }
   renderAll();
 }
@@ -253,20 +275,21 @@ function toggleBulkSelect(id) {
     bulkSelected.add(id);
   }
   _updateBulkBar();
-  // 해당 카드만 re-render하지 않고 전체 re-render (simple & safe)
   renderAll();
 }
 
 function bulkSelectAll() {
-  const selectable = orders.filter(o =>
-    !o.isReturn &&
-    o.deliveryStatus !== 'delivered' &&
-    o.deliveryStatus !== 'returned'
-  );
-  // 현재 필터된 목록 기준으로만 선택
+  // 모드에 따라 선택 가능한 조건이 다름
   filtered().forEach(o => {
-    if (!o.isReturn && o.deliveryStatus !== 'delivered' && o.deliveryStatus !== 'returned') {
-      bulkSelected.add(o.id);
+    if (isBulkMode === 'deliver') {
+      if (!o.isReturn && o.deliveryStatus !== 'delivered' && o.deliveryStatus !== 'returned' && !o.archived) {
+        bulkSelected.add(o.id);
+      }
+    } else if (isBulkMode === 'archive') {
+      // 보관 모드: 납품완료 또는 이미 보관중인 건 선택 가능
+      if (o.deliveryStatus === 'delivered' || !!o.archived) {
+        bulkSelected.add(o.id);
+      }
     }
   });
   _updateBulkBar();
@@ -305,8 +328,46 @@ function bulkDeliver() {
 
   save();
   bulkSelected.clear();
-  toggleBulkMode(); // 모드 종료
+  toggleBulkMode('deliver'); // 모드 종료
   toast(`✅ ${count}건 납품완료 처리되었습니다.`);
+}
+
+function bulkArchive() {
+  if (bulkSelected.size === 0) {
+    toast('⚠️ 선택된 발주가 없습니다.');
+    return;
+  }
+  const cnt = bulkSelected.size;
+  if (!confirm(`선택한 ${cnt}건을 보관함으로 이동하시겠습니까?`)) return;
+
+  bulkSelected.forEach(id => {
+    const o = orders.find(x => x.id === id);
+    if (o) o.archived = true;
+  });
+
+  save();
+  bulkSelected.clear();
+  toggleBulkMode('archive'); // 모드 종료
+  toast(`📦 ${cnt}건 보관 처리되었습니다.`);
+}
+
+function bulkUnarchive() {
+  if (bulkSelected.size === 0) {
+    toast('⚠️ 선택된 발주가 없습니다.');
+    return;
+  }
+  const cnt = bulkSelected.size;
+  if (!confirm(`선택한 ${cnt}건의 보관을 해제하시겠습니까?`)) return;
+
+  bulkSelected.forEach(id => {
+    const o = orders.find(x => x.id === id);
+    if (o) delete o.archived;
+  });
+
+  save();
+  bulkSelected.clear();
+  toggleBulkMode('archive'); // 모드 종료
+  toast(`📤 ${cnt}건 보관 해제되었습니다.`);
 }
 
 init();

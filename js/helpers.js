@@ -141,9 +141,11 @@ function calcNetDelivery(order) {
 function filtered() {
   const from = document.getElementById('fDateFrom')?.value || '';
   const to   = document.getElementById('fDateTo')?.value   || '';
+  const isArchiveMode = statusMode === 'archived';
   return orders
+    .filter(o => isArchiveMode ? !!o.archived : !o.archived)   // 보관함 모드 아니면 보관건 제외
     .filter(o => filterMode === 'all' || o.category === filterMode)
-    .filter(o => statusMode === 'all' || o.deliveryStatus === statusMode)
+    .filter(o => isArchiveMode || statusMode === 'all' || o.deliveryStatus === statusMode)
     .filter(o => !searchQ || (o.ship + o.docNo + o.poNo).toLowerCase().includes(searchQ.toLowerCase()))
     .filter(o => !from || o.date >= from)
     .filter(o => !to   || o.date <= to)

@@ -17,6 +17,7 @@ function openModal(id) {
     const isDelivered = o.deliveryStatus === 'delivered';
     const isReturned  = o.deliveryStatus === 'returned';
     const isPartial   = o.deliveryStatus === 'partial';
+    const isArchived  = !!o.archived;
 
     document.getElementById('m-body').innerHTML = `
     <div class="info-row">
@@ -80,7 +81,12 @@ function openModal(id) {
     </div>
 
     <div style="margin-top:12px;">
-      <div style="margin-top:12px;display:flex;gap:8px;">
+      ${isDelivered ? `
+      <button class="btn ${isArchived ? 'btn-warn' : 'btn-g'} btn-block" style="margin-bottom:8px;"
+        onclick="toggleArchive('${o.id}')">
+        ${isArchived ? '📤 보관 해제 (목록 복원)' : '📦 보관함으로 이동'}
+      </button>` : ''}
+      <div style="margin-top:${isDelivered ? '0' : '12px'};display:flex;gap:8px;">
         <button class="btn btn-g" style="flex:1;" onclick="openEditModal('${o.id}')">✏️ 수정</button>
         <button class="btn btn-d" style="flex:1;" onclick="delOrder('${o.id}');closeModalBtn()">🗑 삭제</button>
       </div>
@@ -381,5 +387,36 @@ function saveEditOrder() {
   } catch (err) {
     console.error('[saveEditOrder] 오류:', err);
     toast('⚠️ 저장 중 오류가 발생했습니다.');
+  }
+}
+
+// ── 보관 토글 (납품완료 건 숨김 ↔ 복원) ──
+function toggleArchive(id) {
+  try {
+    const o = orders.find(x => x.id === id);
+    if (!o) return;
+    if (o.archived) {
+      // 보관 해제 → 목록 복원
+      delete o.archived;
+      save();
+      closeModalBtn();
+      renderAll();
+      toast('📤 보관이 해제되어 목록에 복원되었습니다.');
+    } else {
+      // 보관함으로 이동 (납품완료 건만 가능)
+      if (o.deliveryStatus !== 'delivered') {
+        toast('⚠️ 납품완료 건만 보관할 수 있습니다.');
+        return;
+      }
+      if (!confirm(`[${o.ship}]\n보관함으로 이동하면 발주목록에서 숨겨집니다.\n납품금액·통계에는 그대로 반영됩니다.\n\n보관하시겠습니까?`)) return;
+      o.archived = true;
+      save();
+      closeModalBtn();
+      renderAll();
+      toast('📦 보관함으로 이동했습니다.');
+    }
+  } catch (err) {
+    console.error('[toggleArchive] 오류:', err);
+    toast('⚠️ 보관 처리 중 오류가 발생했습니다.');
   }
 }

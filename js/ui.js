@@ -22,7 +22,7 @@ function renderAll() {
   const netTotal        = orders.reduce((s, o) => s + calcNetDelivery(o), 0);
   const deliveredCnt    = deliveredOrders.length;
 
-  document.getElementById('h-cnt').textContent    = orders.length;
+  document.getElementById('h-cnt').textContent    = orders.filter(o => !o.archived).length;
   document.getElementById('h-tot').textContent    = fmt(total);
   document.getElementById('s-cnt').textContent    = deliveredCnt;
   document.getElementById('s-tot').textContent    = fmt(netTotal);
@@ -50,9 +50,9 @@ function renderAll() {
   document.getElementById('ds-pending-amt').textContent   = fmt(pendingAmt);
   document.getElementById('ds-net-amt').textContent       = fmt(netAmt);
 
-  // 대시보드 최근 목록 — 납품완료 + 반품 표시
+  // 대시보드 최근 목록 — 납품완료 + 반품 표시 (보관건 제외)
   const recent = [...orders]
-    .filter(o => o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial' || o.deliveryStatus === 'returned')
+    .filter(o => !o.archived && (o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial' || o.deliveryStatus === 'returned'))
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 10);
   document.getElementById('dash-list').innerHTML = recent.length
@@ -65,10 +65,14 @@ function renderAll() {
 
   // 발주 목록
   const list = filtered();
-  document.getElementById('o-sub').textContent      = `${list.length}건`;
+  const archivedCnt = orders.filter(o => !!o.archived).length;
+  const subTxt = statusMode === 'archived'
+    ? `보관함 ${list.length}건`
+    : `${list.length}건${archivedCnt > 0 ? ` · 📦보관 ${archivedCnt}` : ''}`;
+  document.getElementById('o-sub').textContent      = subTxt;
   document.getElementById('orders-list').innerHTML  = list.length
     ? list.map(o => orderCard(o, true)).join('')
-    : '<div class="empty"><div class="empty-icon">📭</div><div class="empty-t">결과 없음</div></div>';
+    : `<div class="empty"><div class="empty-icon">${statusMode === 'archived' ? '📦' : '📭'}</div><div class="empty-t">${statusMode === 'archived' ? '보관된 발주가 없습니다' : '결과 없음'}</div></div>`;
 }
 
 // ── 발주 카드 HTML ──
@@ -93,22 +97,31 @@ function orderCard(o, showDel) {
   // 금액 색상: 반품서는 빨간색
   const amtStyle = isReturnDoc ? 'color:#dc2626;font-weight:700;' : '';
 
-  // 일괄납품 모드 처리
-  const canBulk    = isBulkMode && showDel && !isReturnDoc && o.deliveryStatus !== 'delivered' && o.deliveryStatus !== 'returned';
-  const isDisabled = isBulkMode && showDel && !canBulk;
-  const isChecked  = bulkSelected.has(o.id);
-  const bulkClass  = isBulkMode && showDel
-    ? (isDisabled ? ' bulk-disabled' : (isChecked ? ' bulk-selected' : ''))
+  // 보관 뱃지
+  const archivedBadge = o.archived
+    ? `<span class="badge b-archived">📦 보관중</span>`
     : '';
-  const bulkChk    = isBulkMode && showDel
-    ? `<span class="bulk-chk">${isChecked ? '✓' : ''}</span>`
-    : '';
-  const clickHandler = isBulkMode && showDel
-    ? (isDisabled ? '' : `onclick="toggleBulkSelect('${o.id}')"`)
-    : `onclick="openModal('${o.id}')"`;
+
+  // 일괄 모드 처리 (납품 or 보관)
+  let canBulk, isDisabled, bulkClass, bulkChk, clickHandler;
+  if (isBulkMode && showDel) {
+    const isChecked = bulkSelected.has(o.id);
+    if (isBulkMode === 'deliver') {
+      canBulk = !isReturnDoc && o.deliveryStatus !== 'delivered' && o.deliveryStatus !== 'returned' && !o.archived;
+    } else {
+      canBulk = o.deliveryStatus === 'delivered' || !!o.archived;
+    }
+    isDisabled   = !canBulk;
+    bulkClass    = isDisabled ? ' bulk-disabled' : (isChecked ? ' bulk-selected' : '');
+    bulkChk      = `<span class="bulk-chk">${isChecked ? '✓' : ''}</span>`;
+    clickHandler = isDisabled ? '' : `onclick="toggleBulkSelect('${o.id}')"`;
+  } else {
+    canBulk = false; isDisabled = false; bulkClass = ''; bulkChk = '';
+    clickHandler = `onclick="openModal('${o.id}')"`;
+  }
 
   return `
-  <div class="order-card ${statusClass}${isReturnDoc ? ' is-return-doc' : ''}${bulkClass}" ${clickHandler}>
+  <div class="order-card ${statusClass}${isReturnDoc ? ' is-return-doc' : ''}${o.archived ? ' archived-card' : ''}${bulkClass}" ${clickHandler}>
     ${bulkChk}
     <div class="oc-top">
       <div class="oc-ship">${escapeHtml(o.ship)}</div>
@@ -118,6 +131,7 @@ function orderCard(o, showDel) {
       <span class="oc-doc">${escapeHtml(o.docNo)}</span>
       ${badge(o.category)}
       ${returnDocBadge}
+      ${archivedBadge}
       ${isReturnDoc ? '' : statusBadge(o.deliveryStatus || 'pending')}
       ${delBtn}
     </div>
@@ -487,6 +501,7 @@ function renderDeliveryStatus() {
 
   // ── 월 필터 적용 ──
   // 납품완료/부분납품 + 반품서(isReturn) 포함 → 납품현황에서 반품 차감 표시
+  // 금액·박스 집계는 보관건 포함, 카드 목록에서만 보관건 제외
   const allDone = orders.filter(o =>
     o.deliveryStatus === 'delivered' ||
     o.deliveryStatus === 'partial'   ||
@@ -591,7 +606,7 @@ function renderDeliveryStatus() {
             </tr>
           </thead>
           <tbody>
-            ${day.orders.map(o => {
+            ${day.orders.filter(o => !o.archived).map(o => {
               const isReturnDoc = !!o.isReturn;
               const rowBg  = isReturnDoc ? '#fff0f0' : o.deliveryStatus==='partial' ? '#fffbeb' : '#fff';
               const rowBdl = isReturnDoc ? 'border-left:3px solid #dc2626;' : '';
@@ -688,10 +703,9 @@ function renderDashByDate() {
         <span style="font-size:12px;opacity:.85;">${formatBoxCount(day.boxes)} · ${fmt(day.amt)}</span>
       </div>
       <div>
-        ${day.orders.map(o => {
+        ${day.orders.filter(o => !o.archived).map(o => {
           const isReturnDoc = !!o.isReturn;
           const isReturn    = o.deliveryStatus === 'returned';
-          const isPartial   = o.deliveryStatus === 'partial';
           // 반품서(업로드) → 빨간 배경+테두리 / 수동반품 → 연분홍 / 부분납품 → 노랑 / 납품완료 → 연초록
           const statusColor = isReturnDoc ? '#fff0f0' : isReturn ? '#fef2f2' : isPartial ? '#fffbeb' : '#f0fdf4';
           const borderLeft  = isReturnDoc ? '3px solid #dc2626' : 'none';
