@@ -219,6 +219,96 @@ function attachSelectAll(el) {
   el.addEventListener('dblclick', () => el.select());
 }
 
+// ══════════════════════════════════════════════
+// 일괄납품 (Bulk Deliver)
+// ══════════════════════════════════════════════
+function toggleBulkMode() {
+  isBulkMode = !isBulkMode;
+  bulkSelected.clear();
+
+  const btn = document.getElementById('bulkDelivBtn');
+  const bar = document.getElementById('bulkBar');
+  const list = document.getElementById('orders-list');
+
+  if (isBulkMode) {
+    btn.textContent = '✕ 취소';
+    btn.classList.add('active');
+    bar.style.display = 'flex';
+    list.classList.add('bulk-mode');
+    // 오늘 날짜 기본값
+    document.getElementById('bulkDate').value = todayStr();
+  } else {
+    btn.textContent = '☑️ 일괄납품';
+    btn.classList.remove('active');
+    bar.style.display = 'none';
+    list.classList.remove('bulk-mode');
+  }
+  renderAll();
+}
+
+function toggleBulkSelect(id) {
+  if (bulkSelected.has(id)) {
+    bulkSelected.delete(id);
+  } else {
+    bulkSelected.add(id);
+  }
+  _updateBulkBar();
+  // 해당 카드만 re-render하지 않고 전체 re-render (simple & safe)
+  renderAll();
+}
+
+function bulkSelectAll() {
+  const selectable = orders.filter(o =>
+    !o.isReturn &&
+    o.deliveryStatus !== 'delivered' &&
+    o.deliveryStatus !== 'returned'
+  );
+  // 현재 필터된 목록 기준으로만 선택
+  filtered().forEach(o => {
+    if (!o.isReturn && o.deliveryStatus !== 'delivered' && o.deliveryStatus !== 'returned') {
+      bulkSelected.add(o.id);
+    }
+  });
+  _updateBulkBar();
+  renderAll();
+}
+
+function bulkDeselectAll() {
+  bulkSelected.clear();
+  _updateBulkBar();
+  renderAll();
+}
+
+function _updateBulkBar() {
+  const cnt = bulkSelected.size;
+  document.getElementById('bulkCount').textContent = `${cnt}건 선택됨`;
+}
+
+function bulkDeliver() {
+  if (bulkSelected.size === 0) {
+    toast('⚠️ 선택된 발주가 없습니다.');
+    return;
+  }
+  const date = document.getElementById('bulkDate').value || todayStr();
+  const note = prompt(`납품 비고 (선택사항)\n선택 ${bulkSelected.size}건 전체에 적용됩니다`, '');
+  if (note === null) return; // 취소
+
+  let count = 0;
+  bulkSelected.forEach(id => {
+    const o = orders.find(x => x.id === id);
+    if (!o) return;
+    o.deliveryStatus = 'delivered';
+    o.deliveredDate  = date;
+    o.deliveryNote   = note.trim();
+    count++;
+  });
+
+  save();
+  bulkSelected.clear();
+  toggleBulkMode(); // 모드 종료
+  toast(`✅ ${count}건 납품완료 처리되었습니다.`);
+}
+
 init();
 
 // ── Service Worker 등록 ──

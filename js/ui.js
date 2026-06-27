@@ -7,6 +7,10 @@ let filterMode = 'all';
 let statusMode = 'all';
 let searchQ    = '';
 
+// ── 일괄납품 상태 ──
+let isBulkMode   = false;
+let bulkSelected = new Set(); // 선택된 order id
+
 // ── 전체 렌더 ──
 function renderAll() {
   const total = orders.reduce((s, o) => s + (o.total || 0), 0);
@@ -88,8 +92,24 @@ function orderCard(o, showDel) {
     : '';
   // 금액 색상: 반품서는 빨간색
   const amtStyle = isReturnDoc ? 'color:#dc2626;font-weight:700;' : '';
+
+  // 일괄납품 모드 처리
+  const canBulk    = isBulkMode && showDel && !isReturnDoc && o.deliveryStatus !== 'delivered' && o.deliveryStatus !== 'returned';
+  const isDisabled = isBulkMode && showDel && !canBulk;
+  const isChecked  = bulkSelected.has(o.id);
+  const bulkClass  = isBulkMode && showDel
+    ? (isDisabled ? ' bulk-disabled' : (isChecked ? ' bulk-selected' : ''))
+    : '';
+  const bulkChk    = isBulkMode && showDel
+    ? `<span class="bulk-chk">${isChecked ? '✓' : ''}</span>`
+    : '';
+  const clickHandler = isBulkMode && showDel
+    ? (isDisabled ? '' : `onclick="toggleBulkSelect('${o.id}')"`)
+    : `onclick="openModal('${o.id}')"`;
+
   return `
-  <div class="order-card ${statusClass}${isReturnDoc ? ' is-return-doc' : ''}" onclick="openModal('${o.id}')">
+  <div class="order-card ${statusClass}${isReturnDoc ? ' is-return-doc' : ''}${bulkClass}" ${clickHandler}>
+    ${bulkChk}
     <div class="oc-top">
       <div class="oc-ship">${escapeHtml(o.ship)}</div>
       <div class="oc-amount" style="${amtStyle}">${fmt(o.total)}</div>
