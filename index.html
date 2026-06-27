@@ -2,11 +2,11 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.2.51
+  Version : v3.2.58
   Released: 2026-06-27
   ────────────────────────────────────────
   CHANGELOG
-  v3.2.51 (2026-06-27)
+  v3.2.58 (2026-06-27)
     - [NEW] 월별 결산 — 통계 탭 상단에 월 선택 칩 추가
             전체·이번달·저번달·개별 월 터치로 즉시 필터
             전체 모드: 월별 결산 그리드 카드 (월명·건수·박스·실납품금액·반품) 표시
@@ -58,7 +58,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<title>이른아침 · 발주관리 v3.2.51</title>
+<title>이른아침 · 발주관리 v3.2.58</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -214,6 +214,13 @@ body{
 .bulk-mode .order-card.bulk-selected{box-shadow:0 0 0 2px var(--accent);}
 .bulk-mode .order-card.bulk-disabled{opacity:.4;cursor:not-allowed;}
 #bulkDelivBtn.active{background:var(--accent);color:#fff;}
+#bulkArchBtn.active{background:#92400e;color:#fff;}
+/* 보관함 */
+.chip.c-archived{color:#6b7280;border-color:#d1d5db;}
+.chip.c-archived.active{background:#6b7280;border-color:#6b7280;color:#fff;}
+.order-card.archived-card{opacity:.6;background:#f9fafb;}
+.order-card.archived-card::before{background:#9ca3af;}
+.badge.b-archived{background:#f3f4f6;color:#6b7280;border:1px solid #d1d5db;}
 .oc-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;}
 .oc-ship{font-size:14px;font-weight:700;line-height:1.3;flex:1;padding-right:8px;}
 .oc-amount{font-size:15px;font-weight:700;color:var(--navy);white-space:nowrap;}
@@ -494,7 +501,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.51</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.58</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
@@ -585,9 +592,12 @@ body{
     <div class="view" id="v1">
       <div class="ph">
         <div><div class="pt">발주 목록</div><div class="ps" id="o-sub">전체 0건</div></div>
-        <div style="display:flex;gap:6px;">
-          <button class="btn btn-warn btn-sm" id="bulkDelivBtn" onclick="toggleBulkMode()">☑️ 일괄납품</button>
-          <button class="btn btn-g btn-sm" onclick="resetOrders()">초기화</button>
+        <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;">
+          <div style="display:flex;gap:5px;">
+            <button class="btn btn-warn btn-sm" id="bulkDelivBtn" onclick="toggleBulkMode('deliver')" style="white-space:nowrap;">☑️ 일괄납품</button>
+            <button class="btn btn-g btn-sm" id="bulkArchBtn" onclick="toggleBulkMode('archive')" style="white-space:nowrap;">📦 일괄보관</button>
+          </div>
+          <button class="btn btn-g btn-sm" onclick="resetOrders()" style="font-size:11px;padding:4px 8px;">초기화</button>
         </div>
       </div>
       <div class="search-wrap">
@@ -614,24 +624,9 @@ body{
         <button class="chip c-delivered" onclick="filterStatus('delivered',this)">납품완료</button>
         <button class="chip c-returned" onclick="filterStatus('returned',this)">반품</button>
         <button class="chip" onclick="filterStatus('pending',this)">미납품</button>
+        <button class="chip c-archived" onclick="filterStatus('archived',this)">📦 보관함</button>
       </div>
       <div id="orders-list"></div>
-      <!-- 일괄납품 플로팅 바 -->
-      <div id="bulkBar" style="display:none;position:fixed;bottom:68px;left:0;right:0;z-index:200;
-           padding:12px 16px;background:var(--navy);box-shadow:0 -4px 16px rgba(0,0,0,.25);
-           display:none;flex-direction:column;gap:10px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;">
-          <span style="color:#fff;font-size:13px;font-weight:700;" id="bulkCount">0건 선택됨</span>
-          <div style="display:flex;gap:8px;">
-            <button class="btn btn-g btn-sm" onclick="bulkSelectAll()">전체선택</button>
-            <button class="btn btn-g btn-sm" onclick="bulkDeselectAll()">선택해제</button>
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;">
-          <input type="date" id="bulkDate" style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:13px;" />
-          <button class="btn btn-p btn-sm" style="white-space:nowrap;" onclick="bulkDeliver()">✅ 납품완료</button>
-        </div>
-      </div>
     </div>
 
     <!-- ── VIEW 2: UPLOAD ── -->
@@ -733,6 +728,25 @@ body{
 
   </div><!-- /swipe-track -->
 </div><!-- /swipe-root -->
+
+<!-- 일괄 처리 플로팅 바 (swipe-root 밖 / bottomnav 위) -->
+<div id="bulkBar" style="display:none;background:#1e3a5f;padding:12px 16px;box-shadow:0 -4px 16px rgba(0,0,0,.35);flex-direction:column;gap:10px;flex-shrink:0;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+    <span style="color:#fff;font-size:13px;font-weight:700;" id="bulkCount">0건 선택됨</span>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-g btn-sm" onclick="bulkSelectAll()">전체선택</button>
+      <button class="btn btn-g btn-sm" onclick="bulkDeselectAll()">선택해제</button>
+    </div>
+  </div>
+  <div id="bulkDeliverRow" style="display:none;gap:8px;">
+    <input type="date" id="bulkDate" style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:13px;" />
+    <button class="btn btn-p btn-sm" style="white-space:nowrap;" onclick="bulkDeliver()">✅ 납품완료</button>
+  </div>
+  <div id="bulkArchiveRow" style="display:none;gap:8px;">
+    <button class="btn btn-sm" style="flex:1;background:#f59e0b;color:#fff;white-space:nowrap;" onclick="bulkArchive()">📦 선택 건 보관</button>
+    <button class="btn btn-sm" style="flex:1;background:#10b981;color:#fff;white-space:nowrap;" onclick="bulkUnarchive()">📤 선택 건 보관해제</button>
+  </div>
+</div>
 
 <!-- BOTTOM NAV (4탭) -->
 <nav class="bottomnav">
