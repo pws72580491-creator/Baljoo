@@ -119,6 +119,14 @@ function formatBoxCount(bc) {
   return (bc % 1 === 0) ? `${bc}박스` : `${bc.toFixed(1)}박스`;
 }
 
+// ctn/case/carton/box 단위는 화면에 'box'로 통일 표시
+function displayUnit(unit) {
+  if (!unit) return '';
+  const u = String(unit).toLowerCase().replace(/[^a-z]/g, '');
+  if (u === 'ctn' || u === 'case' || u === 'carton' || u === 'ct') return 'box';
+  return unit; // pcs, doz 등은 그대로
+}
+
 function calcOrderBoxes(order) {
   return (order.items || []).reduce((s, i) => s + calcItemBoxCount(i), 0);
 }

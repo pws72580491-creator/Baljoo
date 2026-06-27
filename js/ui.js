@@ -626,7 +626,7 @@ function renderDeliveryStatus() {
                   const qtyCol = (item.qty||0) < 0 ? 'color:#dc2626;' : '';
                   return `<div style="font-size:10px;color:var(--muted);margin-top:3px;display:flex;gap:4px;align-items:center;">
                     <span style="color:var(--navy);font-weight:600;">${desc}</span>
-                    <span style="${qtyCol}">${item.qty}${item.unit}${boxStr}</span>
+                    <span style="${qtyCol}">${item.qty}${displayUnit(item.unit)}${boxStr}</span>
                   </div>`;
                 }).join('')}
               </td>
@@ -722,7 +722,7 @@ function renderDashByDate() {
                 ${(o.items||[]).map(i => {
                   const b = calcItemBoxCount(i);
                   const qtyCol = (i.qty||0) < 0 ? 'color:#dc2626;' : '';
-                  return `<div style="font-size:11px;color:#555;margin-top:3px;${qtyCol}">${escapeHtml((i.desc||'').slice(0,22))} · ${i.qty}${i.unit}${b ? ' · '+formatBoxCount(b) : ''}</div>`;
+                  return `<div style="font-size:11px;color:#555;margin-top:3px;${qtyCol}">${escapeHtml((i.desc||'').slice(0,22))} · ${i.qty}${displayUnit(i.unit)}${b ? ' · '+formatBoxCount(b) : ''}</div>`;
                 }).join('')}
               </div>
               <div style="text-align:right;flex-shrink:0;margin-left:8px;">
