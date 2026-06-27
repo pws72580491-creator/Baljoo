@@ -706,6 +706,7 @@ function renderDashByDate() {
         ${day.orders.filter(o => !o.archived).map(o => {
           const isReturnDoc = !!o.isReturn;
           const isReturn    = o.deliveryStatus === 'returned';
+          const isPartial   = o.deliveryStatus === 'partial';
           // 반품서(업로드) → 빨간 배경+테두리 / 수동반품 → 연분홍 / 부분납품 → 노랑 / 납품완료 → 연초록
           const statusColor = isReturnDoc ? '#fff0f0' : isReturn ? '#fef2f2' : isPartial ? '#fffbeb' : '#f0fdf4';
           const borderLeft  = isReturnDoc ? '3px solid #dc2626' : 'none';

@@ -34,7 +34,7 @@ function todayStr() {
 
 // ── 포맷 ──
 const fmt  = n => (n != null && n !== '') ? '₩' + Number(n).toLocaleString() : '-';
-const fmtQ = i => i.qty ? `${Number(i.qty).toLocaleString()} ${i.unit || ''}` : '-';
+const fmtQ = i => i.qty ? `${Number(i.qty).toLocaleString()} ${displayUnit(i.unit) || ''}` : '-';
 
 // ── 배지 HTML ──
 const badge = c => {
