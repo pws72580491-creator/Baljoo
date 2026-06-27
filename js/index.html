@@ -2,8 +2,17 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.2.12
-  Released: 2026-06-15
+  Version : v3.2.58
+  Released: 2026-06-27
+  ────────────────────────────────────────
+  CHANGELOG
+  v3.2.58 (2026-06-27)
+    - [NEW] 월별 결산 — 통계 탭 상단에 월 선택 칩 추가
+            전체·이번달·저번달·개별 월 터치로 즉시 필터
+            전체 모드: 월별 결산 그리드 카드 (월명·건수·박스·실납품금액·반품) 표시
+            특정 월 선택: 해당 월 납품요약·일별현황·미납품·반품·선명별 집계 렌더
+    - [NEW] 엑셀 내보내기 "월별결산" 시트 추가
+            년월·납품완료·반품·부분납품·미납품·실납품금액·박스수 컬럼
   ────────────────────────────────────────
   CHANGELOG
   v2.3.0 (2026-06-14)
@@ -49,7 +58,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<title>이른아침 · 발주관리 v3.2.12</title>
+<title>이른아침 · 발주관리 v3.2.58</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -190,7 +199,28 @@ body{
 .order-card.status-delivered::before{background:var(--delivered);}
 .order-card.status-returned::before{background:var(--returned);}
 .order-card.status-partial::before{background:var(--warn);}
+.order-card.is-return-doc{background:#fff5f5;border-color:#fca5a5;}
+.order-card.is-return-doc::before{background:#dc2626;width:4px;}
 .order-card:active{box-shadow:0 4px 20px rgba(41,121,212,.12);}
+/* 일괄납품 모드 */
+.bulk-mode .order-card{cursor:pointer;padding-left:44px;position:relative;}
+.bulk-mode .order-card .bulk-chk{
+  display:flex;position:absolute;left:12px;top:50%;transform:translateY(-50%);
+  width:22px;height:22px;border-radius:6px;border:2px solid var(--border);
+  background:#fff;align-items:center;justify-content:center;font-size:14px;
+  flex-shrink:0;transition:background .15s,border-color .15s;
+}
+.bulk-mode .order-card.bulk-selected .bulk-chk{background:var(--accent);border-color:var(--accent);color:#fff;}
+.bulk-mode .order-card.bulk-selected{box-shadow:0 0 0 2px var(--accent);}
+.bulk-mode .order-card.bulk-disabled{opacity:.4;cursor:not-allowed;}
+#bulkDelivBtn.active{background:var(--accent);color:#fff;}
+#bulkArchBtn.active{background:#92400e;color:#fff;}
+/* 보관함 */
+.chip.c-archived{color:#6b7280;border-color:#d1d5db;}
+.chip.c-archived.active{background:#6b7280;border-color:#6b7280;color:#fff;}
+.order-card.archived-card{opacity:.6;background:#f9fafb;}
+.order-card.archived-card::before{background:#9ca3af;}
+.badge.b-archived{background:#f3f4f6;color:#6b7280;border:1px solid #d1d5db;}
 .oc-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;}
 .oc-ship{font-size:14px;font-weight:700;line-height:1.3;flex:1;padding-right:8px;}
 .oc-amount{font-size:15px;font-weight:700;color:var(--navy);white-space:nowrap;}
@@ -367,6 +397,20 @@ body{
 }
 .da-full{grid-column:1/-1;}
 
+/* 수정 폼 */
+.edit-field{margin-bottom:14px;}
+.edit-field label{display:block;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:4px;letter-spacing:.5px;}
+.edit-field input,.edit-field select{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;color:var(--text);outline:none;}
+.edit-field input:focus,.edit-field select:focus{border-color:var(--navy);}
+.edit-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.edit-items-wrap{overflow-x:auto;margin:0 -4px;}
+.edit-item-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:6px;align-items:end;margin-bottom:8px;font-size:12px;}
+.edit-item-row input{padding:7px 6px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;box-sizing:border-box;}
+.edit-item-row select{padding:7px 4px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;box-sizing:border-box;}
+.edit-item-hdr{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:6px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:4px;padding:0 2px;}
+.edit-del-btn{background:#fee2e2;border:none;border-radius:6px;color:var(--danger);font-size:14px;width:28px;height:32px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.edit-add-btn{background:var(--bg);border:1px dashed var(--border);border-radius:8px;width:100%;padding:10px;font-size:13px;color:var(--muted);cursor:pointer;margin-top:4px;}
+
 /* 납품 현황 인라인 블록 */
 .delivery-block{
   background:var(--bg);border-radius:10px;
@@ -457,10 +501,16 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.12</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.58</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
+</div>
+
+<!-- PULL TO REFRESH INDICATOR -->
+<div id="ptrIndicator" style="position:fixed;top:48px;left:0;right:0;z-index:200;display:flex;align-items:center;justify-content:center;gap:8px;height:0;overflow:hidden;background:#1a3a5c;color:#fff;font-size:13px;font-weight:600;transition:height 0.15s ease;pointer-events:none;">
+  <span id="ptrSpinner" style="display:inline-block;font-size:18px;transition:transform 0.2s;">↓</span>
+  <span id="ptrText">당겨서 새로고침</span>
 </div>
 
 <!-- SWIPE TRACK -->
@@ -506,8 +556,14 @@ body{
         <div class="stat-card"><div class="sc-label">선명 수</div><div class="sc-val gold" id="s-ships">0</div><div class="sc-sub">척</div></div>
         <div class="stat-card"><div class="sc-label">납품 박스</div><div class="sc-val accent" id="s-boxes">0박스</div><div class="sc-sub">납품완료 기준</div></div>
       </div>
-      <div class="sdiv">최근 발주 내역</div>
+      <div class="sdiv">최근 납품·반품 내역</div>
       <div id="dash-list"></div>
+
+      <div class="sdiv" style="margin-top:16px;display:flex;align-items:center;justify-content:space-between;">
+        <span>날짜별 기록</span>
+        <button class="btn btn-g btn-sm" onclick="toggleDashByDate()" id="dash-bydate-btn">펼치기 ▾</button>
+      </div>
+      <div id="dash-bydate" style="display:none;"></div>
 
       <!-- Firebase 백업 -->
       <div class="sdiv" style="margin-top:16px;">☁️ Firebase 백업</div>
@@ -519,13 +575,30 @@ body{
         </div>
         <div id="fb-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;"></div>
       </div>
+
+      <!-- 반품 진단 (임시) -->
+      <div class="sdiv" style="margin-top:16px;">🔍 반품 진단</div>
+      <div class="form-card" style="padding:13px 14px;">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">반품 관련 데이터 상태를 확인하고 수정합니다</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <button class="btn btn-g btn-sm" onclick="diagReturns()" style="flex:1;padding:9px 0;">🔍 반품 진단</button>
+          <button class="btn btn-p btn-sm" onclick="fixReturns()" style="flex:1;padding:9px 0;">🔧 반품 수정</button>
+        </div>
+        <div id="diag-status" style="font-size:11px;color:var(--muted);margin-top:8px;white-space:pre-wrap;word-break:break-all;"></div>
+      </div>
     </div>
 
     <!-- ── VIEW 1: ORDERS ── -->
     <div class="view" id="v1">
       <div class="ph">
         <div><div class="pt">발주 목록</div><div class="ps" id="o-sub">전체 0건</div></div>
-        <button class="btn btn-g btn-sm" onclick="resetOrders()">초기화</button>
+        <div style="display:flex;flex-direction:column;gap:5px;align-items:flex-end;">
+          <div style="display:flex;gap:5px;">
+            <button class="btn btn-warn btn-sm" id="bulkDelivBtn" onclick="toggleBulkMode('deliver')" style="white-space:nowrap;">☑️ 일괄납품</button>
+            <button class="btn btn-g btn-sm" id="bulkArchBtn" onclick="toggleBulkMode('archive')" style="white-space:nowrap;">📦 일괄보관</button>
+          </div>
+          <button class="btn btn-g btn-sm" onclick="resetOrders()" style="font-size:11px;padding:4px 8px;">초기화</button>
+        </div>
       </div>
       <div class="search-wrap">
         <span class="search-icon">🔍</span>
@@ -551,6 +624,7 @@ body{
         <button class="chip c-delivered" onclick="filterStatus('delivered',this)">납품완료</button>
         <button class="chip c-returned" onclick="filterStatus('returned',this)">반품</button>
         <button class="chip" onclick="filterStatus('pending',this)">미납품</button>
+        <button class="chip c-archived" onclick="filterStatus('archived',this)">📦 보관함</button>
       </div>
       <div id="orders-list"></div>
     </div>
@@ -655,6 +729,25 @@ body{
   </div><!-- /swipe-track -->
 </div><!-- /swipe-root -->
 
+<!-- 일괄 처리 플로팅 바 (swipe-root 밖 / bottomnav 위) -->
+<div id="bulkBar" style="display:none;background:#1e3a5f;padding:12px 16px;box-shadow:0 -4px 16px rgba(0,0,0,.35);flex-direction:column;gap:10px;flex-shrink:0;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+    <span style="color:#fff;font-size:13px;font-weight:700;" id="bulkCount">0건 선택됨</span>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-g btn-sm" onclick="bulkSelectAll()">전체선택</button>
+      <button class="btn btn-g btn-sm" onclick="bulkDeselectAll()">선택해제</button>
+    </div>
+  </div>
+  <div id="bulkDeliverRow" style="display:none;gap:8px;">
+    <input type="date" id="bulkDate" style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:13px;" />
+    <button class="btn btn-p btn-sm" style="white-space:nowrap;" onclick="bulkDeliver()">✅ 납품완료</button>
+  </div>
+  <div id="bulkArchiveRow" style="display:none;gap:8px;">
+    <button class="btn btn-sm" style="flex:1;background:#f59e0b;color:#fff;white-space:nowrap;" onclick="bulkArchive()">📦 선택 건 보관</button>
+    <button class="btn btn-sm" style="flex:1;background:#10b981;color:#fff;white-space:nowrap;" onclick="bulkUnarchive()">📤 선택 건 보관해제</button>
+  </div>
+</div>
+
 <!-- BOTTOM NAV (4탭) -->
 <nav class="bottomnav">
   <div class="tab-ink" id="tabInk" style="width:25%"></div>
@@ -674,6 +767,17 @@ body{
       <div class="modal-doc" id="m-docid">-</div>
     </div>
     <div class="modal-body" id="m-body"></div>
+  </div>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="modal-ov" id="editModalOv" onclick="closeEditModalOv(event)">
+  <div class="modal" id="editModal" style="max-height:92vh;">
+    <div class="modal-handle"></div>
+    <div class="modal-head">
+      <div class="modal-title">✏️ 발주 수정</div>
+    </div>
+    <div class="modal-body" id="edit-body"></div>
   </div>
 </div>
 
