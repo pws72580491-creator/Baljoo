@@ -2,11 +2,11 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.2.50
+  Version : v3.2.51
   Released: 2026-06-27
   ────────────────────────────────────────
   CHANGELOG
-  v3.2.50 (2026-06-27)
+  v3.2.51 (2026-06-27)
     - [NEW] 월별 결산 — 통계 탭 상단에 월 선택 칩 추가
             전체·이번달·저번달·개별 월 터치로 즉시 필터
             전체 모드: 월별 결산 그리드 카드 (월명·건수·박스·실납품금액·반품) 표시
@@ -58,7 +58,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<title>이른아침 · 발주관리 v3.2.50</title>
+<title>이른아침 · 발주관리 v3.2.51</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -202,6 +202,18 @@ body{
 .order-card.is-return-doc{background:#fff5f5;border-color:#fca5a5;}
 .order-card.is-return-doc::before{background:#dc2626;width:4px;}
 .order-card:active{box-shadow:0 4px 20px rgba(41,121,212,.12);}
+/* 일괄납품 모드 */
+.bulk-mode .order-card{cursor:pointer;padding-left:44px;position:relative;}
+.bulk-mode .order-card .bulk-chk{
+  display:flex;position:absolute;left:12px;top:50%;transform:translateY(-50%);
+  width:22px;height:22px;border-radius:6px;border:2px solid var(--border);
+  background:#fff;align-items:center;justify-content:center;font-size:14px;
+  flex-shrink:0;transition:background .15s,border-color .15s;
+}
+.bulk-mode .order-card.bulk-selected .bulk-chk{background:var(--accent);border-color:var(--accent);color:#fff;}
+.bulk-mode .order-card.bulk-selected{box-shadow:0 0 0 2px var(--accent);}
+.bulk-mode .order-card.bulk-disabled{opacity:.4;cursor:not-allowed;}
+#bulkDelivBtn.active{background:var(--accent);color:#fff;}
 .oc-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;}
 .oc-ship{font-size:14px;font-weight:700;line-height:1.3;flex:1;padding-right:8px;}
 .oc-amount{font-size:15px;font-weight:700;color:var(--navy);white-space:nowrap;}
@@ -482,7 +494,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.50</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.51</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
@@ -573,7 +585,10 @@ body{
     <div class="view" id="v1">
       <div class="ph">
         <div><div class="pt">발주 목록</div><div class="ps" id="o-sub">전체 0건</div></div>
-        <button class="btn btn-g btn-sm" onclick="resetOrders()">초기화</button>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-warn btn-sm" id="bulkDelivBtn" onclick="toggleBulkMode()">☑️ 일괄납품</button>
+          <button class="btn btn-g btn-sm" onclick="resetOrders()">초기화</button>
+        </div>
       </div>
       <div class="search-wrap">
         <span class="search-icon">🔍</span>
@@ -601,6 +616,22 @@ body{
         <button class="chip" onclick="filterStatus('pending',this)">미납품</button>
       </div>
       <div id="orders-list"></div>
+      <!-- 일괄납품 플로팅 바 -->
+      <div id="bulkBar" style="display:none;position:fixed;bottom:68px;left:0;right:0;z-index:200;
+           padding:12px 16px;background:var(--navy);box-shadow:0 -4px 16px rgba(0,0,0,.25);
+           display:none;flex-direction:column;gap:10px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <span style="color:#fff;font-size:13px;font-weight:700;" id="bulkCount">0건 선택됨</span>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-g btn-sm" onclick="bulkSelectAll()">전체선택</button>
+            <button class="btn btn-g btn-sm" onclick="bulkDeselectAll()">선택해제</button>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <input type="date" id="bulkDate" style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:13px;" />
+          <button class="btn btn-p btn-sm" style="white-space:nowrap;" onclick="bulkDeliver()">✅ 납품완료</button>
+        </div>
+      </div>
     </div>
 
     <!-- ── VIEW 2: UPLOAD ── -->
