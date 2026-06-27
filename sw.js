@@ -1,4 +1,4 @@
-const CACHE_NAME = '발주관리-cache-v3.2.58';
+const CACHE_NAME = '발주관리-cache-v3.2.59';
 const APP_SHELL = [
   './index.html',
   './manifest.json',
