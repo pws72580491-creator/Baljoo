@@ -614,10 +614,17 @@ function renderDeliveryStatus() {
   const byDay = {};
   done.forEach(o => {
     const d = o.deliveredDate || o.date || '미상';
-    if (!byDay[d]) byDay[d] = { date: d, orders: [], totalAmt: 0, totalBoxes: 0 };
+    if (!byDay[d]) byDay[d] = { date: d, orders: [], totalAmt: 0, totalBoxes: 0, eggBoxes: 0, quailBoxes: 0 };
     byDay[d].orders.push(o);
-    byDay[d].totalAmt   += calcNetDelivery(o);
-    byDay[d].totalBoxes += o.isReturn ? -calcOrderBoxes(o) : calcOrderBoxes(o);
+    byDay[d].totalAmt += calcNetDelivery(o);
+    const sign = o.isReturn ? -1 : 1;
+    (o.items||[]).forEach(item => {
+      const bc = calcItemBoxCount(item);
+      const isQuail = /quail|메추리/i.test(item.desc||'');
+      if (isQuail) byDay[d].quailBoxes += sign * bc;
+      else         byDay[d].eggBoxes   += sign * bc;
+      byDay[d].totalBoxes += sign * bc;
+    });
   });
 
   const dayList = Object.values(byDay).sort((a, b) => b.date.localeCompare(a.date));
@@ -628,8 +635,18 @@ function renderDeliveryStatus() {
   const grandAmt   = done.reduce((s, o) => s + calcNetDelivery(o), 0);
   const grandBoxes = delivDone.reduce((s, o) => s + calcOrderBoxes(o), 0)
                    - returnDone.reduce((s, o) => s + calcOrderBoxes(o), 0);
-  const returnAmt  = returnDone.reduce((s, o) => s + Math.abs(calcNetDelivery(o)), 0);
+  const returnAmt   = returnDone.reduce((s, o) => s + Math.abs(calcNetDelivery(o)), 0);
   const returnCount = returnDone.length;
+
+  // 계란 / 메추리 분리 집계
+  let grandEggBoxes = 0, grandQuailBoxes = 0;
+  delivDone.forEach(o => {
+    (o.items||[]).forEach(item => {
+      const bc = calcItemBoxCount(item);
+      if (/quail|메추리/i.test(item.desc||'')) grandQuailBoxes += bc;
+      else grandEggBoxes += bc;
+    });
+  });
 
   el.innerHTML = monthChipsHtml + monthTitleHtml + `
     <!-- 요약 바 -->
@@ -639,7 +656,12 @@ function renderDeliveryStatus() {
         <div style="font-size:11px;opacity:.7;margin-top:2px;">납품완료</div>
       </div>
       <div style="flex:1;background:#1a3a6e;color:#fff;padding:14px 16px;text-align:center;">
+        ${grandQuailBoxes ? `
+        <div style="font-size:12px;font-weight:700;opacity:.85;">계란 ${formatBoxCount(grandEggBoxes)}</div>
+        <div style="font-size:12px;font-weight:700;opacity:.85;">메추리 ${formatBoxCount(grandQuailBoxes)}</div>
+        ` : `
         <div style="font-size:18px;font-weight:800;">${formatBoxCount(grandBoxes)}</div>
+        `}
         <div style="font-size:11px;opacity:.7;margin-top:2px;">총 박스</div>
       </div>
       <div style="flex:1;background:var(--success);color:#fff;padding:14px 16px;text-align:center;">
@@ -672,7 +694,11 @@ function renderDeliveryStatus() {
           </div>
           <div style="text-align:right;">
             <div style="font-size:13px;font-weight:700;">${fmt(day.totalAmt)}</div>
-            <div style="font-size:10px;opacity:.65;">${formatBoxCount(day.totalBoxes)}</div>
+            <div style="font-size:10px;opacity:.8;margin-top:2px;">
+              ${day.eggBoxes   ? `계란 ${formatBoxCount(day.eggBoxes)}` : ''}
+              ${day.eggBoxes && day.quailBoxes ? ' · ' : ''}
+              ${day.quailBoxes ? `메추리 ${formatBoxCount(day.quailBoxes)}` : ''}
+            </div>
           </div>
         </div>
         <!-- 선명별 행 -->
@@ -709,8 +735,16 @@ function renderDeliveryStatus() {
                   </div>`;
                 }).join('')}
               </td>
-              <td style="padding:10px;text-align:right;font-size:13px;font-weight:700;color:${isReturnDoc?'#dc2626':'#1a3a6e'};white-space:nowrap;">
-                ${formatBoxCount(calcOrderBoxes(o))}
+              <td style="padding:10px;text-align:right;font-size:11px;font-weight:700;color:${isReturnDoc?'#dc2626':'#1a3a6e'};white-space:nowrap;vertical-align:top;">
+                ${(o.items||[]).map(item => {
+                  const bc = calcItemBoxCount(item);
+                  const rawDesc = item.desc || '';
+                  // 메추리 여부: 박스당 480pcs 로직과 동일하게 desc로 판별
+                  const isQuail = /quail|메추리/i.test(rawDesc);
+                  const label = isQuail ? '🥚메추리' : '🥚계란';
+                  if (!bc) return '';
+                  return `<div style="margin-bottom:2px;">${label}<br><span style="font-size:12px;">${formatBoxCount(bc)}</span></div>`;
+                }).filter(Boolean).join('')}
               </td>
               <td style="padding:10px 14px;text-align:right;white-space:nowrap;">
                 <div style="font-size:13px;font-weight:700;color:${amtCol};">${fmt(calcNetDelivery(o))}</div>
