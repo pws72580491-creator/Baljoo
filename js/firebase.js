@@ -22,9 +22,9 @@ let _db = null;
 // Firebase 지연 초기화 (버튼 클릭 시점에 로드)
 async function getDb() {
   if (_db) return _db;
-  const { initializeApp } = await import(FB_APP_URL);
-  const { getDatabase }   = await import(FB_DB_URL);
-  const app = initializeApp(firebaseConfig);
+  const { initializeApp, getApps } = await import(FB_APP_URL);
+  const { getDatabase }              = await import(FB_DB_URL);
+  const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
   _db = getDatabase(app);
   return _db;
 }
@@ -128,11 +128,14 @@ window.fbRestore = async function() {
     }
     // 하위 호환 필드 정규화 후 저장
     orders = normalizeOrders(data.orders);
-    // 복원 중 자동 동기화 방지 (복원 데이터가 즉시 덮어써지는 것 방지)
+    // 복원 중 자동 동기화 방지
     clearTimeout(_autoSyncTimer);
-    save();
-    clearTimeout(_autoSyncTimer);  // save()가 scheduleAutoSync 예약한 것 취소
-    renderAll();
+    localStorage.setItem('baljuOrders_v2', JSON.stringify(orders));
+    clearTimeout(_autoSyncTimer);
+    load();
+    clearTimeout(_autoSyncTimer);
+    if (typeof window.renderAll === 'function') window.renderAll();
+    else if (typeof renderAll === 'function') renderAll();
     const backedAt = data.backedAt ? new Date(data.backedAt).toLocaleString('ko-KR') : '알 수 없음';
     setFbStatus(`✅ 복원 완료 — ${orders.length}건 (백업일: ${backedAt})`, 'var(--success)');
     toast(`📥 복원 완료 — ${orders.length}건`);

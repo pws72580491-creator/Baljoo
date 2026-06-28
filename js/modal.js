@@ -96,10 +96,12 @@ function openModal(id) {
     document.getElementById('modalOv').classList.add('open');
     history.pushState({ modal: 'detail' }, '');
 
-    const modal = document.getElementById('modal');
-    modal.addEventListener('touchstart', e => { modalSwipeY = e.touches[0].clientY; }, { passive: true });
-    modal.addEventListener('touchmove', e => {
-      if (modal.scrollTop > 0) return;
+    // 기존 스와이프 리스너 제거 후 재등록 (openModal 반복 호출 시 누적 방지)
+    const freshModal = modal.cloneNode(true);
+    modal.parentNode.replaceChild(freshModal, modal);
+    freshModal.addEventListener('touchstart', e => { modalSwipeY = e.touches[0].clientY; }, { passive: true });
+    freshModal.addEventListener('touchmove', e => {
+      if (freshModal.scrollTop > 0) return;
       if (e.touches[0].clientY - modalSwipeY > 60) closeModalBtn();
     }, { passive: true });
   } catch (err) {
@@ -306,8 +308,10 @@ function openEditModal(id) {
     history.pushState({ modal: 'edit' }, '');
   }, 50);
 
-  // 스와이프 닫기
-  const em = document.getElementById('editModal');
+  // 스와이프 닫기 (리스너 누적 방지: clone으로 기존 리스너 제거)
+  const emOld = document.getElementById('editModal');
+  const em = emOld.cloneNode(true);
+  emOld.parentNode.replaceChild(em, emOld);
   let _sy = 0;
   em.addEventListener('touchstart', e => { _sy = e.touches[0].clientY; }, { passive: true });
   em.addEventListener('touchmove', e => {

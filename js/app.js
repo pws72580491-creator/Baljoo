@@ -370,12 +370,94 @@ function bulkUnarchive() {
   toast(`📤 ${cnt}건 보관 해제되었습니다.`);
 }
 
+// ══════════════════════════════════════════════
+// 월별 납품내역 CSV 내보내기
+// ══════════════════════════════════════════════
+function exportMonthCSV(ym) {
+  const [y, mo] = ym.split('-');
+  const label   = `${y}년 ${Number(mo)}월`;
+
+  const scopeOrders = orders.filter(o => {
+    const d = (o.deliveredDate || o.date || '');
+    return d.slice(0, 7) === ym;
+  }).sort((a, b) => (a.deliveredDate || a.date || '').localeCompare(b.deliveredDate || b.date || ''));
+
+  if (!scopeOrders.length) {
+    toast(`⚠️ ${label} 납품 데이터가 없습니다.`);
+    return;
+  }
+
+  // BOM + CSV 헤더
+  const rows = [
+    ['납품일', '선명', '구분', '서류번호', '발주번호', '품목', '수량', '단위', '박스수', '발주금액', '실납품금액', '납품상태', '비고']
+  ];
+
+  scopeOrders.forEach(o => {
+    const date    = o.deliveredDate || o.date || '';
+    const cat     = o.category === 'cruise' ? '크루즈' : '카고';
+    const status  = o.deliveryStatus === 'delivered' ? '납품완료'
+                  : o.deliveryStatus === 'returned'  ? '반품'
+                  : o.deliveryStatus === 'partial'   ? '부분납품' : '미납품';
+    const net     = calcNetDelivery(o);
+    const boxes   = calcOrderBoxes(o);
+    const items   = o.items || [];
+
+    if (items.length === 0) {
+      rows.push([date, o.ship, cat, o.docNo||'', o.poNo||'', '', '', '', boxes.toFixed(1),
+                 o.total||0, net, status, o.deliveryNote||'']);
+    } else {
+      items.forEach((item, idx) => {
+        const iBoxes = calcItemBoxCount(item);
+        rows.push([
+          date, o.ship, cat, o.docNo||'', o.poNo||'',
+          item.desc||'', item.qty||'', displayUnit(item.unit)||'', iBoxes.toFixed(1),
+          idx === 0 ? (o.total||0) : '',  // 첫 품목 행에만 총액 표시
+          idx === 0 ? net : '',
+          idx === 0 ? status : '',
+          idx === 0 ? (o.deliveryNote||'') : ''
+        ]);
+      });
+    }
+  });
+
+  // 합계 행
+  const totalNet   = scopeOrders.reduce((s, o) => s + calcNetDelivery(o), 0);
+  const totalBoxes = scopeOrders.reduce((s, o) => s + calcOrderBoxes(o), 0);
+  rows.push([]);
+  rows.push(['합계', '', '', '', '', '', '', '', totalBoxes.toFixed(1), '', totalNet, '', '']);
+
+  // CSV 문자열 생성
+  const csv = '\uFEFF' + rows.map(r =>
+    r.map(v => {
+      const s = String(v ?? '');
+      // 쉼표·줄바꿈·따옴표 포함 시 따옴표로 감쌈
+      return /[,"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(',')
+  ).join('\r\n');
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `납품내역_${y}${mo}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast(`📥 ${label} 납품내역 CSV 다운로드 완료`);
+}
+
 init();
 
-// ── Service Worker 등록 ──
-if ('serviceWorker' in navigator) {
+// ── Service Worker 등록 (content:// 에선 SW 불가 — 건너뜀) ──
+if ('serviceWorker' in navigator && location.protocol !== 'content:') {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW 등록 실패:', e));
+  });
+} else if ('serviceWorker' in navigator && location.protocol === 'content:') {
+  // content:// 환경에서 이전에 등록된 SW가 있으면 모두 해제
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(r => r.unregister());
   });
 }
 
@@ -420,13 +502,23 @@ if ('serviceWorker' in navigator) {
     if (!ptrActive) return;
     ptrActive = false;
     if (ptrTriggered) {
-      // 새로고침 실행
+      // content:// 환경에서 location.reload()가 동작 안 하므로 소프트 새로고침
       spinner.style.transform = 'rotate(0deg)';
       ptrText.textContent = '새로고침 중...';
       indicator.style.height = '48px';
       indicator.style.transition = 'none';
       setTimeout(() => {
-        location.reload();
+        try {
+          load();       // localStorage 재로드
+          renderAll();  // 화면 갱신
+          toast('✅ 새로고침 완료');
+        } catch(e) {
+          // 마지막 수단으로 reload 시도
+          try { location.reload(); } catch(_) {}
+        }
+        indicator.style.transition = 'height 0.2s ease';
+        setPTRHeight(0);
+        ptrTriggered = false;
       }, 400);
     } else {
       // 원위치

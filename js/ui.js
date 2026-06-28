@@ -225,40 +225,83 @@ function renderStats() {
     </div>
   `;
 
-  // ── 월별 결산 카드 (전체 모드일 때만) ──
+  // ── 월별 결산 카드 (전체 모드일 때만) + 막대 그래프 ──
   let monthlyGridHtml = '';
   if (_statMonth === 'all' && availableMonths.length > 1) {
-    const monthRows = availableMonths.map(m => {
+    // 그래프용 데이터 계산
+    const monthData = availableMonths.map(m => {
       const [y, mo] = m.split('-');
-      const mOrders   = orders.filter(o => (o.deliveredDate || o.date || '').slice(0,7) === m);
-      const mDel      = mOrders.filter(o => o.deliveryStatus === 'delivered');
-      const mRet      = mOrders.filter(o => o.deliveryStatus === 'returned');
-      const mPar      = mOrders.filter(o => o.deliveryStatus === 'partial');
-      const mDelAmt   = mDel.reduce((s,o) => s+(o.total||0), 0);
-      const mRetAmt   = mRet.reduce((s,o) => s+(o.isReturn ? Math.abs(o.total||0) : (o.returnAmount||Math.abs(o.total)||0)), 0);
-      const mParAmt   = mPar.reduce((s,o) => s+(o.partialAmount||0), 0);
-      const mNet      = mDelAmt + mParAmt - mRetAmt;
-      const mBoxes    = [...mDel, ...mPar].reduce((s,o) => s + calcOrderBoxes(o), 0);
-      const isActive  = _statMonth === m;
-      return `
-        <div onclick="selectStatMonth('${m}')"
-             style="border:${isActive?'2px solid var(--accent)':'1px solid var(--border)'};border-radius:10px;padding:12px 14px;cursor:pointer;background:#fff;transition:.15s;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-            <span style="font-size:13px;font-weight:700;color:var(--navy);">${Number(y)}년 ${Number(mo)}월</span>
-            <span style="font-size:10px;color:var(--muted);">${mDel.length+mPar.length}건 · ${formatBoxCount(mBoxes)}</span>
-          </div>
-          <div style="font-size:15px;font-weight:800;color:var(--success);margin-bottom:4px;">${fmt(mNet)}</div>
-          <div style="display:flex;gap:8px;font-size:10px;color:var(--muted);">
-            <span>납품 ${fmt(mDelAmt+mParAmt)}</span>
-            ${mRetAmt ? `<span style="color:var(--danger);">반품 -${fmt(mRetAmt)}</span>` : ''}
-          </div>
-        </div>`;
+      const mOrders = orders.filter(o => (o.deliveredDate || o.date || '').slice(0,7) === m);
+      const mDel    = mOrders.filter(o => o.deliveryStatus === 'delivered');
+      const mRet    = mOrders.filter(o => o.deliveryStatus === 'returned');
+      const mPar    = mOrders.filter(o => o.deliveryStatus === 'partial');
+      const mDelAmt = mDel.reduce((s,o) => s+(o.total||0), 0);
+      const mRetAmt = mRet.reduce((s,o) => s+(o.isReturn ? Math.abs(o.total||0) : (o.returnAmount||Math.abs(o.total)||0)), 0);
+      const mParAmt = mPar.reduce((s,o) => s+(o.partialAmount||0), 0);
+      const mNet    = mDelAmt + mParAmt - mRetAmt;
+      const mBoxes  = [...mDel, ...mPar].reduce((s,o) => s + calcOrderBoxes(o), 0);
+      const mCruise = mOrders.filter(o => o.category === 'cruise');
+      const mCargo  = mOrders.filter(o => o.category !== 'cruise');
+      const mCruiseNet = mCruise.reduce((s,o) => s + calcNetDelivery(o), 0);
+      const mCargoNet  = mCargo.reduce((s,o) => s + calcNetDelivery(o), 0);
+      return { m, y, mo, net: mNet, boxes: mBoxes, cnt: mDel.length + mPar.length,
+               delAmt: mDelAmt + mParAmt, retAmt: mRetAmt,
+               cruiseNet: mCruiseNet, cargoNet: mCargoNet };
     });
-    monthlyGridHtml = `
+
+    const maxNet = Math.max(...monthData.map(d => d.net), 1);
+
+    // 막대 그래프
+    const barHtml = `
+      <div style="margin-bottom:16px;">
+        <div class="sdiv" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>월별 실납품 추이</span>
+          <span style="font-size:10px;color:var(--muted);font-weight:400;">${availableMonths.length}개월</span>
+        </div>
+        <div style="background:#fff;border-radius:10px;border:1px solid var(--border);padding:16px 12px 8px;">
+          <div style="display:flex;align-items:flex-end;gap:6px;height:90px;">
+            ${[...monthData].reverse().map(d => {
+              const pct = Math.max((d.net / maxNet) * 100, 2);
+              const isThis = d.m === thisYM;
+              return `
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;"
+                     onclick="selectStatMonth('${d.m}')">
+                  <div style="font-size:9px;color:var(--muted);writing-mode:initial;">
+                    ${fmt(d.net).replace('₩','').replace(',000','.0K').replace(/(\d{1,3}),(\d{3})$/,'$1.$2K')}
+                  </div>
+                  <div style="width:100%;background:${isThis ? 'var(--accent)' : 'var(--accent-light)'};
+                              border-radius:4px 4px 0 0;height:${pct}%;min-height:4px;opacity:${isThis?1:0.7};
+                              transition:opacity .15s;" title="${d.m} · ${fmt(d.net)}"></div>
+                  <div style="font-size:9px;color:${isThis?'var(--navy)':'var(--muted)'};font-weight:${isThis?700:400};">
+                    ${Number(d.mo)}월
+                  </div>
+                </div>`;
+            }).join('')}
+          </div>
+        </div>
+      </div>`;
+
+    // 월별 결산 카드 그리드 (박스 수 + 크루즈/카고 구분 추가)
+    const monthRows = monthData.map(d => `
+      <div onclick="selectStatMonth('${d.m}')"
+           style="border:${_statMonth===d.m?'2px solid var(--accent)':'1px solid var(--border)'};
+                  border-radius:10px;padding:12px 14px;cursor:pointer;background:#fff;transition:.15s;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-size:13px;font-weight:700;color:var(--navy);">${Number(d.y)}년 ${Number(d.mo)}월</span>
+          <span style="font-size:10px;color:var(--muted);">${d.cnt}건 · ${formatBoxCount(d.boxes)}</span>
+        </div>
+        <div style="font-size:15px;font-weight:800;color:var(--success);margin-bottom:6px;">${fmt(d.net)}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;font-size:10px;">
+          ${d.cruiseNet ? `<span style="color:#0ea5e9;">🚢 크루즈 ${fmt(d.cruiseNet)}</span>` : ''}
+          ${d.cargoNet  ? `<span style="color:#f59e0b;">📦 카고 ${fmt(d.cargoNet)}</span>` : ''}
+        </div>
+        ${d.retAmt ? `<div style="font-size:10px;color:var(--danger);margin-top:3px;">반품차감 -${fmt(d.retAmt)}</div>` : ''}
+      </div>`);
+
+    monthlyGridHtml = barHtml + `
       <div style="margin-bottom:16px;">
         <div class="sdiv" style="display:flex;align-items:center;justify-content:space-between;">
           <span>월별 결산</span>
-          <span style="font-size:10px;color:var(--muted);font-weight:400;">${availableMonths.length}개월</span>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
           ${monthRows.join('')}
@@ -266,18 +309,23 @@ function renderStats() {
       </div>`;
   }
 
-  // ── 월 제목 표시 (특정 월 선택 시) ──
+  // ── 월 제목 표시 + CSV 내보내기 버튼 (특정 월 선택 시) ──
   let monthTitleHtml = '';
   if (_statMonth !== 'all') {
     const [y, mo] = _statMonth.split('-');
     monthTitleHtml = `
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:11px 14px;
-                  background:var(--navy);color:#fff;border-radius:10px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;
+                  padding:11px 14px;background:var(--navy);color:#fff;border-radius:10px;">
         <span style="font-size:16px;font-weight:800;">${Number(y)}년 ${Number(mo)}월 결산</span>
+        <button onclick="exportMonthCSV('${_statMonth}')"
+                style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;
+                       border-radius:6px;padding:5px 10px;font-size:11px;cursor:pointer;white-space:nowrap;">
+          📥 CSV 내보내기
+        </button>
       </div>`;
   }
 
-  // ── 데이터 필터 (선택된 월 기준) ──
+  // ── 데이터 필터 ──
   const scopeOrders = _filterByMonth(orders, _statMonth);
 
   const delivered = scopeOrders.filter(o => o.deliveryStatus === 'delivered');
@@ -286,12 +334,37 @@ function renderStats() {
   const pending   = scopeOrders.filter(o => !o.deliveryStatus || o.deliveryStatus === 'pending');
 
   const deliveredAmt = delivered.reduce((s, o) => s + (o.total || 0), 0);
-  // 반품서(isReturn): total이 이미 음수이므로 Math.abs 사용; 수동반품: returnAmount는 양수
   const returnedAmt  = returned.reduce((s, o) => s + (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount || Math.abs(o.total) || 0)), 0);
   const partialAmt   = partial.reduce((s, o) => s + (o.partialAmount || 0), 0);
   const netAmt       = deliveredAmt + partialAmt - returnedAmt;
 
-  // ── 일별 납품 집계 (납품완료 + 부분납품 + 반품, 실제 납품일 기준) ──
+  // 총 박스 수
+  const totalBoxes = [...delivered, ...partial].reduce((s,o) => s + calcOrderBoxes(o), 0);
+
+  // ── 크루즈 / 카고 구분 집계 ──
+  const doneOrders = [...delivered, ...partial];
+  const cruiseOrders = doneOrders.filter(o => o.category === 'cruise');
+  const cargoOrders  = doneOrders.filter(o => o.category !== 'cruise');
+  const cruiseAmt = cruiseOrders.reduce((s,o) => s + calcNetDelivery(o), 0);
+  const cargoAmt  = cargoOrders.reduce((s,o) => s + calcNetDelivery(o), 0);
+  const cruiseBoxes = cruiseOrders.reduce((s,o) => s + calcOrderBoxes(o), 0);
+  const cargoBoxes  = cargoOrders.reduce((s,o) => s + calcOrderBoxes(o), 0);
+
+  const categoryHtml = (cruiseAmt || cargoAmt) ? `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;">
+      <div style="background:#eff8ff;border:1px solid #bae0fd;border-radius:10px;padding:12px 14px;">
+        <div style="font-size:11px;color:#0ea5e9;font-weight:700;margin-bottom:6px;">🚢 크루즈</div>
+        <div style="font-size:14px;font-weight:800;color:var(--navy);">${fmt(cruiseAmt)}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px;">${cruiseOrders.length}건 · ${formatBoxCount(cruiseBoxes)}</div>
+      </div>
+      <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px 14px;">
+        <div style="font-size:11px;color:#f59e0b;font-weight:700;margin-bottom:6px;">📦 카고</div>
+        <div style="font-size:14px;font-weight:800;color:var(--navy);">${fmt(cargoAmt)}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:4px;">${cargoOrders.length}건 · ${formatBoxCount(cargoBoxes)}</div>
+      </div>
+    </div>` : '';
+
+  // ── 일별 납품 집계 ──
   const byDay = {};
   [...delivered, ...partial, ...returned].forEach(o => {
     const d = o.deliveredDate || o.date || '미상';
@@ -303,13 +376,14 @@ function renderStats() {
   });
   const dayList = Object.values(byDay).sort((a, b) => b.date.localeCompare(a.date));
 
-  // ── 선명별 집계 (scopeOrders 기준) ──
+  // ── 선명별 집계 ──
   const byShip = {};
   scopeOrders.forEach(o => {
-    if (!byShip[o.ship]) byShip[o.ship] = { ship: o.ship, cnt: 0, total: 0, net: 0, returned: 0 };
+    if (!byShip[o.ship]) byShip[o.ship] = { ship: o.ship, cnt: 0, total: 0, net: 0, returned: 0, boxes: 0 };
     byShip[o.ship].cnt++;
-    byShip[o.ship].total    += (o.total || 0);
-    byShip[o.ship].net      += calcNetDelivery(o);
+    byShip[o.ship].total   += (o.total || 0);
+    byShip[o.ship].net     += calcNetDelivery(o);
+    byShip[o.ship].boxes   += calcOrderBoxes(o);
     if (o.deliveryStatus === 'returned')
       byShip[o.ship].returned += (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount || Math.abs(o.total) || 0));
   });
@@ -320,14 +394,14 @@ function renderStats() {
     <!-- 월 선택 칩 -->
     ${monthChipsHtml}
 
-    <!-- 월별 결산 그리드 (전체 모드) -->
+    <!-- 막대 그래프 + 월별 결산 그리드 (전체 모드) -->
     ${monthlyGridHtml}
 
-    <!-- 선택 월 타이틀 -->
+    <!-- 선택 월 타이틀 + CSV 버튼 -->
     ${monthTitleHtml}
 
     <!-- 합산 요약 카드 -->
-    <div class="delivery-summary" style="margin-bottom:16px;">
+    <div class="delivery-summary" style="margin-bottom:12px;">
       <div class="ds-title">납품 금액 요약</div>
       <div class="ds-grid">
         <div class="ds-item">
@@ -350,7 +424,14 @@ function renderStats() {
         <div class="ds-net-lbl">실 납품금액 합계</div>
         <div class="ds-net-val">${fmt(netAmt)}</div>
       </div>
+      <!-- 총 박스 수 -->
+      <div style="text-align:center;font-size:12px;color:var(--muted);padding:6px 0 2px;">
+        총 납품 <strong style="color:var(--navy);">${formatBoxCount(totalBoxes)}</strong>
+      </div>
     </div>
+
+    <!-- 크루즈 / 카고 구분 -->
+    ${categoryHtml}
 
     <!-- 일별 납품 정리 -->
     ${dayList.length ? `
@@ -360,7 +441,6 @@ function renderStats() {
     </div>
     ${dayList.map(day => `
       <div class="form-card" style="padding:0;overflow:hidden;margin-bottom:10px;">
-        <!-- 날짜 헤더 -->
         <div style="display:flex;align-items:center;justify-content:space-between;
                     padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border);cursor:pointer;"
              onclick="this.nextElementSibling.classList.toggle('collapsed')">
@@ -370,7 +450,6 @@ function renderStats() {
           </div>
           <span style="font-size:13px;font-weight:700;color:var(--success);">${fmt(day.amt)}</span>
         </div>
-        <!-- 날짜별 발주 목록 (접기 가능) -->
         <div class="day-orders">
           ${day.orders.map(o => `
             <div onclick="openModal('${o.id}')"
@@ -388,7 +467,6 @@ function renderStats() {
               </div>
             </div>
           `).join('')}
-          <!-- 일별 소계 -->
           <div style="display:flex;justify-content:space-between;padding:8px 14px;
                       background:var(--bg);font-size:12px;color:var(--muted);">
             <span>${day.cnt}건 · ${formatBoxCount(day.boxes)}</span>
@@ -420,7 +498,7 @@ function renderStats() {
       </div>
     `).join('')}` : ''}
 
-    <!-- 선명별 납품 현황 -->
+    <!-- 선명별 납품 현황 (박스 열 추가) -->
     ${ships.length ? `
     <div class="sdiv">선명별 납품 현황</div>
     <div class="form-card" style="padding:0;overflow:hidden;">
@@ -428,18 +506,19 @@ function renderStats() {
         <thead>
           <tr style="background:var(--bg);">
             <th style="padding:10px 12px;text-align:left;color:var(--muted);font-size:10px;font-weight:700;">선명</th>
-            <th style="padding:10px 8px;text-align:right;color:var(--muted);font-size:10px;font-weight:700;">발주</th>
-            <th style="padding:10px 8px;text-align:right;color:var(--muted);font-size:10px;font-weight:700;">반품</th>
+            <th style="padding:10px 6px;text-align:right;color:var(--muted);font-size:10px;font-weight:700;">박스</th>
+            <th style="padding:10px 6px;text-align:right;color:var(--muted);font-size:10px;font-weight:700;">반품</th>
             <th style="padding:10px 12px;text-align:right;color:var(--muted);font-size:10px;font-weight:700;">실납품</th>
           </tr>
         </thead>
         <tbody>
           ${ships.map(s => `
           <tr style="border-top:1px solid var(--border);">
-            <td style="padding:10px 12px;font-weight:600;">${escapeHtml(s.ship)}</td>
-            <td style="padding:10px 8px;text-align:right;font-family:monospace;color:var(--muted);">${fmt(s.total)}</td>
-            <td style="padding:10px 8px;text-align:right;font-family:monospace;color:var(--danger);">${s.returned ? '-' + fmt(s.returned) : '-'}</td>
-            <td style="padding:10px 12px;text-align:right;font-family:monospace;font-weight:700;color:${s.net >= 0 ? 'var(--navy)' : 'var(--danger)'};">${fmt(s.net)}</td>
+            <td style="padding:10px 12px;font-weight:600;font-size:11px;">${escapeHtml(s.ship)}</td>
+            <td style="padding:10px 6px;text-align:right;font-family:monospace;color:var(--muted);font-size:11px;">${formatBoxCount(s.boxes)}</td>
+            <td style="padding:10px 6px;text-align:right;font-family:monospace;color:var(--danger);font-size:11px;">${s.returned ? '-'+fmt(s.returned) : '-'}</td>
+            <td style="padding:10px 12px;text-align:right;font-family:monospace;font-weight:700;font-size:11px;
+                color:${s.net >= 0 ? 'var(--navy)' : 'var(--danger)'};">${fmt(s.net)}</td>
           </tr>`).join('')}
         </tbody>
       </table>
