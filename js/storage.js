@@ -14,6 +14,9 @@ function save() {
     if (!_loadInProgress && typeof scheduleAutoSync === 'function') scheduleAutoSync();
   } catch(e) {
     console.error('[storage] 저장 실패:', e);
+    if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+      if (typeof toast === 'function') toast('⚠️ 저장 공간이 부족합니다. 오래된 데이터를 정리해주세요.');
+    }
   }
 }
 

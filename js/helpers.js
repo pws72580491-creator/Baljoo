@@ -162,10 +162,10 @@ function filtered() {
 
 // ── 토스트 ──
 let toastTimer;
-function toast(msg) {
+function toast(msg, duration = 2500) {
   const el = document.getElementById('toast');
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+  toastTimer = setTimeout(() => el.classList.remove('show'), duration);
 }

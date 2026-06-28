@@ -518,3 +518,31 @@ const BG = (() => {
 
   return { start, end };
 })();
+
+// ══════════════════════════════════════════════
+// 전역 오류 수집 (디버깅용)
+// ══════════════════════════════════════════════
+window.onerror = function(msg, src, line, col, err) {
+  console.error('[GlobalError]', msg, src && `${src}:${line}:${col}`, err);
+};
+window.addEventListener('unhandledrejection', e => {
+  console.error('[UnhandledPromise]', e.reason);
+});
+
+// ══════════════════════════════════════════════
+// Service Worker — 새 버전 감지 시 갱신 안내
+// ══════════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.ready.then(reg => {
+    reg.addEventListener('updatefound', () => {
+      const newWorker = reg.installing;
+      newWorker.addEventListener('statechange', () => {
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          if (typeof toast === 'function') {
+            toast('🔄 새 버전이 있습니다. 새로고침하면 적용됩니다.', 6000);
+          }
+        }
+      });
+    });
+  });
+}
