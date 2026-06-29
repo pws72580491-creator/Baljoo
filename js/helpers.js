@@ -59,6 +59,9 @@ function getBoxDivisor(unit) {
   // CTN / BOX / CASE / CARTON → qty = 박스 수 (1:1)
   if (u === 'ctn' || u === 'case' || u === 'carton' || u === 'box' || u === 'ct') return 1;
 
+  // PKT / PKG / BAG / SACHET / POUCH (봉지) → 10봉지 = 1박스
+  if (u === 'pkt' || u === 'pkg' || u === 'bag' || u === 'sachet' || u === 'pouch') return 10;
+
   // DOZ / DOZEN → 30doz = 1박스
   if (u.startsWith('doz') || u === 'dozen') return 30;
 
@@ -85,10 +88,10 @@ function calcItemBoxCount(item) {
     return Number(item.qty) || 0;
   }
 
-  // PKT/PKG/BAG/SACHET/POUCH 단위 — 봉지·팩은 박스 환산 안 함 (0박스)
+  // PKT/PKG/BAG/SACHET/POUCH 단위 — 10pkt = 1박스 (봉지 단위)
   const isPktUnit = unitNorm === 'pkt' || unitNorm === 'pkg' || unitNorm === 'bag'
                  || unitNorm === 'sachet' || unitNorm === 'pouch';
-  if (isPktUnit) return 0;
+  if (isPktUnit) return (Number(item.qty) || 0) / 10;
 
   // 생메추리알 특별 처리: pcs → 480pcs=1박스 / doz → 40doz=1박스 (반품서 음수 qty도 처리)
   if (_isQuailEgg(item)) {
@@ -124,14 +127,42 @@ function formatBoxCount(bc) {
   return (bc % 1 === 0) ? `${bc}박스` : `${bc.toFixed(1)}박스`;
 }
 
+// pkt(봉지) 단위 품목용 표시: 박스 + 나머지 봉지
+// 예) qty=25pkt → 2박스 5봉지 / qty=10pkt → 1박스 / qty=3pkt → 3봉지
+function formatPktCount(qty) {
+  const q = Number(qty) || 0;
+  if (q === 0) return '0봉지';
+  const boxes = Math.floor(q / 10);
+  const pkts  = q % 10;
+  if (boxes > 0 && pkts > 0) return `${boxes}박스 ${pkts}봉지`;
+  if (boxes > 0)              return `${boxes}박스`;
+  return `${pkts}봉지`;
+}
+
+// 품목의 단위가 pkt 계열인지 판별
+function _isPktUnit(unit) {
+  const u = String(unit || '').toLowerCase().replace(/[^a-z]/g, '');
+  return u === 'pkt' || u === 'pkg' || u === 'bag' || u === 'sachet' || u === 'pouch';
+}
+
+// 품목 박스 문자열 표시 (pkt 품목은 박스+봉지 혼합, 일반은 박스)
+function formatItemBoxStr(item) {
+  if (_isPktUnit(item.unit)) {
+    const q = Number(item.qty) || 0;
+    return q ? formatPktCount(q) : '';
+  }
+  const bc = calcItemBoxCount(item);
+  return bc ? formatBoxCount(bc) : '';
+}
+
 // ctn/case/carton/box 단위는 화면에 'box'로 통일 표시
-// pkt/pkg/bag 단위는 'pkt'로 통일 표시
+// pkt/pkg/bag 단위는 '봉지'로 통일 표시
 function displayUnit(unit) {
   if (!unit) return '';
   const u = String(unit).toLowerCase().replace(/[^a-z]/g, '');
   if (u === 'ctn' || u === 'case' || u === 'carton' || u === 'ct') return 'box';
-  if (u === 'pkg' || u === 'bag' || u === 'sachet' || u === 'pouch') return 'pkt';
-  return unit; // pcs, doz, pkt 등은 그대로
+  if (u === 'pkt' || u === 'pkg' || u === 'bag' || u === 'sachet' || u === 'pouch') return '봉지';
+  return unit; // pcs, doz 등은 그대로
 }
 
 function calcOrderBoxes(order) {

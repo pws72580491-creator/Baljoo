@@ -245,7 +245,7 @@ function openEditModal(id) {
       <input type="text" id="ei-code-${idx}"  value="${item.code||''}" placeholder="CODE" enterkeyhint="next">
       <input type="number" id="ei-qty-${idx}" value="${item.qty||0}" step="any" min="0" inputmode="decimal" enterkeyhint="next" oninput="recalcEditItem(${idx})">
       <select id="ei-unit-${idx}">
-        ${[['box','박스'],['pcs','pcs'],['doz','doz'],['pkt','pkt']].map(([v,l]) =>
+        ${[['box','박스'],['pcs','pcs'],['doz','doz'],['pkt','봉지']].map(([v,l]) =>
           `<option value="${v}"${item.unit===v?' selected':''}>${l}</option>`
         ).join('')}
       </select>
@@ -394,7 +394,7 @@ function addEditItem() {
         <option value="box">박스</option>
         <option value="pcs">pcs</option>
         <option value="doz">doz</option>
-        <option value="pkt">pkt</option>
+        <option value="pkt">봉지</option>
       </select>
       <input type="text" id="ei-price-${idx}" value="" placeholder="단가"
         inputmode="numeric"

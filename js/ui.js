@@ -138,7 +138,7 @@ function orderCard(o, showDel) {
     <div class="oc-bottom">
       <div class="oc-item">${escapeHtml(item.desc) || '-'}</div>
       <div style="display:flex;gap:10px;align-items:center;flex-shrink:0;margin-left:8px;">
-        <span class="oc-qty">${fmtQ(item)}${calcItemBoxCount(item) ? ` (${formatBoxCount(calcItemBoxCount(item))})` : ''}</span>
+        <span class="oc-qty">${fmtQ(item)}${formatItemBoxStr(item) ? ` (${formatItemBoxStr(item)})` : ''}</span>
         <span class="oc-dates">${escapeHtml(o.date)}${o.delivery ? ' → ' + escapeHtml(o.delivery) : ''}</span>
       </div>
     </div>
@@ -724,14 +724,13 @@ function renderDeliveryStatus() {
                             white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">${escapeHtml(o.ship)}</div>
                 <div style="font-size:10px;color:var(--muted);margin-top:2px;">${escapeHtml(o.docNo)}</div>
                 ${(o.items||[]).map(item => {
-                  const boxes = calcItemBoxCount(item);
-                  const boxStr = boxes ? ` · ${formatBoxCount(boxes)}` : '';
+                  const boxStr = formatItemBoxStr(item);
                   const rawDesc = item.desc || '';
                   const desc = escapeHtml(rawDesc.length > 18 ? rawDesc.slice(0,18)+'…' : rawDesc);
                   const qtyCol = (item.qty||0) < 0 ? 'color:#dc2626;' : '';
                   return `<div style="font-size:10px;color:var(--muted);margin-top:3px;display:flex;gap:4px;align-items:center;">
                     <span style="color:var(--navy);font-weight:600;">${desc}</span>
-                    <span style="${qtyCol}">${item.qty}${displayUnit(item.unit)}${boxStr}</span>
+                    <span style="${qtyCol}">${item.qty}${displayUnit(item.unit)}${boxStr ? ' · '+boxStr : ''}</span>
                   </div>`;
                 }).join('')}
               </td>
@@ -742,6 +741,11 @@ function renderDeliveryStatus() {
                   // 메추리 여부: 박스당 480pcs 로직과 동일하게 desc로 판별
                   const isQuail = /quail|메추리/i.test(rawDesc);
                   const label = isQuail ? '🥚메추리' : '🥚계란';
+                  if (_isPktUnit(item.unit)) {
+                    const q = Number(item.qty) || 0;
+                    if (!q) return '';
+                    return `<div style="margin-bottom:2px;">🛍️봉지<br><span style="font-size:12px;">${formatPktCount(q)}</span></div>`;
+                  }
                   if (!bc) return '';
                   return `<div style="margin-bottom:2px;">${label}<br><span style="font-size:12px;">${formatBoxCount(bc)}</span></div>`;
                 }).filter(Boolean).join('')}
@@ -840,9 +844,9 @@ function renderDashByDate() {
                 <div style="font-size:13px;font-weight:700;color:var(--navy);">${escapeHtml(o.ship)}</div>
                 <div style="font-size:10px;color:var(--muted);margin-top:2px;">${escapeHtml(o.docNo)}</div>
                 ${(o.items||[]).map(i => {
-                  const b = calcItemBoxCount(i);
                   const qtyCol = (i.qty||0) < 0 ? 'color:#dc2626;' : '';
-                  return `<div style="font-size:11px;color:#555;margin-top:3px;${qtyCol}">${escapeHtml((i.desc||'').slice(0,22))} · ${i.qty}${displayUnit(i.unit)}${b ? ' · '+formatBoxCount(b) : ''}</div>`;
+                  const boxStr = formatItemBoxStr(i);
+                  return `<div style="font-size:11px;color:#555;margin-top:3px;${qtyCol}">${escapeHtml((i.desc||'').slice(0,22))} · ${i.qty}${displayUnit(i.unit)}${boxStr ? ' · '+boxStr : ''}</div>`;
                 }).join('')}
               </div>
               <div style="text-align:right;flex-shrink:0;margin-left:8px;">

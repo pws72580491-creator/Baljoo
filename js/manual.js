@@ -32,7 +32,7 @@ function addItem() {
       <div class="fg" style="margin-bottom:0;">
         <span class="item-sublabel">단위</span>
         <select class="fs" style="font-size:14px;">
-          <option>DOZ</option><option>PCS</option><option>BOX</option><option>PKT</option><option>KG</option><option>EA</option>
+          <option>DOZ</option><option>PCS</option><option>BOX</option><option value="pkt">봉지</option><option>KG</option><option>EA</option>
         </select>
       </div>
       <div class="fg" style="margin-bottom:0;">
