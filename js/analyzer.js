@@ -81,6 +81,7 @@ unit 선택 기준(중요):
 - 수량 단위가 DOZ·DOZEN·다스 → unit="doz" (절대 cs/ctn으로 쓰지 말것)
 - 수량 단위가 CS·CTN·BOX·CASE·박스 → unit="ctn"
 - 수량 단위가 PCS·EA·낱개 → unit="pcs"
+- 수량 단위가 PKT·PKG·BAG·SACHET·POUCH·봉지·봉·팩 → unit="pkt"
 - 그 외: kg/l/btl 중 해당하는 것`;
 
     const parts = [textPart(prompt)];

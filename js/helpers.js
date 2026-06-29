@@ -85,6 +85,11 @@ function calcItemBoxCount(item) {
     return Number(item.qty) || 0;
   }
 
+  // PKT/PKG/BAG/SACHET/POUCH 단위 — 봉지·팩은 박스 환산 안 함 (0박스)
+  const isPktUnit = unitNorm === 'pkt' || unitNorm === 'pkg' || unitNorm === 'bag'
+                 || unitNorm === 'sachet' || unitNorm === 'pouch';
+  if (isPktUnit) return 0;
+
   // 생메추리알 특별 처리: pcs → 480pcs=1박스 / doz → 40doz=1박스 (반품서 음수 qty도 처리)
   if (_isQuailEgg(item)) {
     const qty = Number(item.qty) || 0;
@@ -120,11 +125,13 @@ function formatBoxCount(bc) {
 }
 
 // ctn/case/carton/box 단위는 화면에 'box'로 통일 표시
+// pkt/pkg/bag 단위는 'pkt'로 통일 표시
 function displayUnit(unit) {
   if (!unit) return '';
   const u = String(unit).toLowerCase().replace(/[^a-z]/g, '');
   if (u === 'ctn' || u === 'case' || u === 'carton' || u === 'ct') return 'box';
-  return unit; // pcs, doz 등은 그대로
+  if (u === 'pkg' || u === 'bag' || u === 'sachet' || u === 'pouch') return 'pkt';
+  return unit; // pcs, doz, pkt 등은 그대로
 }
 
 function calcOrderBoxes(order) {
