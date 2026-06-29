@@ -756,7 +756,13 @@ function renderDeliveryStatus() {
           <tfoot>
             <tr style="background:#f1f5f9;border-top:2px solid var(--border);">
               <td style="padding:9px 14px;font-size:12px;font-weight:700;color:var(--navy);">소계</td>
-              <td style="padding:9px 10px;text-align:right;font-size:12px;font-weight:700;color:#1a3a6e;">${formatBoxCount(day.totalBoxes)}</td>
+              <td style="padding:9px 10px;text-align:right;font-size:12px;font-weight:700;color:#1a3a6e;">
+                ${formatBoxCount(day.totalBoxes)}
+                ${(day.eggBoxes && day.quailBoxes) ? `
+                <div style="font-size:10px;font-weight:500;color:var(--muted);margin-top:2px;line-height:1.5;">
+                  🥚계란 ${formatBoxCount(day.eggBoxes)}<br>메추리 ${formatBoxCount(day.quailBoxes)}
+                </div>` : ''}
+              </td>
               <td style="padding:9px 14px;text-align:right;font-size:12px;font-weight:700;color:var(--success);">${fmt(day.totalAmt)}</td>
             </tr>
           </tfoot>
