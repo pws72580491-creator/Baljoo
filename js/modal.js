@@ -237,17 +237,24 @@ function openEditModal(id) {
 
   // 품목 행 렌더
   function itemRow(item, idx) {
+    const priceDisplay = item.price ? Number(item.price).toLocaleString() : '';
+    const amountDisplay = item.amount ? Number(item.amount).toLocaleString() : '';
     return `
     <div class="edit-item-row" id="eitem-${idx}">
-      <input type="text"   id="ei-desc-${idx}"   value="${(item.desc||'').replace(/"/g,'&quot;')}" placeholder="품목명">
-      <input type="text"   id="ei-code-${idx}"   value="${item.code||''}" placeholder="CODE">
-      <input type="number" id="ei-qty-${idx}"    value="${item.qty||0}"   step="any" min="0">
+      <input type="text" id="ei-desc-${idx}"  value="${(item.desc||'').replace(/"/g,'&quot;')}" placeholder="품목명" enterkeyhint="next">
+      <input type="text" id="ei-code-${idx}"  value="${item.code||''}" placeholder="CODE" enterkeyhint="next">
+      <input type="number" id="ei-qty-${idx}" value="${item.qty||0}" step="any" min="0" inputmode="decimal" enterkeyhint="next" oninput="recalcEditItem(${idx})">
       <select id="ei-unit-${idx}">
         ${[['box','박스'],['pcs','pcs'],['doz','doz']].map(([v,l]) =>
           `<option value="${v}"${item.unit===v?' selected':''}>${l}</option>`
         ).join('')}
       </select>
-      <input type="number" id="ei-price-${idx}"  value="${item.price||0}" step="any" min="0" placeholder="단가">
+      <input type="text" id="ei-price-${idx}" value="${priceDisplay}" placeholder="단가"
+        inputmode="numeric" enterkeyhint="next"
+        onfocus="this.value=this.value.replace(/,/g,'')"
+        onblur="formatPriceField(this,${idx})"
+        oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+      <span id="ei-amt-${idx}" style="font-size:11px;color:var(--muted);white-space:nowrap;align-self:center;">${amountDisplay ? '₩'+amountDisplay : ''}</span>
       <button class="edit-del-btn" onclick="removeEditItem(${idx})">×</button>
     </div>`;
   }
@@ -256,7 +263,7 @@ function openEditModal(id) {
     <div class="edit-row">
       <div class="edit-field">
         <label>선명</label>
-        <input id="ef-ship" type="text" value="${(o.ship||'').replace(/"/g,'&quot;')}">
+        <input id="ef-ship" type="text" value="${(o.ship||'').replace(/"/g,'&quot;')}" enterkeyhint="next">
       </div>
       <div class="edit-field">
         <label>구분</label>
@@ -279,11 +286,11 @@ function openEditModal(id) {
     <div class="edit-row">
       <div class="edit-field">
         <label>서류번호</label>
-        <input id="ef-docno" type="text" value="${(o.docNo||'').replace(/"/g,'&quot;')}">
+        <input id="ef-docno" type="text" value="${(o.docNo||'').replace(/"/g,'&quot;')}" enterkeyhint="next">
       </div>
       <div class="edit-field">
         <label>거래처발주번호</label>
-        <input id="ef-pono" type="text" value="${(o.poNo||'').replace(/"/g,'&quot;')}">
+        <input id="ef-pono" type="text" value="${(o.poNo||'').replace(/"/g,'&quot;')}" enterkeyhint="next">
       </div>
     </div>
 
@@ -306,6 +313,50 @@ function openEditModal(id) {
   setTimeout(() => {
     document.getElementById('editModalOv').classList.add('open');
     history.pushState({ modal: 'edit' }, '');
+
+    // ── Enter/Next 키 → 다음 필드로 포커스 이동 ──
+    // 이동 순서: 선명 → 서류번호 → 거래처발주번호 → (각 품목행) 품목명 → CODE → 수량 → 단가 → 다음행 품목명 … → 마지막 단가에서 저장
+    const editBody = document.getElementById('edit-body');
+    editBody.addEventListener('keydown', function(e) {
+      if (e.key !== 'Enter') return;
+      const active = document.activeElement;
+      if (!active || active.tagName === 'BUTTON' || active.tagName === 'SELECT') return;
+      e.preventDefault();
+
+      // 고정 헤더 필드 순서
+      const HEADER_IDS = ['ef-ship', 'ef-docno', 'ef-pono'];
+      const hi = HEADER_IDS.indexOf(active.id);
+      if (hi !== -1) {
+        const nextHeader = HEADER_IDS[hi + 1];
+        if (nextHeader) {
+          document.getElementById(nextHeader)?.focus();
+        } else {
+          // 거래처발주번호 → 첫 품목행 품목명
+          document.getElementById('ei-desc-0')?.focus();
+        }
+        return;
+      }
+
+      // 품목 행 필드: ei-desc-N / ei-code-N / ei-qty-N / ei-price-N
+      const m = active.id.match(/^ei-(desc|code|qty|price)-(\d+)$/);
+      if (m) {
+        const field = m[1], idx = Number(m[2]);
+        const ORDER = ['desc', 'code', 'qty', 'price'];
+        const fi = ORDER.indexOf(field);
+        if (fi < ORDER.length - 1) {
+          // 같은 행 다음 필드
+          document.getElementById(`ei-${ORDER[fi + 1]}-${idx}`)?.focus();
+        } else {
+          // 단가(price) → 다음 행 품목명 or 저장 버튼
+          const nextDesc = document.getElementById(`ei-desc-${idx + 1}`);
+          if (nextDesc) {
+            nextDesc.focus();
+          } else {
+            document.querySelector('#edit-body .btn-success')?.focus();
+          }
+        }
+      }
+    });
   }, 50);
 
   // 스와이프 닫기 (리스너 누적 방지: clone으로 기존 리스너 제거)
@@ -338,16 +389,39 @@ function addEditItem() {
     <div class="edit-item-row" id="eitem-${idx}">
       <input type="text"   id="ei-desc-${idx}"  placeholder="품목명">
       <input type="text"   id="ei-code-${idx}"  placeholder="CODE">
-      <input type="number" id="ei-qty-${idx}"   value="0" step="any" min="0">
+      <input type="number" id="ei-qty-${idx}"   value="0" step="any" min="0" oninput="recalcEditItem(${idx})">
       <select id="ei-unit-${idx}">
         <option value="box">박스</option>
         <option value="pcs">pcs</option>
         <option value="doz">doz</option>
       </select>
-      <input type="number" id="ei-price-${idx}" value="0" step="any" min="0" placeholder="단가">
+      <input type="text" id="ei-price-${idx}" value="" placeholder="단가"
+        inputmode="numeric"
+        onfocus="this.value=this.value.replace(/,/g,'')"
+        onblur="formatPriceField(this,${idx})"
+        oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+      <span id="ei-amt-${idx}" style="font-size:11px;color:var(--muted);white-space:nowrap;align-self:center;"></span>
       <button class="edit-del-btn" onclick="removeEditItem(${idx})">×</button>
     </div>`;
   list.appendChild(div.firstElementChild);
+  // 새 행 품목명으로 자동 포커스
+  setTimeout(() => document.getElementById(`ei-desc-${idx}`)?.focus(), 50);
+}
+
+// 단가 입력란 포맷: blur 시 숫자에 , 추가 + 금액 재계산
+function formatPriceField(el, idx) {
+  const raw = parseFloat(el.value.replace(/,/g, '')) || 0;
+  el.value  = raw ? Number(raw).toLocaleString() : '';
+  recalcEditItem(idx);
+}
+
+// 수량 또는 단가 변경 시 금액 자동 계산
+function recalcEditItem(idx) {
+  const qty   = parseFloat(document.getElementById(`ei-qty-${idx}`)?.value || 0)   || 0;
+  const price = parseFloat((document.getElementById(`ei-price-${idx}`)?.value || '0').replace(/,/g, '')) || 0;
+  const amt   = Math.round(qty * price);
+  const span  = document.getElementById(`ei-amt-${idx}`);
+  if (span) span.textContent = amt ? '₩' + amt.toLocaleString() : '';
 }
 
 function removeEditItem(idx) {
@@ -376,7 +450,7 @@ function saveEditOrder() {
     const code  = (document.getElementById(`ei-code-${idx}`)?.value  || '').trim();
     const qty   = parseFloat(document.getElementById(`ei-qty-${idx}`)?.value  || 0) || 0;
     const unit  = document.getElementById(`ei-unit-${idx}`)?.value   || 'pcs';
-    const price = parseFloat(document.getElementById(`ei-price-${idx}`)?.value || 0) || 0;
+    const price = parseFloat((document.getElementById(`ei-price-${idx}`)?.value || '0').replace(/,/g, '')) || 0;
     const amount = Math.round(qty * price * 100) / 100;
     if (desc || qty) o.items.push({ desc, code, qty, unit, price, amount });
   });

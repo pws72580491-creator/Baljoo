@@ -538,7 +538,9 @@ if (isTouchOnly) {
   let lastTap = 0;
   document.addEventListener('touchend', e => {
     const now = Date.now();
-    if (now - lastTap < 300) e.preventDefault();
+    const el = e.target;
+    const isInput = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA';
+    if (!isInput && now - lastTap < 300) e.preventDefault();
     lastTap = now;
   }, { passive: false });
 }
