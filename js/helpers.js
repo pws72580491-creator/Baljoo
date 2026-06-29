@@ -71,10 +71,19 @@ function getBoxDivisor(unit) {
   return null;
 }
 
-// 생메추리알 여부 판단 (품목명에 QUAIL 또는 메추리 포함)
+// 깐메추리알(절임/통조림) 여부 판단: BRINE/PEELED/깐 포함
+function _isQuailBrine(item) {
+  const d = String(item.desc || '').toUpperCase();
+  return (d.includes('QUAIL') || d.includes('메추리')) &&
+         (d.includes('BRINE') || d.includes('PEELED') || d.includes('깐') ||
+          d.includes('PICKLED') || d.includes('SALTED'));
+}
+
+// 생메추리알 여부 판단 (QUAIL/메추리 포함, 단 깐메추리 제외)
 function _isQuailEgg(item) {
   const d = String(item.desc || '').toUpperCase();
-  return d.includes('QUAIL') || d.includes('메추리');
+  const isQuail = d.includes('QUAIL') || d.includes('메추리');
+  return isQuail && !_isQuailBrine(item);
 }
 
 function calcItemBoxCount(item) {

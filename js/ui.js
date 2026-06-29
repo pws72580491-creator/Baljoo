@@ -614,15 +614,22 @@ function renderDeliveryStatus() {
   const byDay = {};
   done.forEach(o => {
     const d = o.deliveredDate || o.date || '미상';
-    if (!byDay[d]) byDay[d] = { date: d, orders: [], totalAmt: 0, totalBoxes: 0, eggBoxes: 0, quailBoxes: 0 };
+    if (!byDay[d]) byDay[d] = { date: d, orders: [], totalAmt: 0, totalBoxes: 0, eggBoxes: 0, quailRawBoxes: 0, quailBrineBoxes: 0, quailBrinePkts: 0 };
     byDay[d].orders.push(o);
     byDay[d].totalAmt += calcNetDelivery(o);
     const sign = o.isReturn ? -1 : 1;
     (o.items||[]).forEach(item => {
       const bc = calcItemBoxCount(item);
-      const isQuail = /quail|메추리/i.test(item.desc||'');
-      if (isQuail) byDay[d].quailBoxes += sign * bc;
-      else         byDay[d].eggBoxes   += sign * bc;
+      const isBrine = _isQuailBrine(item);
+      const isRawQ  = _isQuailEgg(item);
+      if (isBrine) {
+        if (_isPktUnit(item.unit)) byDay[d].quailBrinePkts  += sign * (Number(item.qty)||0);
+        else                       byDay[d].quailBrineBoxes += sign * bc;
+      } else if (isRawQ) {
+        byDay[d].quailRawBoxes += sign * bc;
+      } else {
+        byDay[d].eggBoxes += sign * bc;
+      }
       byDay[d].totalBoxes += sign * bc;
     });
   });
@@ -638,15 +645,23 @@ function renderDeliveryStatus() {
   const returnAmt   = returnDone.reduce((s, o) => s + Math.abs(calcNetDelivery(o)), 0);
   const returnCount = returnDone.length;
 
-  // 계란 / 메추리 분리 집계
-  let grandEggBoxes = 0, grandQuailBoxes = 0;
+  // 계란 / 생메추리 / 깐메추리 분리 집계
+  let grandEggBoxes = 0, grandQuailRawBoxes = 0, grandQuailBrineBoxes = 0, grandQuailBrinePkts = 0;
   delivDone.forEach(o => {
     (o.items||[]).forEach(item => {
       const bc = calcItemBoxCount(item);
-      if (/quail|메추리/i.test(item.desc||'')) grandQuailBoxes += bc;
-      else grandEggBoxes += bc;
+      if (_isQuailBrine(item)) {
+        if (_isPktUnit(item.unit)) grandQuailBrinePkts  += (Number(item.qty)||0);
+        else                       grandQuailBrineBoxes += bc;
+      } else if (_isQuailEgg(item)) {
+        grandQuailRawBoxes += bc;
+      } else {
+        grandEggBoxes += bc;
+      }
     });
   });
+  const hasQuailRaw   = grandQuailRawBoxes > 0;
+  const hasQuailBrine = grandQuailBrineBoxes > 0 || grandQuailBrinePkts > 0;
 
   el.innerHTML = monthChipsHtml + monthTitleHtml + `
     <!-- 요약 바 -->
@@ -656,9 +671,10 @@ function renderDeliveryStatus() {
         <div style="font-size:11px;opacity:.7;margin-top:2px;">납품완료</div>
       </div>
       <div style="flex:1;background:#1a3a6e;color:#fff;padding:14px 16px;text-align:center;">
-        ${grandQuailBoxes ? `
+        ${(hasQuailRaw || hasQuailBrine) ? `
         <div style="font-size:12px;font-weight:700;opacity:.85;">계란 ${formatBoxCount(grandEggBoxes)}</div>
-        <div style="font-size:12px;font-weight:700;opacity:.85;">메추리 ${formatBoxCount(grandQuailBoxes)}</div>
+        ${hasQuailRaw   ? `<div style="font-size:12px;font-weight:700;opacity:.85;">🥚메추리 ${formatBoxCount(grandQuailRawBoxes)}</div>` : ''}
+        ${hasQuailBrine ? `<div style="font-size:12px;font-weight:700;opacity:.85;">깐메추리 ${grandQuailBrineBoxes ? formatBoxCount(grandQuailBrineBoxes) : ''}${grandQuailBrineBoxes && grandQuailBrinePkts ? ' ' : ''}${grandQuailBrinePkts ? formatPktCount(grandQuailBrinePkts) : ''}</div>` : ''}
         ` : `
         <div style="font-size:18px;font-weight:800;">${formatBoxCount(grandBoxes)}</div>
         `}
@@ -695,9 +711,9 @@ function renderDeliveryStatus() {
           <div style="text-align:right;">
             <div style="font-size:13px;font-weight:700;">${fmt(day.totalAmt)}</div>
             <div style="font-size:10px;opacity:.8;margin-top:2px;">
-              ${day.eggBoxes   ? `계란 ${formatBoxCount(day.eggBoxes)}` : ''}
-              ${day.eggBoxes && day.quailBoxes ? ' · ' : ''}
-              ${day.quailBoxes ? `메추리 ${formatBoxCount(day.quailBoxes)}` : ''}
+              ${day.eggBoxes       ? `계란 ${formatBoxCount(day.eggBoxes)}` : ''}
+              ${day.quailRawBoxes   ? (day.eggBoxes ? ' · ' : '') + `🥚메추리 ${formatBoxCount(day.quailRawBoxes)}` : ''}
+              ${day.quailBrineBoxes || day.quailBrinePkts ? ' · 깐메추리 ' + (day.quailBrineBoxes ? formatBoxCount(day.quailBrineBoxes) : '') + (day.quailBrineBoxes && day.quailBrinePkts ? ' ' : '') + (day.quailBrinePkts ? formatPktCount(day.quailBrinePkts) : '') : ''}
             </div>
           </div>
         </div>
@@ -738,9 +754,9 @@ function renderDeliveryStatus() {
                 ${(o.items||[]).map(item => {
                   const bc = calcItemBoxCount(item);
                   const rawDesc = item.desc || '';
-                  // 메추리 여부: 박스당 480pcs 로직과 동일하게 desc로 판별
-                  const isQuail = /quail|메추리/i.test(rawDesc);
-                  const label = isQuail ? '🥚메추리' : '🥚계란';
+                  const isBrineItem = _isQuailBrine(item);
+                  const isRawQItem  = _isQuailEgg(item);
+                  const label = isBrineItem ? '깐메추리' : isRawQItem ? '🥚메추리' : '🥚계란';
                   if (_isPktUnit(item.unit)) {
                     const q = Number(item.qty) || 0;
                     if (!q) return '';
@@ -762,9 +778,11 @@ function renderDeliveryStatus() {
               <td style="padding:9px 14px;font-size:12px;font-weight:700;color:var(--navy);">소계</td>
               <td style="padding:9px 10px;text-align:right;font-size:12px;font-weight:700;color:#1a3a6e;">
                 ${formatBoxCount(day.totalBoxes)}
-                ${(day.eggBoxes && day.quailBoxes) ? `
+                ${(day.quailRawBoxes || day.quailBrineBoxes || day.quailBrinePkts) ? `
                 <div style="font-size:10px;font-weight:500;color:var(--muted);margin-top:2px;line-height:1.5;">
-                  🥚계란 ${formatBoxCount(day.eggBoxes)}<br>메추리 ${formatBoxCount(day.quailBoxes)}
+                  🥚계란 ${formatBoxCount(day.eggBoxes)}
+                  ${day.quailRawBoxes ? `<br>🥚메추리 ${formatBoxCount(day.quailRawBoxes)}` : ''}
+                  ${(day.quailBrineBoxes || day.quailBrinePkts) ? `<br>깐메추리 ${day.quailBrineBoxes ? formatBoxCount(day.quailBrineBoxes) : ''}${day.quailBrineBoxes && day.quailBrinePkts ? ' ' : ''}${day.quailBrinePkts ? formatPktCount(day.quailBrinePkts) : ''}` : ''}
                 </div>` : ''}
               </td>
               <td style="padding:9px 14px;text-align:right;font-size:12px;font-weight:700;color:var(--success);">${fmt(day.totalAmt)}</td>
