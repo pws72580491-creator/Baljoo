@@ -2,11 +2,11 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.2.73
+  Version : v3.2.74
   Released: 2026-06-27
   ────────────────────────────────────────
   CHANGELOG
-  v3.2.73 (2026-06-30)
+  v3.2.74 (2026-06-30)
     - [NEW] 월별 결산 — 통계 탭 상단에 월 선택 칩 추가
             전체·이번달·저번달·개별 월 터치로 즉시 필터
             전체 모드: 월별 결산 그리드 카드 (월명·건수·박스·실납품금액·반품) 표시
@@ -58,7 +58,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<title>이른아침 · 발주관리 v3.2.73</title>
+<title>이른아침 · 발주관리 v3.2.74</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -281,6 +281,14 @@ body{
 .chip.c-delivered.active{background:var(--delivered);border-color:var(--delivered);}
 .chip.c-returned.active{background:var(--returned);border-color:var(--returned);}
 
+/* 균등분할 칩 행: 보관함 등 텍스트가 잘리지 않도록 각 칩이 동일한 너비를 가짐 */
+.chips-equal{overflow-x:visible;}
+.chips-equal .chip{
+  flex:1 1 0;flex-shrink:1;min-width:0;
+  padding:5px 4px;text-align:center;font-size:11.5px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+
 /* ── UPLOAD ZONE ── */
 .upload-zone{
   border:2px dashed var(--border);border-radius:14px;
@@ -501,7 +509,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.73</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.74</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
@@ -619,15 +627,15 @@ body{
         <button class="chip sort-btn" id="sort-name_desc" onclick="setSortMode('name_desc')">Z→A</button>
       </div>
       <!-- 구분 칩 -->
-      <div class="chips" id="cat-chips">
+      <div class="chips chips-equal" id="cat-chips">
         <button class="chip active" onclick="filterOrders('all',this)">전체</button>
         <button class="chip" onclick="filterOrders('cruise',this)">크루즈</button>
         <button class="chip" onclick="filterOrders('cargo',this)">카고</button>
 
       </div>
       <!-- 납품 상태 칩 -->
-      <div class="chips" id="status-chips">
-        <button class="chip active" onclick="filterStatus('all',this)">전체 상태</button>
+      <div class="chips chips-equal" id="status-chips">
+        <button class="chip active" onclick="filterStatus('all',this)">전체</button>
         <button class="chip c-delivered" onclick="filterStatus('delivered',this)">납품완료</button>
         <button class="chip c-returned" onclick="filterStatus('returned',this)">반품</button>
         <button class="chip" onclick="filterStatus('pending',this)">미납품</button>
