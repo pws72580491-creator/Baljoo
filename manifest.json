@@ -1,7 +1,7 @@
 {
   "name": "이른아침 · 발주관리",
   "short_name": "발주관리",
-  "description": "PDF·이미지 발주서 AI 자동 분석, 납품 사진 자동 매칭 및 발주 내역 관리 v3.2.75",
+  "description": "PDF·이미지 발주서 AI 자동 분석, 납품 사진 자동 매칭 및 발주 내역 관리 v3.2.77",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
