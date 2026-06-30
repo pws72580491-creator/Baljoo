@@ -193,18 +193,30 @@ function calcNetDelivery(order) {
 }
 
 // ── 필터된 발주 목록 ──
+// ── 정렬 상태: 'date_desc'|'date_asc'|'name_asc'|'name_desc' ──
+let sortMode = 'date_desc';
+
 function filtered() {
   const from = document.getElementById('fDateFrom')?.value || '';
   const to   = document.getElementById('fDateTo')?.value   || '';
   const isArchiveMode = statusMode === 'archived';
-  return orders
-    .filter(o => isArchiveMode ? !!o.archived : !o.archived)   // 보관함 모드 아니면 보관건 제외
+  const list = orders
+    .filter(o => isArchiveMode ? !!o.archived : !o.archived)
     .filter(o => filterMode === 'all' || o.category === filterMode)
     .filter(o => isArchiveMode || statusMode === 'all' || o.deliveryStatus === statusMode)
     .filter(o => !searchQ || (o.ship + o.docNo + o.poNo).toLowerCase().includes(searchQ.toLowerCase()))
     .filter(o => !from || o.date >= from)
-    .filter(o => !to   || o.date <= to)
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .filter(o => !to   || o.date <= to);
+
+  list.sort((a, b) => {
+    switch (sortMode) {
+      case 'date_asc':  return a.date.localeCompare(b.date);
+      case 'name_asc':  return (a.ship||'').localeCompare(b.ship||'');
+      case 'name_desc': return (b.ship||'').localeCompare(a.ship||'');
+      default:          return b.date.localeCompare(a.date); // date_desc
+    }
+  });
+  return list;
 }
 
 // ── 토스트 ──

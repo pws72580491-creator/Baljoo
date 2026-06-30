@@ -22,12 +22,49 @@ function renderAll() {
   const netTotal        = orders.reduce((s, o) => s + calcNetDelivery(o), 0);
   const deliveredCnt    = deliveredOrders.length;
 
+  // 납품 박스 품목별 집계: 계란 / 생메추리 / 깐메추리
+  let dashEggBoxes = 0, dashQuailRawBoxes = 0, dashQuailBrineBoxes = 0, dashQuailBrinePkts = 0;
+  deliveredOrders.forEach(o => {
+    (o.items || []).forEach(item => {
+      const bc = calcItemBoxCount(item);
+      if (_isQuailBrine(item)) {
+        if (_isPktUnit(item.unit)) dashQuailBrinePkts  += (Number(item.qty) || 0);
+        else                       dashQuailBrineBoxes += bc;
+      } else if (_isQuailEgg(item)) {
+        dashQuailRawBoxes += bc;
+      } else {
+        dashEggBoxes += bc;
+      }
+    });
+  });
+  const dashHasQuailRaw   = dashQuailRawBoxes > 0;
+  const dashHasQuailBrine = dashQuailBrineBoxes > 0 || dashQuailBrinePkts > 0;
+
   document.getElementById('h-cnt').textContent    = orders.filter(o => !o.archived).length;
   document.getElementById('h-tot').textContent    = fmt(total);
   document.getElementById('s-cnt').textContent    = deliveredCnt;
   document.getElementById('s-tot').textContent    = fmt(netTotal);
   document.getElementById('s-ships').textContent  = ships;
   document.getElementById('s-boxes').textContent  = formatBoxCount(deliveredBoxes);
+
+  // 납품 박스 카드 하단: 품목별 세부 표시 (계란/메추리/깐메추리 구분 있을 때만)
+  const boxesDetailEl = document.getElementById('s-boxes-detail');
+  if (boxesDetailEl) {
+    if (dashHasQuailRaw || dashHasQuailBrine) {
+      const parts = [];
+      parts.push(`🥚계란 ${formatBoxCount(dashEggBoxes)}`);
+      if (dashHasQuailRaw)   parts.push(`🥚메추리 ${formatBoxCount(dashQuailRawBoxes)}`);
+      if (dashHasQuailBrine) {
+        const brineStr = (dashQuailBrineBoxes ? formatBoxCount(dashQuailBrineBoxes) : '')
+                       + (dashQuailBrineBoxes && dashQuailBrinePkts ? ' ' : '')
+                       + (dashQuailBrinePkts ? formatPktCount(dashQuailBrinePkts) : '');
+        parts.push(`깐메추리 ${brineStr}`);
+      }
+      boxesDetailEl.innerHTML = parts.join('<br>');
+    } else {
+      boxesDetailEl.textContent = '납품완료 기준';
+    }
+  }
 
   // 납품 현황 요약 카드
   const delivered   = orders.filter(o => o.deliveryStatus === 'delivered');
@@ -162,6 +199,16 @@ function filterStatus(m, btn) {
 }
 
 function searchOrders(q) { searchQ = q; renderAll(); }
+
+// ── 정렬 모드 변경 ──
+function setSortMode(mode) {
+  sortMode = mode;
+  // 버튼 active 상태 갱신
+  document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+  const active = document.getElementById('sort-' + mode);
+  if (active) active.classList.add('active');
+  renderAll();
+}
 
 function clearDateFilter() {
   document.getElementById('fDateFrom').value = '';
