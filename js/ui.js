@@ -219,7 +219,12 @@ function clearDateFilter() {
 // ══════════════════════════════════════════════════════
 // 월별 결산 상태
 // ══════════════════════════════════════════════════════
-let _statMonth = 'all'; // 'all' | 'YYYY-MM'
+// 통계 탭 기본값: 항상 '이번달'로 시작 (달이 바뀌면 자동으로 새 달 기준)
+function _currentYM() {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,'0')}`;
+}
+let _statMonth = _currentYM(); // 'all' | 'YYYY-MM'
 
 function _getAvailableMonths() {
   const monthSet = new Set();
@@ -252,6 +257,11 @@ function renderStats() {
   const lastDate = new Date(today.getFullYear(), today.getMonth()-1, 1);
   const lastYM  = `${lastDate.getFullYear()}-${String(lastDate.getMonth()+1).padStart(2,'0')}`;
 
+  // 기본값(이번달)으로 설정돼 있는데 이번달 데이터가 없으면 → 전체로 자동 폴백
+  if (_statMonth === thisYM && !availableMonths.includes(thisYM)) {
+    _statMonth = 'all';
+  }
+
   const monthChipsHtml = `
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;padding:12px 0 4px;">
       <button class="chip${_statMonth==='all'?' active':''}" style="font-size:11px;"
@@ -272,9 +282,9 @@ function renderStats() {
     </div>
   `;
 
-  // ── 월별 결산 카드 (전체 모드일 때만) + 막대 그래프 ──
+  // ── 월별 결산 카드 + 막대 그래프 (월이 2개 이상 있으면 항상 표시) ──
   let monthlyGridHtml = '';
-  if (_statMonth === 'all' && availableMonths.length > 1) {
+  if (availableMonths.length > 1) {
     // 그래프용 데이터 계산
     const monthData = availableMonths.map(m => {
       const [y, mo] = m.split('-');
