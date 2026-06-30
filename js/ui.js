@@ -11,15 +11,56 @@ let searchQ    = '';
 let isBulkMode   = false;
 let bulkSelected = new Set(); // 선택된 order id
 
+// ══════════════════════════════════════════════════════
+// 대시보드 월별 필터 상태
+// ══════════════════════════════════════════════════════
+let _dashMonth = _currentYM(); // 'YYYY-MM' — 대시보드는 항상 특정 월 기준 (전체보기 없음)
+
+function _shiftYM(ym, delta) {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, (m - 1) + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function dashPrevMonth() {
+  _dashMonth = _shiftYM(_dashMonth, -1);
+  renderAll();
+}
+
+function dashNextMonth() {
+  _dashMonth = _shiftYM(_dashMonth, 1);
+  renderAll();
+}
+
+function dashThisMonth() {
+  _dashMonth = _currentYM();
+  renderAll();
+}
+
+function _renderDashMonthNav() {
+  const thisYM = _currentYM();
+  const [y, mo] = _dashMonth.split('-');
+  const titleEl  = document.getElementById('dash-month-title');
+  const labelEl  = document.getElementById('dash-month-label');
+  const todayBtn = document.getElementById('dash-month-today-btn');
+  if (titleEl) titleEl.textContent = `${Number(y)}년 ${Number(mo)}월`;
+  if (labelEl) labelEl.textContent = _dashMonth === thisYM ? '이번 달 발주 현황' : `${Number(y)}년 ${Number(mo)}월 발주 현황`;
+  if (todayBtn) todayBtn.style.display = _dashMonth === thisYM ? 'none' : 'inline-block';
+}
+
 // ── 전체 렌더 ──
 function renderAll() {
   const total = orders.reduce((s, o) => s + (o.total || 0), 0);
-  const ships = new Set(orders.map(o => o.ship)).size;
 
-  // 납품 기준 통계
-  const deliveredOrders = orders.filter(o => o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial');
+  // 대시보드 본문은 선택된 월(_dashMonth) 데이터만 사용
+  _renderDashMonthNav();
+  const monthOrders = _filterByMonth(orders, _dashMonth);
+  const ships = new Set(monthOrders.map(o => o.ship)).size;
+
+  // 납품 기준 통계 (해당 월)
+  const deliveredOrders = monthOrders.filter(o => o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial');
   const deliveredBoxes  = deliveredOrders.reduce((s, o) => s + calcOrderBoxes(o), 0);
-  const netTotal        = orders.reduce((s, o) => s + calcNetDelivery(o), 0);
+  const netTotal        = monthOrders.reduce((s, o) => s + calcNetDelivery(o), 0);
   const deliveredCnt    = deliveredOrders.length;
 
   // 납품 박스 품목별 집계: 계란 / 생메추리 / 깐메추리
@@ -40,8 +81,10 @@ function renderAll() {
   const dashHasQuailRaw   = dashQuailRawBoxes > 0;
   const dashHasQuailBrine = dashQuailBrineBoxes > 0 || dashQuailBrinePkts > 0;
 
+  // 상단바(topbar)는 전체 발주 기준 유지
   document.getElementById('h-cnt').textContent    = orders.filter(o => !o.archived).length;
   document.getElementById('h-tot').textContent    = fmt(total);
+  // 대시보드 본문 카드는 선택된 월 기준
   document.getElementById('s-cnt').textContent    = deliveredCnt;
   document.getElementById('s-tot').textContent    = fmt(netTotal);
   document.getElementById('s-ships').textContent  = ships;
@@ -66,11 +109,11 @@ function renderAll() {
     }
   }
 
-  // 납품 현황 요약 카드
-  const delivered   = orders.filter(o => o.deliveryStatus === 'delivered');
-  const returned    = orders.filter(o => o.deliveryStatus === 'returned');
-  const pending     = orders.filter(o => !o.deliveryStatus || o.deliveryStatus === 'pending');
-  const partial     = orders.filter(o => o.deliveryStatus === 'partial');
+  // 납품 현황 요약 카드 (해당 월)
+  const delivered   = monthOrders.filter(o => o.deliveryStatus === 'delivered');
+  const returned    = monthOrders.filter(o => o.deliveryStatus === 'returned');
+  const pending     = monthOrders.filter(o => !o.deliveryStatus || o.deliveryStatus === 'pending');
+  const partial     = monthOrders.filter(o => o.deliveryStatus === 'partial');
 
   const deliveredAmt = delivered.reduce((s, o) => s + (o.total || 0), 0);
   // 반품서(isReturn): total이 이미 음수이므로 Math.abs 사용; 수동반품: returnAmount는 양수
@@ -87,8 +130,8 @@ function renderAll() {
   document.getElementById('ds-pending-amt').textContent   = fmt(pendingAmt);
   document.getElementById('ds-net-amt').textContent       = fmt(netAmt);
 
-  // 대시보드 최근 목록 — 납품완료 + 반품 표시 (보관건 제외)
-  const recent = [...orders]
+  // 대시보드 최근 목록 — 납품완료 + 반품 표시 (보관건 제외, 해당 월)
+  const recent = [...monthOrders]
     .filter(o => !o.archived && (o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial' || o.deliveryStatus === 'returned'))
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 10);
@@ -865,8 +908,9 @@ function renderDashByDate() {
   const el = document.getElementById('dash-bydate');
   if (!el) return;
 
-  // 날짜별 그룹핑 (납품완료 + 반품 전체)
-  const target = orders.filter(o =>
+  // 날짜별 그룹핑 (선택된 월의 납품완료 + 반품 전체)
+  const monthOrders = _filterByMonth(orders, _dashMonth);
+  const target = monthOrders.filter(o =>
     o.deliveryStatus === 'delivered' ||
     o.deliveryStatus === 'partial'   ||
     o.deliveryStatus === 'returned'
