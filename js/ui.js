@@ -112,22 +112,24 @@ function renderAll() {
   // 납품 현황 요약 카드 (해당 월)
   const delivered   = monthOrders.filter(o => o.deliveryStatus === 'delivered');
   const returned    = monthOrders.filter(o => o.deliveryStatus === 'returned');
-  const pending     = monthOrders.filter(o => !o.deliveryStatus || o.deliveryStatus === 'pending');
   const partial     = monthOrders.filter(o => o.deliveryStatus === 'partial');
+  // 미납품(pending)은 발주월과 무관하게 항상 "지금 처리 안 된 전체 건"을 보여줌 (예외: 월 필터 미적용)
+  const pendingAll  = orders.filter(o => !o.archived && (!o.deliveryStatus || o.deliveryStatus === 'pending'));
 
   const deliveredAmt = delivered.reduce((s, o) => s + (o.total || 0), 0);
   // 반품서(isReturn): total이 이미 음수이므로 Math.abs 사용; 수동반품: returnAmount는 양수
   const returnedAmt  = returned.reduce((s, o) => s + (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount || Math.abs(o.total) || 0)), 0);
-  const pendingAmt   = [...pending, ...partial].reduce((s, o) => s + (o.total || 0), 0);
+  const partialAmt   = partial.reduce((s, o) => s + (o.total || 0), 0);
+  const pendingAllAmt = pendingAll.reduce((s, o) => s + (o.total || 0), 0);
   const netAmt       = deliveredAmt - returnedAmt;
 
   document.getElementById('ds-delivered-cnt').textContent = delivered.length;
   document.getElementById('ds-returned-cnt').textContent  = returned.length;
-  document.getElementById('ds-pending-cnt').textContent   = pending.length + partial.length;
+  document.getElementById('ds-pending-cnt').textContent   = pendingAll.length + partial.length;
   document.getElementById('ds-delivered-amt').textContent = fmt(deliveredAmt);
   document.getElementById('ds-returned-amt').textContent  = returned.length ? '-' + fmt(returnedAmt) : fmt(0);
   document.getElementById('ds-returned-amt').style.color = returned.length ? '#f87171' : '';
-  document.getElementById('ds-pending-amt').textContent   = fmt(pendingAmt);
+  document.getElementById('ds-pending-amt').textContent   = fmt(pendingAllAmt + partialAmt);
   document.getElementById('ds-net-amt').textContent       = fmt(netAmt);
 
   // 대시보드 최근 목록 — 납품완료 + 반품 표시 (보관건 제외, 해당 월)
