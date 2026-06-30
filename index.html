@@ -2,8 +2,16 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.2.77
-  Released: 2026-06-27
+  Version : v3.2.78
+  Released: 2026-07-01
+  ────────────────────────────────────────
+  CHANGELOG
+  v3.2.78 (2026-07-01)
+    - [CHG] 대시보드 — 전체 누적 → '월별' 기준으로 변경
+            상단에 월 선택 네비게이션(◀ 이번 달 ▶) 추가
+            기본값은 항상 이번 달, 이전달/다음달 자유 전환 가능
+            납품 현황 요약·통계 카드·최근 내역·날짜별 기록 모두 월별 적용
+            상단바(총 N건|합계)는 기존처럼 전체 누적 기준 유지
   ────────────────────────────────────────
   CHANGELOG
   v3.2.77 (2026-06-30)
@@ -509,7 +517,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.77</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.78</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
@@ -528,8 +536,18 @@ body{
     <!-- ── VIEW 0: DASHBOARD ── -->
     <div class="view" id="v0">
       <div class="ph">
-        <div><div class="pt">대시보드</div><div class="ps">전체 발주 현황</div></div>
+        <div><div class="pt">대시보드</div><div class="ps" id="dash-month-label">이번 달 발주 현황</div></div>
         <button class="btn btn-g btn-sm" onclick="exportExcel()">📥 엑셀</button>
+      </div>
+
+      <!-- 대시보드 월 선택 -->
+      <div id="dash-month-nav" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:8px 10px;">
+        <button class="btn btn-g btn-sm" onclick="dashPrevMonth()" style="padding:6px 12px;">◀</button>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span id="dash-month-title" style="font-size:14px;font-weight:800;color:var(--navy);">이번 달</span>
+          <button class="chip" id="dash-month-today-btn" style="font-size:11px;display:none;" onclick="dashThisMonth()">이번달로</button>
+        </div>
+        <button class="btn btn-g btn-sm" onclick="dashNextMonth()" style="padding:6px 12px;">▶</button>
       </div>
 
       <!-- 납품 현황 요약 -->
