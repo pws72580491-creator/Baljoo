@@ -2,11 +2,11 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.2.70
+  Version : v3.2.73
   Released: 2026-06-27
   ────────────────────────────────────────
   CHANGELOG
-  v3.2.70 (2026-06-30)
+  v3.2.73 (2026-06-30)
     - [NEW] 월별 결산 — 통계 탭 상단에 월 선택 칩 추가
             전체·이번달·저번달·개별 월 터치로 즉시 필터
             전체 모드: 월별 결산 그리드 카드 (월명·건수·박스·실납품금액·반품) 표시
@@ -58,7 +58,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<title>이른아침 · 발주관리 v3.2.70</title>
+<title>이른아침 · 발주관리 v3.2.73</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -157,7 +157,7 @@ body{
 .sc-val.danger{color:var(--danger);}
 .sc-val.sm{font-size:16px;}
 .sc-val.xs{font-size:14px;}
-.sc-sub{font-size:11px;color:var(--muted);margin-top:3px;}
+.sc-sub{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.5;}
 
 /* ── 납품 현황 카드 ── */
 .delivery-summary{
@@ -501,7 +501,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.70</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.73</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
@@ -554,7 +554,7 @@ body{
         <div class="stat-card"><div class="sc-label">납품 건수</div><div class="sc-val accent" id="s-cnt">0</div><div class="sc-sub">건</div></div>
         <div class="stat-card"><div class="sc-label">납품 총금액</div><div class="sc-val sm success" id="s-tot">₩0</div><div class="sc-sub">실납품 기준</div></div>
         <div class="stat-card"><div class="sc-label">선명 수</div><div class="sc-val gold" id="s-ships">0</div><div class="sc-sub">척</div></div>
-        <div class="stat-card"><div class="sc-label">납품 박스</div><div class="sc-val accent" id="s-boxes">0박스</div><div class="sc-sub">납품완료 기준</div></div>
+        <div class="stat-card"><div class="sc-label">납품 박스</div><div class="sc-val accent" id="s-boxes">0박스</div><div class="sc-sub" id="s-boxes-detail">납품완료 기준</div></div>
       </div>
       <div class="sdiv">최근 납품·반품 내역</div>
       <div id="dash-list"></div>
@@ -610,6 +610,13 @@ body{
         <span class="date-sep">~</span>
         <input type="date" id="fDateTo" onchange="renderAll()" placeholder="종료일"/>
         <button class="date-clear" onclick="clearDateFilter()">✕</button>
+      </div>
+      <!-- 정렬 -->
+      <div class="chips" id="sort-chips">
+        <button class="chip sort-btn active" id="sort-date_desc" onclick="setSortMode('date_desc')">📅 날짜 ↓</button>
+        <button class="chip sort-btn" id="sort-date_asc" onclick="setSortMode('date_asc')">📅 날짜 ↑</button>
+        <button class="chip sort-btn" id="sort-name_asc" onclick="setSortMode('name_asc')">A→Z</button>
+        <button class="chip sort-btn" id="sort-name_desc" onclick="setSortMode('name_desc')">Z→A</button>
       </div>
       <!-- 구분 칩 -->
       <div class="chips" id="cat-chips">
