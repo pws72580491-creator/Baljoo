@@ -40,12 +40,15 @@ function dashThisMonth() {
 function _renderDashMonthNav() {
   const thisYM = _currentYM();
   const [y, mo] = _dashMonth.split('-');
-  const titleEl  = document.getElementById('dash-month-title');
-  const labelEl  = document.getElementById('dash-month-label');
-  const todayBtn = document.getElementById('dash-month-today-btn');
-  if (titleEl) titleEl.textContent = `${Number(y)}년 ${Number(mo)}월`;
-  if (labelEl) labelEl.textContent = _dashMonth === thisYM ? '이번 달 발주 현황' : `${Number(y)}년 ${Number(mo)}월 발주 현황`;
-  if (todayBtn) todayBtn.style.display = _dashMonth === thisYM ? 'none' : 'inline-block';
+  const titleEl   = document.getElementById('dash-month-title');
+  const labelEl   = document.getElementById('dash-month-label');
+  const todayBtn  = document.getElementById('dash-month-today-btn');
+  const recentLbl = document.getElementById('dash-recent-title');
+  const isThis    = _dashMonth === thisYM;
+  if (titleEl)   titleEl.textContent  = `${Number(y)}년 ${Number(mo)}월`;
+  if (labelEl)   labelEl.textContent  = isThis ? '이번 달 발주 현황' : `${Number(y)}년 ${Number(mo)}월 발주 현황`;
+  if (todayBtn)  todayBtn.style.display = isThis ? 'none' : 'inline-block';
+  if (recentLbl) recentLbl.textContent = `${Number(mo)}월 납품·반품 내역`;
 }
 
 // ── 전체 렌더 ──
@@ -801,14 +804,18 @@ function renderDeliveryStatus() {
     </div>` : ''}
 
     <!-- 날짜별 카드 -->
-    ${dayList.map(day => `
+    ${dayList.map((day, idx) => {
+      const dayId = `deliv-day-${idx}`;
+      return `
       <div style="background:#fff;border-radius:12px;overflow:hidden;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.07);">
-        <!-- 날짜 헤더 -->
+        <!-- 날짜 헤더 (클릭 시 접기/펼치기) -->
         <div style="display:flex;align-items:center;justify-content:space-between;
-                    padding:11px 14px;background:var(--navy);color:#fff;">
-          <div>
+                    padding:11px 14px;background:var(--navy);color:#fff;cursor:pointer;user-select:none;"
+             onclick="toggleDelivDay('${dayId}')">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span id="${dayId}-arrow" style="font-size:11px;opacity:.7;transition:transform .2s;">▼</span>
             <span style="font-size:13px;font-weight:700;">📅 ${fmtDate(day.date)}</span>
-            <span style="font-size:11px;opacity:.65;margin-left:8px;">${day.orders.length}척</span>
+            <span style="font-size:11px;opacity:.65;">${day.orders.length}척</span>
           </div>
           <div style="text-align:right;">
             <div style="font-size:13px;font-weight:700;">${fmt(day.totalAmt)}</div>
@@ -819,7 +826,8 @@ function renderDeliveryStatus() {
             </div>
           </div>
         </div>
-        <!-- 선명별 행 -->
+        <!-- 선명별 행 (접기/펼치기 대상) -->
+        <div id="${dayId}">
         <table style="width:100%;border-collapse:collapse;">
           <thead>
             <tr style="background:#f8fafc;">
@@ -891,9 +899,41 @@ function renderDeliveryStatus() {
             </tr>
           </tfoot>
         </table>
+        </div><!-- /#dayId -->
       </div>
-    `).join('')}
+    `;}  ).join('')}
   `;
+  // 최신 날짜만 펼치고 나머지 접기
+  _initDelivDayCollapse(dayList.length);
+}
+
+// ── 납품현황 날짜 그룹 접기/펼치기 ──
+function toggleDelivDay(dayId) {
+  const body  = document.getElementById(dayId);
+  const arrow = document.getElementById(dayId + '-arrow');
+  if (!body) return;
+  const isOpen = body.style.display !== 'none';
+  body.style.display  = isOpen ? 'none' : 'block';
+  if (arrow) arrow.style.transform = isOpen ? 'rotate(-90deg)' : 'rotate(0deg)';
+}
+
+// 납품현황 렌더 후 최신 날짜 1개만 펼치고 나머지 접기
+function _initDelivDayCollapse(count) {
+  for (let i = 0; i < count; i++) {
+    const dayId = `deliv-day-${i}`;
+    const body  = document.getElementById(dayId);
+    const arrow = document.getElementById(dayId + '-arrow');
+    if (!body) continue;
+    if (i === 0) {
+      // 최신 날짜: 펼침 (기본)
+      body.style.display = 'block';
+      if (arrow) arrow.style.transform = 'rotate(0deg)';
+    } else {
+      // 나머지: 접힘
+      body.style.display = 'none';
+      if (arrow) arrow.style.transform = 'rotate(-90deg)';
+    }
+  }
 }
 
 // ── 대시보드 날짜별 기록 ──
