@@ -603,31 +603,6 @@ function renderStats() {
       </div>
     `).join('')}` : ''}
 
-    <!-- 선명별 납품 현황 (박스 열 추가) -->
-    ${ships.length ? `
-    <div class="sdiv">선명별 납품 현황</div>
-    <div class="form-card" style="padding:0;overflow:hidden;">
-      <table style="width:100%;border-collapse:collapse;font-size:12px;">
-        <thead>
-          <tr style="background:var(--bg);">
-            <th style="padding:10px 12px;text-align:left;color:var(--muted);font-size:10px;font-weight:700;">선명</th>
-            <th style="padding:10px 6px;text-align:right;color:var(--muted);font-size:10px;font-weight:700;">박스</th>
-            <th style="padding:10px 6px;text-align:right;color:var(--muted);font-size:10px;font-weight:700;">반품</th>
-            <th style="padding:10px 12px;text-align:right;color:var(--muted);font-size:10px;font-weight:700;">실납품</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${ships.map(s => `
-          <tr style="border-top:1px solid var(--border);">
-            <td style="padding:10px 12px;font-weight:600;font-size:11px;">${escapeHtml(s.ship)}</td>
-            <td style="padding:10px 6px;text-align:right;font-family:monospace;color:var(--muted);font-size:11px;">${formatBoxCount(s.boxes)}</td>
-            <td style="padding:10px 6px;text-align:right;font-family:monospace;color:var(--danger);font-size:11px;">${s.returned ? '-'+fmt(s.returned) : '-'}</td>
-            <td style="padding:10px 12px;text-align:right;font-family:monospace;font-weight:700;font-size:11px;
-                color:${s.net >= 0 ? 'var(--navy)' : 'var(--danger)'};">${fmt(s.net)}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
-    </div>` : ''}
   `;
 }
 
