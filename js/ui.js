@@ -312,8 +312,6 @@ function renderStats() {
 
   const monthChipsHtml = `
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;padding:12px 0 4px;">
-      <button class="chip${_statMonth==='all'?' active':''}" style="font-size:11px;"
-              onclick="selectStatMonth('all')">전체</button>
       ${availableMonths.includes(thisYM) ? `
       <button class="chip${_statMonth===thisYM?' active':''}" style="font-size:11px;"
               onclick="selectStatMonth('${thisYM}')">이번달</button>` : ''}
@@ -327,6 +325,8 @@ function renderStats() {
           return `<button class="chip${_statMonth===m?' active':''}" style="font-size:11px;"
                           onclick="selectStatMonth('${m}')">${Number(y)}년 ${Number(mo)}월</button>`;
         }).join('')}
+      <button class="chip${_statMonth==='all'?' active':''}" style="font-size:11px;"
+              onclick="selectStatMonth('all')">전체</button>
     </div>
   `;
 
@@ -644,7 +644,7 @@ function fmtDate(dateStr) {
 // ══════════════════════════════════════════════════════
 // renderDeliveryStatus — 납품현황 탭 (날짜별 선명·박스·금액) + 월별 필터
 // ══════════════════════════════════════════════════════
-let _delivMonth = 'all'; // 'all' | 'YYYY-MM'
+let _delivMonth = _currentYM(); // 'all' | 'YYYY-MM' — 기본값: 이번달
 
 function selectDelivMonth(m) {
   _delivMonth = m;
@@ -662,11 +662,14 @@ function renderDeliveryStatus() {
   const lastDate = new Date(today.getFullYear(), today.getMonth()-1, 1);
   const lastYM  = `${lastDate.getFullYear()}-${String(lastDate.getMonth()+1).padStart(2,'0')}`;
 
+  // 이번달 기본값인데 데이터 없으면 전체로 폴백
+  if (_delivMonth === thisYM && !availableMonths.includes(thisYM)) {
+    _delivMonth = 'all';
+  }
+
   const chipsCss = 'display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;padding:12px 0 4px;';
   const monthChipsHtml = `
     <div style="${chipsCss}">
-      <button class="chip${_delivMonth==='all'?' active':''}" style="font-size:11px;"
-              onclick="selectDelivMonth('all')">전체</button>
       ${availableMonths.includes(thisYM) ? `
       <button class="chip${_delivMonth===thisYM?' active':''}" style="font-size:11px;"
               onclick="selectDelivMonth('${thisYM}')">이번달</button>` : ''}
@@ -680,6 +683,8 @@ function renderDeliveryStatus() {
           return `<button class="chip${_delivMonth===m?' active':''}" style="font-size:11px;"
                           onclick="selectDelivMonth('${m}')">${Number(y)}년 ${Number(mo)}월</button>`;
         }).join('')}
+      <button class="chip${_delivMonth==='all'?' active':''}" style="font-size:11px;"
+              onclick="selectDelivMonth('all')">전체</button>
     </div>
   `;
 
