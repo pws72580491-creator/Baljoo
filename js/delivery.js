@@ -129,40 +129,74 @@ function renderDeliveryResult(result) {
     return order ? { ...m, order } : null;
   }).filter(Boolean);
 
+  const pendingOrders = matchedOrders.filter(m => m.order.deliveryStatus !== 'delivered');
   const totalCnt = result.totalCount ?? matched.length;
+  const todayVal = todayStr();
 
   sec.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:10px 12px;background:${matched.length < totalCnt ? '#fffbeb' : '#f0fdf4'};border-radius:8px;">
-      <span style="font-size:13px;font-weight:700;color:${matched.length < totalCnt ? '#b45309' : 'var(--success)'};">📦 전체 ${totalCnt}척 중 ${matched.length}척 매칭</span>
+    <!-- 매칭 요약 배너 -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:10px 12px;
+                background:${matched.length < totalCnt ? '#fffbeb' : '#f0fdf4'};border-radius:8px;">
+      <span style="font-size:13px;font-weight:700;color:${matched.length < totalCnt ? '#b45309' : 'var(--success)'};">
+        📦 전체 ${totalCnt}척 중 ${matched.length}척 매칭
+      </span>
       ${matched.length < totalCnt ? `<span style="font-size:11px;color:#b45309;">미매칭 ${totalCnt - matched.length}척</span>` : ''}
     </div>
     ${result.summary ? `<div style="font-size:12px;color:var(--muted);margin-bottom:10px;padding:8px 10px;background:var(--bg);border-radius:8px;">📋 ${result.summary}</div>` : ''}
+
     ${matchedOrders.length ? `
       <div class="sdiv" style="margin-top:0;">이른아침 매칭된 발주 (${matchedOrders.length}건)</div>
+
+      <!-- 전체선택 + 선택 카운트 -->
+      ${pendingOrders.length ? `
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;
+                  padding:8px 12px;background:#f8fafc;border-radius:8px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:700;color:var(--navy);">
+          <input type="checkbox" id="del-select-all" onchange="delToggleAll(this.checked)"
+                 style="width:18px;height:18px;accent-color:var(--navy);">
+          전체 선택
+        </label>
+        <span id="del-selected-count" style="font-size:12px;color:var(--muted);">0건 선택</span>
+      </div>` : ''}
+
+      <!-- 매칭된 발주 목록 (체크박스) -->
       ${matchedOrders.map(m => `
-        <div class="prev-card" style="border-left:3px solid var(--success);">
-          <div class="prev-head" style="gap:6px;">
-            <div style="flex:1;">
-              <div class="prev-ship" style="font-size:13px;">${m.order.ship}</div>
-              <div style="font-size:10px;color:var(--muted);margin-top:2px;">${m.reason}</div>
-            </div>
-            <span class="badge" style="background:#dcfce7;color:#15803d;">${m.order.deliveryStatus === 'delivered' ? '✅ 이미 납품완료' : '미납품'}</span>
-          </div>
-          <div style="padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;">
-            <div style="font-size:12px;color:var(--muted);">${m.order.docNo || '-'} · ${m.order.date} · ${fmt(m.order.total)}</div>
+        <div class="prev-card" style="border-left:3px solid ${m.order.deliveryStatus === 'delivered' ? '#86efac' : 'var(--success)'};">
+          <div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;">
             ${m.order.deliveryStatus !== 'delivered' ? `
-              <button class="btn btn-success btn-sm" data-confirm-id="${escAttr(m.order.id)}" onclick="confirmDeliveryFromPhoto(this.dataset.confirmId)">✅ 납품완료 처리</button>
-            ` : `<span style="font-size:11px;color:var(--success);font-weight:700;">납품완료</span>`}
+            <input type="checkbox" data-del-id="${escAttr(m.order.id)}" onchange="delUpdateCount()"
+                   style="width:20px;height:20px;margin-top:2px;flex-shrink:0;accent-color:var(--navy);">
+            ` : `<span style="font-size:18px;flex-shrink:0;">✅</span>`}
+            <div style="flex:1;min-width:0;">
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                <span style="font-size:13px;font-weight:800;color:var(--navy);">${escapeHtml(m.order.ship)}</span>
+                <span style="font-size:10px;font-weight:700;color:#15803d;background:#dcfce7;border-radius:4px;padding:1px 6px;">
+                  ${m.order.deliveryStatus === 'delivered' ? '이미 납품완료' : '미납품'}
+                </span>
+              </div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px;">${m.reason}</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:1px;">${escapeHtml(m.order.docNo||'-')} · ${m.order.date} · ${fmt(m.order.total)}</div>
+            </div>
           </div>
         </div>
       `).join('')}
-      ${matchedOrders.some(m => m.order.deliveryStatus !== 'delivered') ? `
-        <button class="btn btn-success btn-block" style="margin-top:4px;"
-          onclick="confirmAllDelivery(_lastMatchedIds)">
-          ✅ 매칭된 전체 납품완료 처리
+
+      <!-- 납품 날짜 선택 + 처리 버튼 -->
+      ${pendingOrders.length ? `
+      <div style="margin-top:14px;padding:14px;background:#f8fafc;border-radius:12px;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+          <span style="font-size:13px;font-weight:700;color:var(--navy);white-space:nowrap;">📅 납품 날짜</span>
+          <input id="del-confirm-date" type="date" value="${todayVal}"
+                 style="flex:1;font-size:14px;font-weight:700;border:2px solid var(--border);
+                        border-radius:8px;padding:6px 10px;color:var(--navy);background:#fff;">
+        </div>
+        <button class="btn btn-success btn-block" onclick="confirmSelectedDelivery()">
+          ✅ 선택한 발주 납품완료 처리
         </button>
+      </div>
       ` : ''}
     ` : '<div style="font-size:13px;color:var(--muted);text-align:center;padding:12px 0;">이른아침 항목이 없거나 발주 목록과 일치하는 항목을 찾지 못했습니다</div>'}
+
     ${result.skipped_other_vendors ? `<div style="font-size:11px;color:var(--muted);padding:4px 0;">ℹ️ 타 업체 항목은 자동으로 제외되었습니다</div>` : ''}
     ${unmatched.length ? `
       <div class="sdiv">목록 미매칭 항목</div>
@@ -171,37 +205,44 @@ function renderDeliveryResult(result) {
   `;
 }
 
-function confirmDeliveryFromPhoto(id) {
-  const o = orders.find(x => x.id === id);
-  if (!o) return;
-  o.deliveryStatus = 'delivered';
-  o.deliveryNote   = (o.deliveryNote ? o.deliveryNote + ' ' : '') + '[납품사진 자동확인]';
-  o.deliveredDate  = todayStr();
-  save(); renderAll();
-  document.querySelectorAll(`button[data-confirm-id="${CSS.escape(id)}"]`).forEach(btn => {
-    btn.textContent = '✅ 납품완료'; btn.disabled = true; btn.style.opacity = '0.6';
-  });
-  toast(`✅ ${o.ship} 납품완료 처리됨`);
-  maybeResetDeliveryResult();
+// ── 체크박스 헬퍼 ──
+function delToggleAll(checked) {
+  document.querySelectorAll('#del-result-section input[data-del-id]').forEach(cb => { cb.checked = checked; });
+  delUpdateCount();
 }
 
-function confirmAllDelivery(ids) {
+function delUpdateCount() {
+  const total    = document.querySelectorAll('#del-result-section input[data-del-id]').length;
+  const selected = document.querySelectorAll('#del-result-section input[data-del-id]:checked').length;
+  const countEl  = document.getElementById('del-selected-count');
+  if (countEl) countEl.textContent = `${selected}건 선택`;
+  const allCb = document.getElementById('del-select-all');
+  if (allCb) allCb.checked = selected > 0 && selected === total;
+}
+
+// ── 선택된 발주 납품완료 처리 ──
+function confirmSelectedDelivery() {
+  const dateVal = document.getElementById('del-confirm-date')?.value;
+  if (!dateVal) { toast('⚠️ 납품 날짜를 선택해주세요'); return; }
+
+  const checked = [...document.querySelectorAll('#del-result-section input[data-del-id]:checked')];
+  if (!checked.length) { toast('⚠️ 납품완료 처리할 발주를 선택해주세요'); return; }
+
   let cnt = 0;
-  ids.forEach(id => {
-    const o = orders.find(x => x.id === id);
-    if (o && o.deliveryStatus !== 'delivered') {
-      o.deliveryStatus = 'delivered';
-      o.deliveryNote   = (o.deliveryNote ? o.deliveryNote + ' ' : '') + '[납품사진 자동확인]';
-      o.deliveredDate  = todayStr();
-      cnt++;
-    }
+  checked.forEach(cb => {
+    const o = orders.find(x => x.id === cb.dataset.delId);
+    if (!o || o.deliveryStatus === 'delivered') return;
+    o.deliveryStatus = 'delivered';
+    o.deliveredDate  = dateVal;
+    o.deliveryNote   = (o.deliveryNote ? o.deliveryNote + ' ' : '') + '[납품사진 자동확인]';
+    cnt++;
   });
-  save(); renderAll();
-  document.getElementById('del-result-section')?.querySelectorAll('.btn-success').forEach(btn => {
-    btn.textContent = '✅ 납품완료'; btn.disabled = true; btn.style.opacity = '0.6';
-  });
-  toast(`✅ ${cnt}건 납품완료 처리됨`);
-  resetDeliveryZone();
+
+  if (cnt > 0) {
+    save(); renderAll();
+    toast(`✅ ${cnt}건 납품완료 처리됨 (${dateVal})`);
+    resetDeliveryZone();
+  }
 }
 
 // 매칭된 항목이 모두 처리되면 자동으로 업로드 준비 상태로 초기화
