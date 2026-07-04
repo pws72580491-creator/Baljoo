@@ -789,24 +789,76 @@ function renderDeliveryStatus() {
     <!-- 날짜별 카드 -->
     ${dayList.map((day, idx) => {
       const dayId = `deliv-day-${idx}`;
+
+      // ── 목표 박스 불러오기 ──
+      let goal = null;
+      try { goal = JSON.parse(localStorage.getItem('delivGoal_' + day.date) || 'null'); } catch(e) {}
+      // goal = { egg: N, quail: N, brine: N } 또는 null
+
+      // 실납품 박스 (품목별)
+      const actualEgg   = day.eggBoxes      || 0;
+      const actualQuail = day.quailRawBoxes  || 0;
+      const actualBrine = day.quailBrineBoxes|| 0;
+      const actualTotal = day.totalBoxes     || 0;
+
+      // 잔여 계산
+      const goalTotal = goal ? (goal.egg||0) + (goal.quail||0) + (goal.brine||0) : null;
+      const remEgg    = goal ? (goal.egg||0)   - actualEgg   : null;
+      const remQuail  = goal ? (goal.quail||0) - actualQuail : null;
+      const remBrine  = goal ? (goal.brine||0) - actualBrine : null;
+      const remTotal  = goal ? goalTotal - actualTotal       : null;
+
+      // 잔여 색상: 0 이하면 완료(초록), 양수면 남음(주황)
+      const remColor  = remTotal !== null ? (remTotal <= 0 ? '#22c55e' : '#f59e0b') : '#94a3b8';
+
+      // 목표 텍스트
+      const goalBadgeHtml = goal ? (() => {
+        const parts = [];
+        if (goal.egg)   parts.push(`계란 ${goal.egg}박스`);
+        if (goal.quail) parts.push(`메추리 ${goal.quail}박스`);
+        if (goal.brine) parts.push(`깐메추리 ${goal.brine}박스`);
+        const remParts = [];
+        if (goal.egg   && remEgg   !== null) remParts.push(`계란 ${remEgg <= 0 ? '✓' : remEgg + '박스'}`);
+        if (goal.quail && remQuail !== null) remParts.push(`메추리 ${remQuail <= 0 ? '✓' : remQuail + '박스'}`);
+        if (goal.brine && remBrine !== null) remParts.push(`깐메추리 ${remBrine <= 0 ? '✓' : remBrine + '박스'}`);
+        return `
+          <div style="font-size:10px;opacity:.75;margin-top:2px;">목표 ${parts.join(' · ')}</div>
+          <div style="font-size:11px;font-weight:700;color:${remColor};margin-top:3px;">
+            ${remTotal <= 0 ? '✅ 납품완료' : `잔여 ${remParts.join(' · ')}`}
+          </div>`;
+      })() : '';
+
       return `
       <div style="background:#fff;border-radius:12px;overflow:hidden;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.07);">
         <!-- 날짜 헤더 (클릭 시 접기/펼치기) -->
         <div style="display:flex;align-items:center;justify-content:space-between;
                     padding:11px 14px;background:var(--navy);color:#fff;cursor:pointer;user-select:none;"
              onclick="toggleDelivDay('${dayId}')">
-          <div style="display:flex;align-items:center;gap:6px;">
-            <span id="${dayId}-arrow" style="font-size:11px;opacity:.7;transition:transform .2s;">▼</span>
-            <span style="font-size:13px;font-weight:700;">📅 ${fmtDate(day.date)}</span>
-            <span style="font-size:11px;opacity:.65;">${day.orders.length}척</span>
-          </div>
-          <div style="text-align:right;">
-            <div style="font-size:13px;font-weight:700;">${fmt(day.totalAmt)}</div>
-            <div style="font-size:10px;opacity:.8;margin-top:2px;">
-              ${day.eggBoxes       ? `계란 ${formatBoxCount(day.eggBoxes)}` : ''}
-              ${day.quailRawBoxes   ? (day.eggBoxes ? ' · ' : '') + `🥚메추리 ${formatBoxCount(day.quailRawBoxes)}` : ''}
-              ${day.quailBrineBoxes || day.quailBrinePkts ? ' · 깐메추리 ' + (day.quailBrineBoxes ? formatBoxCount(day.quailBrineBoxes) : '') + (day.quailBrineBoxes && day.quailBrinePkts ? ' ' : '') + (day.quailBrinePkts ? formatPktCount(day.quailBrinePkts) : '') : ''}
+          <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;">
+            <span id="${dayId}-arrow" style="font-size:11px;opacity:.7;transition:transform .2s;flex-shrink:0;">▼</span>
+            <div style="min-width:0;">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span style="font-size:13px;font-weight:700;">📅 ${fmtDate(day.date)}</span>
+                <span style="font-size:11px;opacity:.65;">${day.orders.length}척</span>
+              </div>
+              ${goalBadgeHtml}
             </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+            <div style="text-align:right;">
+              <div style="font-size:13px;font-weight:700;">${fmt(day.totalAmt)}</div>
+              <div style="font-size:10px;opacity:.8;margin-top:2px;">
+                ${day.eggBoxes       ? `계란 ${formatBoxCount(day.eggBoxes)}` : ''}
+                ${day.quailRawBoxes   ? (day.eggBoxes ? ' · ' : '') + `🥚메추리 ${formatBoxCount(day.quailRawBoxes)}` : ''}
+                ${day.quailBrineBoxes || day.quailBrinePkts ? ' · 깐메추리 ' + (day.quailBrineBoxes ? formatBoxCount(day.quailBrineBoxes) : '') + (day.quailBrineBoxes && day.quailBrinePkts ? ' ' : '') + (day.quailBrinePkts ? formatPktCount(day.quailBrinePkts) : '') : ''}
+              </div>
+            </div>
+            <!-- 목표 입력 버튼 (이벤트 전파 차단) -->
+            <button onclick="event.stopPropagation();openDelivGoal('${day.date}')"
+                    style="background:${goal ? '#f59e0b' : 'rgba(255,255,255,.18)'};color:#fff;border:none;
+                           border-radius:8px;padding:6px 8px;font-size:16px;cursor:pointer;flex-shrink:0;line-height:1;">
+              🎯
+            </button>
           </div>
         </div>
         <!-- 선명별 행 (접기/펼치기 대상) -->
@@ -888,6 +940,132 @@ function renderDeliveryStatus() {
   `;
   // 최신 날짜만 펼치고 나머지 접기
   _initDelivDayCollapse(dayList.length);
+}
+
+// ══════════════════════════════════════════════════════
+// 납품현황 날짜별 목표 박스 입력
+// ══════════════════════════════════════════════════════
+function openDelivGoal(dateStr) {
+  let goal = null;
+  try { goal = JSON.parse(localStorage.getItem('delivGoal_' + dateStr) || 'null'); } catch(e) {}
+  goal = goal || { egg: 0, quail: 0, brine: 0 };
+
+  // 기존 모달이 있으면 제거
+  const existing = document.getElementById('deliv-goal-modal');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'deliv-goal-modal';
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;
+    display:flex;align-items:flex-end;justify-content:center;`;
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:20px 20px 0 0;padding:24px 20px 32px;width:100%;max-width:480px;
+                box-sizing:border-box;box-shadow:0 -4px 24px rgba(0,0,0,.18);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:var(--navy);">🎯 목표 박스 입력</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">${dateStr}</div>
+        </div>
+        <button onclick="closeDelivGoal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);padding:4px 8px;">✕</button>
+      </div>
+
+      <!-- 품목별 입력 -->
+      <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:22px;">
+        ${[
+          { id:'egg',   label:'🥚 계란' },
+          { id:'quail', label:'🥚 메추리' },
+          { id:'brine', label:'깐메추리' },
+        ].map(({id, label}) => `
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:68px;font-size:13px;font-weight:700;color:var(--navy);flex-shrink:0;">${label}</div>
+          <button onclick="adjustGoalVal('${id}',-1)"
+                  style="width:36px;height:36px;flex-shrink:0;border-radius:50%;border:1px solid var(--border);
+                         background:#f8fafc;font-size:20px;cursor:pointer;line-height:1;">−</button>
+          <input id="goal-${id}" type="number" min="0"
+                 value="${id==='egg'?goal.egg||0:id==='quail'?goal.quail||0:goal.brine||0}"
+                 style="width:64px;flex-shrink:0;text-align:center;font-size:18px;font-weight:800;
+                        border:2px solid var(--border);border-radius:10px;padding:5px 4px;color:var(--navy);">
+          <button onclick="adjustGoalVal('${id}',1)"
+                  style="width:36px;height:36px;flex-shrink:0;border-radius:50%;border:1px solid var(--border);
+                         background:#f8fafc;font-size:20px;cursor:pointer;line-height:1;">+</button>
+          <span style="font-size:12px;color:var(--muted);flex-shrink:0;">박스</span>
+        </div>`).join('')}
+      </div>
+
+      <!-- 버튼 -->
+      <div style="display:flex;gap:10px;">
+        <button onclick="clearDelivGoal('${dateStr}')"
+                style="flex:1;padding:13px;border-radius:12px;border:1px solid #fca5a5;
+                       background:#fff;color:#dc2626;font-size:14px;font-weight:700;cursor:pointer;">
+          목표 삭제
+        </button>
+        <button onclick="saveDelivGoal('${dateStr}')"
+                style="flex:2;padding:13px;border-radius:12px;border:none;
+                       background:var(--navy);color:#fff;font-size:14px;font-weight:700;cursor:pointer;">
+          저장
+        </button>
+      </div>
+    </div>`;
+
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeDelivGoal(); });
+  document.body.appendChild(overlay);
+}
+
+function closeDelivGoal() {
+  const m = document.getElementById('deliv-goal-modal');
+  if (m) m.remove();
+}
+
+function adjustGoalVal(field, delta) {
+  const input = document.getElementById('goal-' + field);
+  if (!input) return;
+  const newVal = Math.max(0, (parseInt(input.value) || 0) + delta);
+  input.value = newVal;
+}
+
+function saveDelivGoal(dateStr) {
+  const goal = {
+    egg:   Math.max(0, parseInt(document.getElementById('goal-egg')?.value)   || 0),
+    quail: Math.max(0, parseInt(document.getElementById('goal-quail')?.value) || 0),
+    brine: Math.max(0, parseInt(document.getElementById('goal-brine')?.value) || 0),
+  };
+  if (goal.egg === 0 && goal.quail === 0 && goal.brine === 0) {
+    localStorage.removeItem('delivGoal_' + dateStr);
+  } else {
+    localStorage.setItem('delivGoal_' + dateStr, JSON.stringify(goal));
+  }
+  closeDelivGoal();
+  // 현재 열려있는 날짜 인덱스 기억 후 재렌더
+  _reRenderDelivKeepOpen();
+  toast('🎯 목표가 저장되었습니다.');
+}
+
+function clearDelivGoal(dateStr) {
+  localStorage.removeItem('delivGoal_' + dateStr);
+  closeDelivGoal();
+  _reRenderDelivKeepOpen();
+  toast('목표가 삭제되었습니다.');
+}
+
+// 현재 열려있는 날짜 인덱스를 보존하며 납품현황 재렌더
+function _reRenderDelivKeepOpen() {
+  // 열린 날짜 인덱스 수집
+  const openIdxs = new Set();
+  document.querySelectorAll('[id^="deliv-day-"]').forEach(el => {
+    if (!el.id.includes('-arrow') && el.style.display !== 'none') {
+      const idx = parseInt(el.id.replace('deliv-day-', ''));
+      if (!isNaN(idx)) openIdxs.add(idx);
+    }
+  });
+  renderDeliveryStatus();
+  // _initDelivDayCollapse가 이미 실행됐으므로 열렸던 것만 다시 열기
+  openIdxs.forEach(idx => {
+    const body  = document.getElementById(`deliv-day-${idx}`);
+    const arrow = document.getElementById(`deliv-day-${idx}-arrow`);
+    if (body)  body.style.display = 'block';
+    if (arrow) arrow.style.transform = 'rotate(0deg)';
+  });
 }
 
 // ── 납품현황 날짜 그룹 접기/펼치기 ──
