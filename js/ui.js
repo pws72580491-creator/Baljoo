@@ -148,6 +148,9 @@ function renderAll() {
   const bydateEl = document.getElementById('dash-bydate');
   if (bydateEl && bydateEl.style.display !== 'none') renderDashByDate();
 
+  // 납품현황 탭이 현재 보이는 상태면 즉시 갱신 (납품취소 등 상태 변경 즉시 반영)
+  if (typeof curView !== 'undefined' && curView === 3) renderDeliveryStatus();
+
   // 발주 목록
   const list = filtered();
   const archivedCnt = orders.filter(o => !!o.archived).length;
