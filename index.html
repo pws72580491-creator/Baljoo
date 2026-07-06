@@ -2,11 +2,11 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.2.89
+  Version : v3.2.91
   Released: 2026-07-01
   ────────────────────────────────────────
   CHANGELOG
-  v3.2.89 (2026-07-01)
+  v3.2.91 (2026-07-01)
     - [CHG] 대시보드 — 전체 누적 → '월별' 기준으로 변경
             상단에 월 선택 네비게이션(◀ 이번 달 ▶) 추가
             기본값은 항상 이번 달, 이전달/다음달 자유 전환 가능
@@ -517,7 +517,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.89</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.91</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
@@ -628,13 +628,23 @@ body{
       </div>
       <div class="search-wrap">
         <span class="search-icon">🔍</span>
-        <input class="search-input" id="searchInput" placeholder="선명, 서류번호 검색..." oninput="searchOrders(this.value)" />
+        <input class="search-input" id="searchInput" placeholder="선명, 서류번호 검색..."
+               enterkeyhint="next"
+               oninput="searchOrders(this.value)"
+               onkeydown="if(event.key==='Enter'||event.key==='Go'){event.preventDefault();}"
+               onkeyup="if(event.key==='Enter'||event.key==='Go'){document.getElementById('fDateFrom').focus();}" />
       </div>
       <!-- 날짜 필터 -->
       <div class="date-filter">
-        <input type="date" id="fDateFrom" onchange="renderAll()" placeholder="시작일"/>
+        <input type="date" id="fDateFrom" onchange="renderAll()" placeholder="시작일"
+               enterkeyhint="next"
+               onkeydown="if(event.key==='Enter'||event.key==='Go'){event.preventDefault();}"
+               onkeyup="if(event.key==='Enter'||event.key==='Go'){document.getElementById('fDateTo').focus();}"/>
         <span class="date-sep">~</span>
-        <input type="date" id="fDateTo" onchange="renderAll()" placeholder="종료일"/>
+        <input type="date" id="fDateTo" onchange="renderAll()" placeholder="종료일"
+               enterkeyhint="done"
+               onkeydown="if(event.key==='Enter'||event.key==='Go'){event.preventDefault();}"
+               onkeyup="if(event.key==='Enter'||event.key==='Go'){document.activeElement.blur();}"/>
         <button class="date-clear" onclick="clearDateFilter()">✕</button>
       </div>
       <!-- 정렬 -->
