@@ -276,11 +276,11 @@ function openEditModal(id) {
     <div class="edit-row">
       <div class="edit-field">
         <label>발주일자</label>
-        <input id="ef-date" type="date" value="${o.date||''}">
+        <input id="ef-date" type="date" value="${o.date||''}" enterkeyhint="next">
       </div>
       <div class="edit-field">
         <label>납기일자</label>
-        <input id="ef-delivery" type="date" value="${o.delivery||''}">
+        <input id="ef-delivery" type="date" value="${o.delivery||''}" enterkeyhint="next">
       </div>
     </div>
     <div class="edit-row">
@@ -315,39 +315,36 @@ function openEditModal(id) {
     history.pushState({ modal: 'edit' }, '');
 
     // ── Enter/Next 키 → 다음 필드로 포커스 이동 ──
-    // 이동 순서: 선명 → 서류번호 → 거래처발주번호 → (각 품목행) 품목명 → CODE → 수량 → 단가 → 다음행 품목명 … → 마지막 단가에서 저장
+    // 이동 순서: 선명 → 발주일 → 납기일 → 서류번호 → 거래처발주번호 → 품목명 → CODE → 수량 → 단가 → 다음행 품목명 … → 마지막 단가에서 저장
     const editBody = document.getElementById('edit-body');
-    editBody.addEventListener('keydown', function(e) {
-      if (e.key !== 'Enter') return;
+
+    function _handleEditFieldNav(e) {
+      if (e.key !== 'Enter' && e.key !== 'Go' && e.key !== 'Next') return;
       const active = document.activeElement;
       if (!active || active.tagName === 'BUTTON' || active.tagName === 'SELECT') return;
       e.preventDefault();
 
-      // 고정 헤더 필드 순서
-      const HEADER_IDS = ['ef-ship', 'ef-docno', 'ef-pono'];
+      // 고정 헤더 필드 순서 (날짜 필드 포함)
+      const HEADER_IDS = ['ef-ship', 'ef-date', 'ef-delivery', 'ef-docno', 'ef-pono'];
       const hi = HEADER_IDS.indexOf(active.id);
       if (hi !== -1) {
-        const nextHeader = HEADER_IDS[hi + 1];
-        if (nextHeader) {
-          document.getElementById(nextHeader)?.focus();
+        const nextId = HEADER_IDS[hi + 1];
+        if (nextId) {
+          document.getElementById(nextId)?.focus();
         } else {
-          // 거래처발주번호 → 첫 품목행 품목명
           document.getElementById('ei-desc-0')?.focus();
         }
         return;
       }
 
-      // 품목 행 필드: ei-desc-N / ei-code-N / ei-qty-N / ei-price-N
       const m = active.id.match(/^ei-(desc|code|qty|price)-(\d+)$/);
       if (m) {
         const field = m[1], idx = Number(m[2]);
         const ORDER = ['desc', 'code', 'qty', 'price'];
         const fi = ORDER.indexOf(field);
         if (fi < ORDER.length - 1) {
-          // 같은 행 다음 필드
           document.getElementById(`ei-${ORDER[fi + 1]}-${idx}`)?.focus();
         } else {
-          // 단가(price) → 다음 행 품목명 or 저장 버튼
           const nextDesc = document.getElementById(`ei-desc-${idx + 1}`);
           if (nextDesc) {
             nextDesc.focus();
@@ -356,7 +353,17 @@ function openEditModal(id) {
           }
         }
       }
+    }
+
+    // keydown: 폼 submit / 기본 동작 방지
+    editBody.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === 'Go' || e.key === 'Next') e.preventDefault();
     });
+    // keyup: 실제 필드 이동 처리 (삼성 키보드 등 모바일 키보드 호환)
+    editBody.addEventListener('keyup', _handleEditFieldNav);
+
+    // 초기 enterkeyhint 설정
+    _updateItemEnterHints();
   }, 50);
 
   // 스와이프 닫기 (리스너 누적 방지: clone으로 기존 리스너 제거)
@@ -387,9 +394,9 @@ function addEditItem() {
   const div  = document.createElement('div');
   div.innerHTML = `
     <div class="edit-item-row" id="eitem-${idx}">
-      <input type="text"   id="ei-desc-${idx}"  placeholder="품목명">
-      <input type="text"   id="ei-code-${idx}"  placeholder="CODE">
-      <input type="number" id="ei-qty-${idx}"   value="0" step="any" min="0" oninput="recalcEditItem(${idx})">
+      <input type="text"   id="ei-desc-${idx}"  placeholder="품목명"  enterkeyhint="next">
+      <input type="text"   id="ei-code-${idx}"  placeholder="CODE"    enterkeyhint="next">
+      <input type="number" id="ei-qty-${idx}"   value="0" step="any" min="0" inputmode="decimal" enterkeyhint="next" oninput="recalcEditItem(${idx})">
       <select id="ei-unit-${idx}">
         <option value="box">박스</option>
         <option value="pcs">pcs</option>
@@ -397,7 +404,7 @@ function addEditItem() {
         <option value="pkt">봉지</option>
       </select>
       <input type="text" id="ei-price-${idx}" value="" placeholder="단가"
-        inputmode="numeric"
+        inputmode="numeric" enterkeyhint="next"
         onfocus="this.value=this.value.replace(/,/g,'')"
         onblur="formatPriceField(this,${idx})"
         oninput="this.value=this.value.replace(/[^0-9]/g,'')">
@@ -405,8 +412,23 @@ function addEditItem() {
       <button class="edit-del-btn" onclick="removeEditItem(${idx})">×</button>
     </div>`;
   list.appendChild(div.firstElementChild);
+  _updateItemEnterHints();
   // 새 행 품목명으로 자동 포커스
   setTimeout(() => document.getElementById(`ei-desc-${idx}`)?.focus(), 50);
+}
+
+// 마지막 품목 행의 단가 필드만 enterkeyhint="done"으로, 나머지는 "next"로 설정
+function _updateItemEnterHints() {
+  const rows = document.querySelectorAll('#edit-items-list .edit-item-row');
+  rows.forEach((row, i) => {
+    const isLast = i === rows.length - 1;
+    ['desc','code','qty'].forEach(f => {
+      const el = row.querySelector(`input[id^="ei-${f}-"]`);
+      if (el) el.setAttribute('enterkeyhint', 'next');
+    });
+    const priceEl = row.querySelector(`input[id^="ei-price-"]`);
+    if (priceEl) priceEl.setAttribute('enterkeyhint', isLast ? 'done' : 'next');
+  });
 }
 
 // 단가 입력란 포맷: blur 시 숫자에 , 추가 + 금액 재계산
