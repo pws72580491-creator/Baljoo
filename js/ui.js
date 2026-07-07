@@ -727,6 +727,8 @@ function renderDeliveryStatus() {
   // ── 계란 재고 이월 계산 (전체 이력 기준, 날짜 오름차순 누적) ──
   // 화면에 보이는 월(_delivMonth)과 무관하게 정확히 이월되도록,
   // 이번 달로 필터링된 done이 아니라 전체 이력(allDone) + 저장된 모든 입고(delivGoal_) 날짜를 합쳐 계산한다.
+  // 단, "입고"를 한 번도 입력한 적 없는 과거 날짜까지 소급해서 재고부족으로 잡으면
+  // 이번 업데이트 이전 데이터가 전부 마이너스로 보이게 되므로, 최초로 입고를 입력한 날짜부터만 이월을 시작한다.
   const eggStockByDate = {};
   {
     const eggByDateAll = {};
@@ -740,24 +742,38 @@ function renderDeliveryStatus() {
       });
     });
 
-    const stockDates = new Set(Object.keys(eggByDateAll));
+    // 실제로 "계란 입고" 값을 0보다 크게 입력해 둔 날짜만 수집 (그 시점부터가 "재고 추적 시작일")
+    // 메추리/깐메추리 목표만 입력한 날짜는 계란 추적 시작으로 치지 않는다.
+    const trackedGoalDates = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k && k.startsWith('delivGoal_')) stockDates.add(k.slice('delivGoal_'.length));
+      if (!k || !k.startsWith('delivGoal_')) continue;
+      let g = null;
+      try { g = JSON.parse(localStorage.getItem(k) || 'null'); } catch(e) {}
+      if (g && Number(g.egg) > 0) trackedGoalDates.push(k.slice('delivGoal_'.length));
     }
 
-    const ascDates = [...stockDates].sort((a, b) => a.localeCompare(b));
-    let carry = 0;
-    ascDates.forEach(d => {
-      let g = null;
-      try { g = JSON.parse(localStorage.getItem('delivGoal_' + d) || 'null'); } catch(e) {}
-      const stockIn   = g ? (g.egg || 0) : 0;
-      const opening   = carry;
-      const delivered = eggByDateAll[d] || 0;
-      const closing   = opening + stockIn - delivered;
-      eggStockByDate[d] = { stockIn, opening, delivered, closing };
-      carry = closing;
-    });
+    if (trackedGoalDates.length) {
+      const firstTrackedDate = trackedGoalDates.sort((a, b) => a.localeCompare(b))[0];
+
+      const stockDates = new Set(trackedGoalDates);
+      Object.keys(eggByDateAll)
+        .filter(d => d >= firstTrackedDate) // 추적 시작일 이전 납품 실적은 이월 계산에서 제외
+        .forEach(d => stockDates.add(d));
+
+      const ascDates = [...stockDates].sort((a, b) => a.localeCompare(b));
+      let carry = 0;
+      ascDates.forEach(d => {
+        let g = null;
+        try { g = JSON.parse(localStorage.getItem('delivGoal_' + d) || 'null'); } catch(e) {}
+        const stockIn   = g ? (g.egg || 0) : 0;
+        const opening   = carry;
+        const delivered = eggByDateAll[d] || 0;
+        const closing   = opening + stockIn - delivered;
+        eggStockByDate[d] = { stockIn, opening, delivered, closing };
+        carry = closing;
+      });
+    }
   }
 
   // ── 합계 (납품/반품 분리) ──
@@ -851,12 +867,12 @@ function renderDeliveryStatus() {
         const blocks = [];
 
         if (hasEggFlow) {
-          const openingText = eggStock.opening ? ` + 전일재고 ${eggStock.opening}박스` : '';
+          const openingText = eggStock.opening ? ` + 전일재고 ${formatBoxCount(eggStock.opening)}` : '';
           const stockText = eggStock.closing < 0
-            ? `⚠️ 재고부족 ${Math.abs(eggStock.closing)}박스`
-            : `재고 계란 ${eggStock.closing}박스`;
+            ? `⚠️ 재고부족 ${formatBoxCount(Math.abs(eggStock.closing))}`
+            : `재고 계란 ${formatBoxCount(eggStock.closing)}`;
           blocks.push(`
-          <div style="font-size:10px;opacity:.75;margin-top:2px;">입고 계란 ${eggStock.stockIn}박스${openingText}</div>
+          <div style="font-size:10px;opacity:.75;margin-top:2px;">입고 계란 ${formatBoxCount(eggStock.stockIn)}${openingText}</div>
           <div style="font-size:11px;font-weight:700;color:${eggColor};margin-top:3px;">${stockText}</div>`);
         }
 
@@ -1087,14 +1103,14 @@ function saveDelivGoal(dateStr) {
   closeDelivGoal();
   // 현재 열려있는 날짜 인덱스 기억 후 재렌더
   _reRenderDelivKeepOpen();
-  toast('🎯 목표가 저장되었습니다.');
+  toast('🎯 입고/목표가 저장되었습니다.');
 }
 
 function clearDelivGoal(dateStr) {
   localStorage.removeItem('delivGoal_' + dateStr);
   closeDelivGoal();
   _reRenderDelivKeepOpen();
-  toast('목표가 삭제되었습니다.');
+  toast('입고/목표가 삭제되었습니다.');
 }
 
 // 현재 열려있는 날짜 인덱스를 보존하며 납품현황 재렌더
