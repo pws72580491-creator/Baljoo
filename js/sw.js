@@ -1,4 +1,4 @@
-const CACHE_NAME = '발주관리-cache-v3.2.58';
+const CACHE_NAME = '발주관리-cache-v3.2.94';
 const APP_SHELL = [
   './index.html',
   './manifest.json',
@@ -34,6 +34,26 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+
+  const url = e.request.url;
+  // JS / HTML 파일: 네트워크 우선 — 버전업 시 캐시 지연 없이 즉시 최신 코드 반영
+  const isCodeFile = url.endsWith('.js') || url.endsWith('.html') || url.endsWith('/');
+  if (isCodeFile) {
+    e.respondWith(
+      fetch(e.request)
+        .then((networkResp) => {
+          if (networkResp && networkResp.ok) {
+            const respClone = networkResp.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(e.request, respClone));
+          }
+          return networkResp;
+        })
+        .catch(() => caches.match(e.request))
+    );
+    return;
+  }
+
+  // 그 외 정적 자원(아이콘 등): 기존 stale-while-revalidate 유지
   e.respondWith(
     caches.match(e.request).then((cached) => {
       const fetchPromise = fetch(e.request)

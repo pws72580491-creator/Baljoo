@@ -2,11 +2,43 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.2.58
-  Released: 2026-06-27
+  Version : v3.2.94
+  Released: 2026-07-08
   ────────────────────────────────────────
   CHANGELOG
-  v3.2.58 (2026-06-27)
+  v3.2.94 (2026-07-08)
+    - [FIX] 통계 탭 "월별 실납품 추이" 막대그래프가 실제로는 높이 차이 없이
+            거의 납작하게(선처럼) 표시되던 CSS 버그 수정
+            원인: 막대 div의 height:%가 부모(auto 높이 flex 아이템)를 기준으로
+                  계산되어 퍼센트가 제대로 적용되지 않음
+            → 막대 영역을 별도의 고정 높이 flex 컨테이너로 분리해
+              월별 금액 차이가 막대 높이로 정확히 반영되도록 수정
+            숫자 표시도 "18,234.910K" 같은 깨진 K단위 대신 "1,823만"처럼
+            한국식 만원 단위로 보기 좋게 변경
+  v3.2.93 (2026-07-08)
+    - [CHG] "부분납품" 기능 폐지 → "발주취소"로 전환
+            📋 부분납품 버튼 → 🚫 발주취소 버튼으로 교체 (금액 입력 프롬프트 제거)
+            발주취소 처리 시 사유(선택) 입력 가능, 터치 한 번으로 취소↔미납품 토글
+            발주취소 건은 상단 총 건수/합계, 대시보드, 통계, 납품현황, 엑셀/CSV
+            내보내기 등 모든 금액·박스 집계에서 완전히 제외됨
+            구버전에 저장된 "부분납품" 데이터는 앱 구동 시 자동으로
+            "발주취소"로 마이그레이션 처리 (금액은 0으로 초기화)
+  v3.2.92 (2026-07-07)
+    - [CHG] 납품현황 — 계란 "목표"를 "입고"로 변경
+            🎯 버튼에서 입력한 계란 수량 = 오늘 입고량
+            전일 재고(미납품 잔여분)를 오늘로 자동 이월
+            오늘 재고 = 전일재고 + 오늘입고 − 오늘 실제납품 수량
+            재고 부족 시(음수) ⚠️ 재고부족 N박스로 경고 표시
+            메추리/깐메추리는 기존 목표/잔여 방식 그대로 유지
+  v3.2.91 (2026-07-01)
+    - [CHG] 대시보드 — 전체 누적 → '월별' 기준으로 변경
+            상단에 월 선택 네비게이션(◀ 이번 달 ▶) 추가
+            기본값은 항상 이번 달, 이전달/다음달 자유 전환 가능
+            납품 현황 요약·통계 카드·최근 내역·날짜별 기록 모두 월별 적용
+            상단바(총 N건|합계)는 기존처럼 전체 누적 기준 유지
+  ────────────────────────────────────────
+  CHANGELOG
+  v3.2.77 (2026-06-30)
     - [NEW] 월별 결산 — 통계 탭 상단에 월 선택 칩 추가
             전체·이번달·저번달·개별 월 터치로 즉시 필터
             전체 모드: 월별 결산 그리드 카드 (월명·건수·박스·실납품금액·반품) 표시
@@ -58,7 +90,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<title>이른아침 · 발주관리 v3.2.58</title>
+<title>이른아침 · 발주관리 v3.2.77</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -73,7 +105,7 @@
   --border:#dde3ef;--text:#1a2540;--muted:#6b7a99;
   --danger:#ef4444;--success:#22c55e;
   --warn:#f59e0b;
-  --delivered:#0ea5e9;--returned:#ef4444;--pending:#6b7a99;
+  --delivered:#0ea5e9;--returned:#ef4444;--pending:#6b7a99;--cancelled:#7c3aed;
   --r:12px;--sh:0 2px 12px rgba(15,31,61,.08);
   --nav-h:56px;--top-h:56px;
 }
@@ -157,7 +189,7 @@ body{
 .sc-val.danger{color:var(--danger);}
 .sc-val.sm{font-size:16px;}
 .sc-val.xs{font-size:14px;}
-.sc-sub{font-size:11px;color:var(--muted);margin-top:3px;}
+.sc-sub{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.5;}
 
 /* ── 납품 현황 카드 ── */
 .delivery-summary{
@@ -198,7 +230,7 @@ body{
 }
 .order-card.status-delivered::before{background:var(--delivered);}
 .order-card.status-returned::before{background:var(--returned);}
-.order-card.status-partial::before{background:var(--warn);}
+.order-card.status-cancelled::before{background:var(--cancelled);}
 .order-card.is-return-doc{background:#fff5f5;border-color:#fca5a5;}
 .order-card.is-return-doc::before{background:#dc2626;width:4px;}
 .order-card:active{box-shadow:0 4px 20px rgba(41,121,212,.12);}
@@ -241,7 +273,7 @@ body{
 .b-manual{background:#f3e8ff;color:#7c3aed;}
 .b-delivered{background:#e0f7ff;color:#0369a1;}
 .b-returned{background:#fee2e2;color:#b91c1c;}
-.b-partial{background:#fef3c7;color:#92400e;}
+.b-cancelled{background:#ede9fe;color:#6d28d9;text-decoration:line-through;}
 .b-pending{background:#f1f5f9;color:#64748b;}
 
 /* ── SECTION HEADER ── */
@@ -280,6 +312,14 @@ body{
 .chip.active{background:var(--accent);border-color:var(--accent);color:#fff;}
 .chip.c-delivered.active{background:var(--delivered);border-color:var(--delivered);}
 .chip.c-returned.active{background:var(--returned);border-color:var(--returned);}
+
+/* 균등분할 칩 행: 보관함 등 텍스트가 잘리지 않도록 각 칩이 동일한 너비를 가짐 */
+.chips-equal{overflow-x:visible;}
+.chips-equal .chip{
+  flex:1 1 0;flex-shrink:1;min-width:0;
+  padding:5px 4px;text-align:center;font-size:11.5px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
 
 /* ── UPLOAD ZONE ── */
 .upload-zone{
@@ -360,6 +400,8 @@ body{
 .btn-success:active{background:var(--success);color:#fff;}
 .btn-warn{background:#fef3c7;color:#92400e;}
 .btn-warn:active{background:var(--warn);color:#fff;}
+.btn-cancel{background:#ede9fe;color:#6d28d9;}
+.btn-cancel:active{background:var(--cancelled);color:#fff;}
 .btn-sm{padding:6px 12px;font-size:12px;border-radius:7px;}
 
 /* ── MODAL ── */
@@ -501,7 +543,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.58</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.94</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
@@ -520,8 +562,18 @@ body{
     <!-- ── VIEW 0: DASHBOARD ── -->
     <div class="view" id="v0">
       <div class="ph">
-        <div><div class="pt">대시보드</div><div class="ps">전체 발주 현황</div></div>
+        <div><div class="pt">대시보드</div><div class="ps" id="dash-month-label">이번 달 발주 현황</div></div>
         <button class="btn btn-g btn-sm" onclick="exportExcel()">📥 엑셀</button>
+      </div>
+
+      <!-- 대시보드 월 선택 -->
+      <div id="dash-month-nav" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:8px 10px;">
+        <button class="btn btn-g btn-sm" onclick="dashPrevMonth()" style="padding:6px 12px;">◀</button>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span id="dash-month-title" style="font-size:14px;font-weight:800;color:var(--navy);">이번 달</span>
+          <button class="chip" id="dash-month-today-btn" style="font-size:11px;display:none;" onclick="dashThisMonth()">이번달로</button>
+        </div>
+        <button class="btn btn-g btn-sm" onclick="dashNextMonth()" style="padding:6px 12px;">▶</button>
       </div>
 
       <!-- 납품 현황 요약 -->
@@ -540,7 +592,7 @@ body{
           </div>
           <div class="ds-item">
             <div class="ds-val c-pending" id="ds-pending-cnt">0</div>
-            <div class="ds-lbl">미납품</div>
+            <div class="ds-lbl">미납품<span style="font-size:9px;color:var(--muted);font-weight:400;"> (전체)</span></div>
             <div class="ds-amount" id="ds-pending-amt">₩0</div>
           </div>
         </div>
@@ -554,9 +606,9 @@ body{
         <div class="stat-card"><div class="sc-label">납품 건수</div><div class="sc-val accent" id="s-cnt">0</div><div class="sc-sub">건</div></div>
         <div class="stat-card"><div class="sc-label">납품 총금액</div><div class="sc-val sm success" id="s-tot">₩0</div><div class="sc-sub">실납품 기준</div></div>
         <div class="stat-card"><div class="sc-label">선명 수</div><div class="sc-val gold" id="s-ships">0</div><div class="sc-sub">척</div></div>
-        <div class="stat-card"><div class="sc-label">납품 박스</div><div class="sc-val accent" id="s-boxes">0박스</div><div class="sc-sub">납품완료 기준</div></div>
+        <div class="stat-card"><div class="sc-label">납품 박스</div><div class="sc-val accent" id="s-boxes">0박스</div><div class="sc-sub" id="s-boxes-detail">납품완료 기준</div></div>
       </div>
-      <div class="sdiv">최근 납품·반품 내역</div>
+      <div class="sdiv" id="dash-recent-title">납품·반품 내역</div>
       <div id="dash-list"></div>
 
       <div class="sdiv" style="margin-top:16px;display:flex;align-items:center;justify-content:space-between;">
@@ -602,25 +654,42 @@ body{
       </div>
       <div class="search-wrap">
         <span class="search-icon">🔍</span>
-        <input class="search-input" id="searchInput" placeholder="선명, 서류번호 검색..." oninput="searchOrders(this.value)" />
+        <input class="search-input" id="searchInput" placeholder="선명, 서류번호 검색..."
+               enterkeyhint="next"
+               oninput="searchOrders(this.value)"
+               onkeydown="if(event.key==='Enter'||event.key==='Go'){event.preventDefault();}"
+               onkeyup="if(event.key==='Enter'||event.key==='Go'){document.getElementById('fDateFrom').focus();}" />
       </div>
       <!-- 날짜 필터 -->
       <div class="date-filter">
-        <input type="date" id="fDateFrom" onchange="renderAll()" placeholder="시작일"/>
+        <input type="date" id="fDateFrom" onchange="renderAll()" placeholder="시작일"
+               enterkeyhint="next"
+               onkeydown="if(event.key==='Enter'||event.key==='Go'){event.preventDefault();}"
+               onkeyup="if(event.key==='Enter'||event.key==='Go'){document.getElementById('fDateTo').focus();}"/>
         <span class="date-sep">~</span>
-        <input type="date" id="fDateTo" onchange="renderAll()" placeholder="종료일"/>
+        <input type="date" id="fDateTo" onchange="renderAll()" placeholder="종료일"
+               enterkeyhint="done"
+               onkeydown="if(event.key==='Enter'||event.key==='Go'){event.preventDefault();}"
+               onkeyup="if(event.key==='Enter'||event.key==='Go'){document.activeElement.blur();}"/>
         <button class="date-clear" onclick="clearDateFilter()">✕</button>
       </div>
+      <!-- 정렬 -->
+      <div class="chips chips-equal" id="sort-chips">
+        <button class="chip sort-btn active" id="sort-date_desc" onclick="setSortMode('date_desc')">📅 날짜 ↓</button>
+        <button class="chip sort-btn" id="sort-date_asc" onclick="setSortMode('date_asc')">📅 날짜 ↑</button>
+        <button class="chip sort-btn" id="sort-name_asc" onclick="setSortMode('name_asc')">A→Z</button>
+        <button class="chip sort-btn" id="sort-name_desc" onclick="setSortMode('name_desc')">Z→A</button>
+      </div>
       <!-- 구분 칩 -->
-      <div class="chips" id="cat-chips">
+      <div class="chips chips-equal" id="cat-chips">
         <button class="chip active" onclick="filterOrders('all',this)">전체</button>
         <button class="chip" onclick="filterOrders('cruise',this)">크루즈</button>
         <button class="chip" onclick="filterOrders('cargo',this)">카고</button>
 
       </div>
       <!-- 납품 상태 칩 -->
-      <div class="chips" id="status-chips">
-        <button class="chip active" onclick="filterStatus('all',this)">전체 상태</button>
+      <div class="chips chips-equal" id="status-chips">
+        <button class="chip active" onclick="filterStatus('all',this)">전체</button>
         <button class="chip c-delivered" onclick="filterStatus('delivered',this)">납품완료</button>
         <button class="chip c-returned" onclick="filterStatus('returned',this)">반품</button>
         <button class="chip" onclick="filterStatus('pending',this)">미납품</button>
