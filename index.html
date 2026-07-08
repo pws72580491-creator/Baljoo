@@ -2,10 +2,24 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.2.94
-  Released: 2026-07-08
+  Version : v3.2.95
+  Released: 2026-07-09
   ────────────────────────────────────────
   CHANGELOG
+  v3.2.95 (2026-07-09)
+    - [FIX] 전체 코드 점검 후 다수 버그 수정
+      · 동작하지 않던 대시보드 "반품 진단/반품 수정" 버튼 제거(연결된 함수 없음)
+      · 사용되지 않는 "직접입력" 죽은 코드(js/manual.js) 완전 제거
+      · AI 납품사진 매칭에서 발주취소·반품 건이 "미납품"으로 잘못 표시되고
+        실수로 납품완료 처리될 수 있던 문제 수정
+      · 발주서 재분석(같은 서류번호 재업로드) 시 납품일자가 지워지고
+        보관 상태가 풀리던 문제 수정
+      · 발주 수정 모달의 "구분" 선택지 부족으로 반품/직접입력 카테고리가
+        저장 시 "크루즈"로 조용히 바뀌던 문제 수정
+      · 상세모달의 수동 "반품 처리" 건이 납품현황·재고이월 계산에서
+        누락되거나, 날짜별 박스 집계 부호가 반대로 적용되던 문제 수정
+      · 월별 CSV/통계 탭에서 반품·직접입력 구분이 "카고"로 잘못
+        표시되던 문제 수정
   v3.2.94 (2026-07-08)
     - [FIX] 통계 탭 "월별 실납품 추이" 막대그래프가 실제로는 높이 차이 없이
             거의 납작하게(선처럼) 표시되던 CSS 버그 수정
@@ -543,7 +557,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.94</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.95</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
@@ -628,16 +642,6 @@ body{
         <div id="fb-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;"></div>
       </div>
 
-      <!-- 반품 진단 (임시) -->
-      <div class="sdiv" style="margin-top:16px;">🔍 반품 진단</div>
-      <div class="form-card" style="padding:13px 14px;">
-        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">반품 관련 데이터 상태를 확인하고 수정합니다</div>
-        <div style="display:flex;gap:8px;margin-bottom:8px;">
-          <button class="btn btn-g btn-sm" onclick="diagReturns()" style="flex:1;padding:9px 0;">🔍 반품 진단</button>
-          <button class="btn btn-p btn-sm" onclick="fixReturns()" style="flex:1;padding:9px 0;">🔧 반품 수정</button>
-        </div>
-        <div id="diag-status" style="font-size:11px;color:var(--muted);margin-top:8px;white-space:pre-wrap;word-break:break-all;"></div>
-      </div>
     </div>
 
     <!-- ── VIEW 1: ORDERS ── -->
@@ -861,7 +865,6 @@ body{
 <script src="js/gemini.js"></script>
 <script src="js/analyzer.js"></script>
 <script src="js/delivery.js"></script>
-<script src="js/manual.js"></script>
 <!-- Firebase -->
 <script src="js/firebase.js"></script>
 <script src="js/app.js"></script>
