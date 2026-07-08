@@ -43,8 +43,14 @@ function normalizeOrders(arr) {
     if (o.category === 'return')     o.deliveryStatus  = 'returned';
     // isReturn=true인 반품서는 항상 deliveryStatus='returned' 보장
     if (o.isReturn === true && o.deliveryStatus !== 'returned') o.deliveryStatus = 'returned';
+    // 구버전 "부분납품(partial)" 개념 폐지 → "발주취소(cancelled)"로 마이그레이션
+    if (o.deliveryStatus === 'partial') {
+      o.deliveryStatus = 'cancelled';
+      o.deliveredDate  = '';
+      o.partialAmount  = 0;
+    }
     if (o.deliveredDate === undefined) {
-      o.deliveredDate = (o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial') ? (o.date || '') : '';
+      o.deliveredDate = (o.deliveryStatus === 'delivered') ? (o.date || '') : '';
     }
   });
   return arr;

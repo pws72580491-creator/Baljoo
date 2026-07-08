@@ -44,9 +44,16 @@ function load() {
         if (o.category === 'return')    o.deliveryStatus = 'returned';
         // isReturn=true인 반품서는 항상 deliveryStatus='returned' 보장
         if (o.isReturn === true && o.deliveryStatus !== 'returned') o.deliveryStatus = 'returned';
-        // 실 납품일 필드 없는 구버전 데이터 보정: 이미 납품/부분납품 상태면 발주일로 대체
+        // 구버전 "부분납품(partial)" 개념 폐지 → "발주취소(cancelled)"로 마이그레이션
+        // (부분납품은 더 이상 지원하지 않으며, 발주취소는 모든 집계에서 제외됨)
+        if (o.deliveryStatus === 'partial') {
+          o.deliveryStatus = 'cancelled';
+          o.deliveredDate  = '';
+          o.partialAmount  = 0;
+        }
+        // 실 납품일 필드 없는 구버전 데이터 보정: 이미 납품 상태면 발주일로 대체
         if (o.deliveredDate === undefined) {
-          o.deliveredDate = (o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial') ? (o.date || '') : '';
+          o.deliveredDate = (o.deliveryStatus === 'delivered') ? (o.date || '') : '';
         }
         // unit=cs 인데 실제 단위가 doz인 경우 자동 보정
         (o.items || []).forEach(item => {

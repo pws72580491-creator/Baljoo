@@ -96,7 +96,7 @@ function exportExcel() {
         '서류번호':       o.docNo || '',
         '거래처발주번호':  o.poNo || '',
         '구분':          o.category === 'cruise' ? '크루즈' : o.category === 'cargo' ? '카고' : o.category === 'return' ? '반품' : '직접입력',
-        '납품상태':       o.deliveryStatus === 'delivered' ? '납품완료' : o.deliveryStatus === 'returned' ? '반품' : o.deliveryStatus === 'partial' ? '부분납품' : '미납품',
+        '납품상태':       o.deliveryStatus === 'delivered' ? '납품완료' : o.deliveryStatus === 'returned' ? '반품' : o.deliveryStatus === 'cancelled' ? '발주취소' : '미납품',
         '품목':          item.desc   || '',
         '코드':          item.code   || '',
         '수량':          item.qty    || 0,
@@ -118,16 +118,17 @@ function exportExcel() {
 
   const delivered = orders.filter(o => o.deliveryStatus === 'delivered');
   const returned  = orders.filter(o => o.deliveryStatus === 'returned');
-  const partial   = orders.filter(o => o.deliveryStatus === 'partial');
+  const cancelled = orders.filter(o => o.deliveryStatus === 'cancelled');
   const pending   = orders.filter(o => !o.deliveryStatus || o.deliveryStatus === 'pending');
+  const activeOrders = orders.filter(o => o.deliveryStatus !== 'cancelled'); // 발주취소 건 제외
   const statsRows = [
-    { 항목: '총 발주건수',   값: orders.length },
-    { 항목: '총 발주금액',   값: orders.reduce((s, o) => s + (o.total || 0), 0) },
+    { 항목: '총 발주건수',   값: activeOrders.length },
+    { 항목: '총 발주금액',   값: activeOrders.reduce((s, o) => s + (o.total || 0), 0) },
     { 항목: '납품완료건수',  값: delivered.length },
     { 항목: '납품완료금액',  값: delivered.reduce((s, o) => s + (o.total || 0), 0) },
     { 항목: '반품건수',     값: returned.length },
     { 항목: '반품금액',     값: returned.reduce((s, o) => s + (o.returnAmount || o.total || 0), 0) },
-    { 항목: '부분납품건수',  값: partial.length },
+    { 항목: '발주취소건수',  값: cancelled.length },
     { 항목: '미납품건수',   값: pending.length },
     { 항목: '실납품금액합계', 값: orders.reduce((s, o) => s + calcNetDelivery(o), 0) },
   ];
@@ -147,21 +148,19 @@ function exportExcel() {
       const mOrders   = orders.filter(o => (o.deliveredDate || o.date || '').slice(0,7) === m);
       const mDel      = mOrders.filter(o => o.deliveryStatus === 'delivered');
       const mRet      = mOrders.filter(o => o.deliveryStatus === 'returned');
-      const mPar      = mOrders.filter(o => o.deliveryStatus === 'partial');
+      const mCancel   = mOrders.filter(o => o.deliveryStatus === 'cancelled');
       const mPend     = mOrders.filter(o => !o.deliveryStatus || o.deliveryStatus === 'pending');
       const mDelAmt   = mDel.reduce((s,o) => s+(o.total||0), 0);
       const mRetAmt   = mRet.reduce((s,o) => s+(o.isReturn ? Math.abs(o.total||0) : (o.returnAmount||Math.abs(o.total)||0)), 0);
-      const mParAmt   = mPar.reduce((s,o) => s+(o.partialAmount||0), 0);
-      const mNet      = mDelAmt + mParAmt - mRetAmt;
-      const mBoxes    = [...mDel, ...mPar].reduce((s,o) => s+calcOrderBoxes(o), 0);
+      const mNet      = mDelAmt - mRetAmt;
+      const mBoxes    = mDel.reduce((s,o) => s+calcOrderBoxes(o), 0);
       return {
         '년월':       `${y}년 ${Number(mo)}월`,
         '납품완료건': mDel.length,
         '납품완료금액': mDelAmt,
         '반품건':     mRet.length,
         '반품금액':   mRetAmt,
-        '부분납품건': mPar.length,
-        '부분납품금액': mParAmt,
+        '발주취소건': mCancel.length,
         '미납품건':   mPend.length,
         '실납품금액': mNet,
         '납품박스':   Math.round(mBoxes * 10) / 10,
@@ -397,7 +396,7 @@ function exportMonthCSV(ym) {
     const cat     = o.category === 'cruise' ? '크루즈' : '카고';
     const status  = o.deliveryStatus === 'delivered' ? '납품완료'
                   : o.deliveryStatus === 'returned'  ? '반품'
-                  : o.deliveryStatus === 'partial'   ? '부분납품' : '미납품';
+                  : o.deliveryStatus === 'cancelled' ? '발주취소' : '미납품';
     const net     = calcNetDelivery(o);
     const boxes   = calcOrderBoxes(o);
     const items   = o.items || [];
@@ -420,9 +419,9 @@ function exportMonthCSV(ym) {
     }
   });
 
-  // 합계 행
+  // 합계 행 (발주취소 건은 금액·박스 집계에서 제외)
   const totalNet   = scopeOrders.reduce((s, o) => s + calcNetDelivery(o), 0);
-  const totalBoxes = scopeOrders.reduce((s, o) => s + calcOrderBoxes(o), 0);
+  const totalBoxes = scopeOrders.filter(o => o.deliveryStatus !== 'cancelled').reduce((s, o) => s + calcOrderBoxes(o), 0);
   rows.push([]);
   rows.push(['합계', '', '', '', '', '', '', '', totalBoxes.toFixed(1), '', totalNet, '', '']);
 

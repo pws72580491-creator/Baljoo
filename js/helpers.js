@@ -47,7 +47,7 @@ const badge = c => {
 const statusBadge = s => {
   if (s === 'delivered') return '<span class="badge b-delivered">납품완료</span>';
   if (s === 'returned')  return '<span class="badge b-returned">반품</span>';
-  if (s === 'partial')   return '<span class="badge b-partial">부분납품</span>';
+  if (s === 'cancelled') return '<span class="badge b-cancelled">🚫 발주취소</span>';
   return '<span class="badge b-pending">미납품</span>';
 };
 
@@ -188,7 +188,7 @@ function calcNetDelivery(order) {
     // 수동 반품 처리: returnAmount는 양수, 음수로 반환
     return -(order.returnAmount || Math.abs(total));
   }
-  if (order.deliveryStatus === 'partial')   return order.partialAmount || 0;
+  // 발주취소(cancelled) 건은 항상 0 — 모든 집계에서 제외
   return 0;
 }
 

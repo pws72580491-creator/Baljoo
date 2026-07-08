@@ -16,7 +16,7 @@ function openModal(id) {
     const netAmt      = calcNetDelivery(o);
     const isDelivered = o.deliveryStatus === 'delivered';
     const isReturned  = o.deliveryStatus === 'returned';
-    const isPartial   = o.deliveryStatus === 'partial';
+    const isCancelled = o.deliveryStatus === 'cancelled';
     const isArchived  = !!o.archived;
 
     document.getElementById('m-body').innerHTML = `
@@ -47,7 +47,7 @@ function openModal(id) {
       </tbody>
     </table>
 
-    ${(isDelivered || isReturned || isPartial) ? `
+    ${(isDelivered || isReturned || isCancelled) ? `
     <div class="delivery-block">
       <div class="db-title">납품 금액 현황</div>
       ${isDelivered ? `
@@ -59,9 +59,9 @@ function openModal(id) {
         <div class="db-divider"></div>
         <div class="db-row"><span class="db-label">실 납품금액</span><span class="db-val net">${fmt(netAmt)}</span></div>
       ` : ''}
-      ${isPartial ? `
-        <div class="db-row"><span class="db-label">발주금액</span><span class="db-val">${fmt(o.total)}</span></div>
-        <div class="db-row"><span class="db-label">실 납품금액</span><span class="db-val plus">${fmt(o.partialAmount || 0)}</span></div>
+      ${isCancelled ? `
+        <div class="db-row"><span class="db-label">발주금액</span><span class="db-val" style="text-decoration:line-through;color:var(--muted);">${fmt(o.total)}</span></div>
+        <div class="db-row"><span class="db-label">상태</span><span class="db-val" style="color:#6d28d9;">🚫 발주취소 (모든 집계에서 제외)</span></div>
       ` : ''}
       ${o.deliveryNote ? `<div style="font-size:12px;color:var(--muted);margin-top:8px;">📝 ${escapeHtml(o.deliveryNote)}</div>` : ''}
     </div>` : ''}
@@ -76,7 +76,9 @@ function openModal(id) {
       <button class="btn btn-warn ${isReturned ? '' : 'btn-g'}" onclick="setDelivery('${o.id}','returned')">
         ${isReturned ? '↩️ 반품처리됨' : '↩️ 반품 처리'}
       </button>
-      <button class="btn btn-g" onclick="setDelivery('${o.id}','partial')">📋 부분납품</button>
+      <button class="btn ${isCancelled ? 'btn-cancel' : 'btn-g'}" onclick="setDelivery('${o.id}','cancelled')">
+        ${isCancelled ? '🚫 발주취소됨 · 터치하면 취소' : '🚫 발주취소'}
+      </button>
       <button class="btn btn-g" onclick="setDelivery('${o.id}','pending')">⏳ 미납품으로</button>
     </div>
 
@@ -161,6 +163,31 @@ function setDelivery(id, status) {
     const o = orders.find(x => x.id === id);
     if (!o) return;
 
+    if (status === 'cancelled') {
+      // 이미 발주취소 상태면 터치 시 미납품으로 되돌림 (토글)
+      if (o.deliveryStatus === 'cancelled') {
+        o.deliveryStatus = 'pending';
+        o.deliveryNote   = '';
+        save();
+        closeModalBtn();
+        renderAll();
+        toast('⏪ 발주취소가 취소되고 미납품으로 되돌아갔습니다.');
+        return;
+      }
+      if (!confirm(`[${o.ship}]\n이 발주를 취소 처리할까요?\n(모든 금액·박스 집계에서 제외됩니다)`)) return;
+      const note = prompt('취소 사유 (선택사항)', o.deliveryNote || '');
+      if (note !== null) o.deliveryNote = note.trim();
+      o.returnAmount  = 0;
+      o.partialAmount = 0;
+      o.deliveredDate = '';
+      o.deliveryStatus = 'cancelled';
+      save();
+      closeModalBtn();
+      renderAll();
+      toast('🚫 발주취소로 처리되었습니다.');
+      return;
+    }
+
     if (status === 'returned') {
       const input = prompt(
         `반품 금액을 입력하세요\n(전액 반품이면 비워두세요, 발주금액 ${fmt(o.total)} 적용)`,
@@ -169,14 +196,6 @@ function setDelivery(id, status) {
       if (input === null) return;
       const amt = input.trim() === '' ? (o.total || 0) : parseFloat(input.replace(/[^0-9.]/g, ''));
       o.returnAmount = isNaN(amt) ? (o.total || 0) : amt;
-      const note = prompt('비고 (선택사항)', o.deliveryNote || '');
-      if (note !== null) o.deliveryNote = note.trim();
-    } else if (status === 'partial') {
-      const input = prompt('실제 납품된 금액을 입력하세요', o.partialAmount || '');
-      if (input === null) return;
-      const amt = parseFloat(input.replace(/[^0-9.]/g, ''));
-      if (isNaN(amt) || amt <= 0) { toast('⚠️ 올바른 금액을 입력해주세요'); return; }
-      o.partialAmount = amt;
       const note = prompt('비고 (선택사항)', o.deliveryNote || '');
       if (note !== null) o.deliveryNote = note.trim();
     } else if (status === 'delivered') {
@@ -188,7 +207,7 @@ function setDelivery(id, status) {
       o.partialAmount = 0;
     }
 
-    if (status === 'delivered' || status === 'partial') o.deliveredDate = todayStr();
+    if (status === 'delivered') o.deliveredDate = todayStr();
     if (status === 'pending') o.deliveredDate = '';
 
     o.deliveryStatus = status;
@@ -199,7 +218,6 @@ function setDelivery(id, status) {
     const msgs = {
       delivered: '✅ 납품완료로 변경되었습니다.',
       returned:  '↩️ 반품 처리되었습니다.',
-      partial:   '📋 부분납품으로 변경되었습니다.',
       pending:   '⏳ 미납품으로 변경되었습니다.'
     };
     toast(msgs[status] || '변경되었습니다.');
