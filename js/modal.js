@@ -288,6 +288,8 @@ function openEditModal(id) {
         <select id="ef-cat">
           <option value="cruise"${o.category==='cruise'?' selected':''}>크루즈</option>
           <option value="cargo"${o.category==='cargo'?' selected':''}>카고</option>
+          <option value="return"${o.category==='return'?' selected':''}>반품</option>
+          <option value="manual"${(o.category==='manual'||!o.category)?' selected':''}>직접입력</option>
         </select>
       </div>
     </div>

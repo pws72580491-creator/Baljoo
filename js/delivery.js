@@ -44,7 +44,7 @@ async function handleDeliveryFiles(files) {
     setDelProgress(50);
 
     const orderSummary = orders
-      .filter(o => o.deliveryStatus !== 'delivered')
+      .filter(o => !['delivered', 'cancelled', 'returned'].includes(o.deliveryStatus))
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''))  // 최근 날짜 우선
       .slice(0, 60)  // 40 → 60건으로 확대
       .map(o => `${o.id}|${o.ship}|${o.docNo||''}|${o.poNo||''}|${o.date||''}`)
@@ -129,7 +129,7 @@ function renderDeliveryResult(result) {
     return order ? { ...m, order } : null;
   }).filter(Boolean);
 
-  const pendingOrders = matchedOrders.filter(m => m.order.deliveryStatus !== 'delivered');
+  const pendingOrders = matchedOrders.filter(m => !['delivered', 'cancelled', 'returned'].includes(m.order.deliveryStatus));
   const totalCnt = result.totalCount ?? matched.length;
   const todayVal = todayStr();
 
@@ -163,15 +163,20 @@ function renderDeliveryResult(result) {
       ${matchedOrders.map(m => `
         <div class="prev-card" style="border-left:3px solid ${m.order.deliveryStatus === 'delivered' ? '#86efac' : 'var(--success)'};">
           <div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;">
-            ${m.order.deliveryStatus !== 'delivered' ? `
+            ${!['delivered', 'cancelled', 'returned'].includes(m.order.deliveryStatus) ? `
             <input type="checkbox" data-del-id="${escAttr(m.order.id)}" onchange="delUpdateCount()"
                    style="width:20px;height:20px;margin-top:2px;flex-shrink:0;accent-color:var(--navy);">
-            ` : `<span style="font-size:18px;flex-shrink:0;">✅</span>`}
+            ` : `<span style="font-size:18px;flex-shrink:0;">${
+              m.order.deliveryStatus === 'delivered' ? '✅' : m.order.deliveryStatus === 'cancelled' ? '🚫' : '↩️'
+            }</span>`}
             <div style="flex:1;min-width:0;">
               <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                 <span style="font-size:13px;font-weight:800;color:var(--navy);">${escapeHtml(m.order.ship)}</span>
                 <span style="font-size:10px;font-weight:700;color:#15803d;background:#dcfce7;border-radius:4px;padding:1px 6px;">
-                  ${m.order.deliveryStatus === 'delivered' ? '이미 납품완료' : '미납품'}
+                  ${m.order.deliveryStatus === 'delivered' ? '이미 납품완료'
+                    : m.order.deliveryStatus === 'cancelled' ? '🚫 발주취소됨'
+                    : m.order.deliveryStatus === 'returned'  ? '↩️ 반품처리됨'
+                    : '미납품'}
                 </span>
               </div>
               <div style="font-size:11px;color:var(--muted);margin-top:2px;">${m.reason}</div>
@@ -231,7 +236,7 @@ function confirmSelectedDelivery() {
   let cnt = 0;
   checked.forEach(cb => {
     const o = orders.find(x => x.id === cb.dataset.delId);
-    if (!o || o.deliveryStatus === 'delivered') return;
+    if (!o || ['delivered', 'cancelled', 'returned'].includes(o.deliveryStatus)) return;
     o.deliveryStatus = 'delivered';
     o.deliveredDate  = dateVal;
     o.deliveryNote   = (o.deliveryNote ? o.deliveryNote + ' ' : '') + '[납품사진 자동확인]';

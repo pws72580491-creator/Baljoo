@@ -393,7 +393,7 @@ function exportMonthCSV(ym) {
 
   scopeOrders.forEach(o => {
     const date    = o.deliveredDate || o.date || '';
-    const cat     = o.category === 'cruise' ? '크루즈' : '카고';
+    const cat     = o.category === 'cruise' ? '크루즈' : o.category === 'cargo' ? '카고' : o.category === 'return' ? '반품' : '직접입력';
     const status  = o.deliveryStatus === 'delivered' ? '납품완료'
                   : o.deliveryStatus === 'returned'  ? '반품'
                   : o.deliveryStatus === 'cancelled' ? '발주취소' : '미납품';

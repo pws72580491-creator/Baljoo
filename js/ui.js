@@ -349,7 +349,7 @@ function renderStats() {
       const mNet    = mDelAmt - mRetAmt;
       const mBoxes  = mDel.reduce((s,o) => s + calcOrderBoxes(o), 0);
       const mCruise = mOrders.filter(o => o.category === 'cruise');
-      const mCargo  = mOrders.filter(o => o.category !== 'cruise');
+      const mCargo  = mOrders.filter(o => o.category === 'cargo' || !o.category);
       const mCruiseNet = mCruise.reduce((s,o) => s + calcNetDelivery(o), 0);
       const mCargoNet  = mCargo.reduce((s,o) => s + calcNetDelivery(o), 0);
       return { m, y, mo, net: mNet, boxes: mBoxes, cnt: mDel.length,
@@ -454,7 +454,7 @@ function renderStats() {
   // ── 크루즈 / 카고 구분 집계 (발주취소 제외) ──
   const doneOrders = delivered;
   const cruiseOrders = doneOrders.filter(o => o.category === 'cruise');
-  const cargoOrders  = doneOrders.filter(o => o.category !== 'cruise');
+  const cargoOrders  = doneOrders.filter(o => o.category === 'cargo' || !o.category);
   const cruiseAmt = cruiseOrders.reduce((s,o) => s + calcNetDelivery(o), 0);
   const cargoAmt  = cargoOrders.reduce((s,o) => s + calcNetDelivery(o), 0);
   const cruiseBoxes = cruiseOrders.reduce((s,o) => s + calcOrderBoxes(o), 0);
@@ -669,11 +669,12 @@ function renderDeliveryStatus() {
   `;
 
   // ── 월 필터 적용 ──
-  // 납품완료 + 반품서(isReturn) 포함 → 납품현황에서 반품 차감 표시 (발주취소는 납품이 아니므로 제외)
+  // 납품완료 + 반품(업로드 반품서 isReturn 및 상세모달 수동 반품처리 모두 포함)
+  // → 납품현황에서 반품 차감 표시 (발주취소는 납품이 아니므로 제외)
   // 금액·박스 집계는 보관건 포함, 카드 목록에서만 보관건 제외
   const allDone = orders.filter(o =>
     o.deliveryStatus === 'delivered' ||
-    o.isReturn === true
+    o.deliveryStatus === 'returned'
   );
   const done = _delivMonth === 'all'
     ? allDone
@@ -706,7 +707,9 @@ function renderDeliveryStatus() {
     if (!byDay[d]) byDay[d] = { date: d, orders: [], totalAmt: 0, totalBoxes: 0, eggBoxes: 0, quailRawBoxes: 0, quailBrineBoxes: 0, quailBrinePkts: 0 };
     byDay[d].orders.push(o);
     byDay[d].totalAmt += calcNetDelivery(o);
-    const sign = o.isReturn ? -1 : 1;
+    // 업로드 반품서(isReturn)는 품목 qty가 이미 음수라 그대로 두면 되고,
+    // 상세모달의 수동 반품처리(qty는 원래 양수 그대로)만 부호를 뒤집어야 함
+    const sign = (o.deliveryStatus === 'returned' && !o.isReturn) ? -1 : 1;
     (o.items||[]).forEach(item => {
       const bc = calcItemBoxCount(item);
       const isBrine = _isQuailBrine(item);
@@ -735,7 +738,7 @@ function renderDeliveryStatus() {
     const eggByDateAll = {};
     allDone.forEach(o => {
       const d = o.deliveredDate || o.date || '미상';
-      const sign = o.isReturn ? -1 : 1;
+      const sign = (o.deliveryStatus === 'returned' && !o.isReturn) ? -1 : 1;
       (o.items || []).forEach(item => {
         if (_isQuailBrine(item) || _isQuailEgg(item)) return; // 계란만 집계
         const bc = calcItemBoxCount(item);
@@ -778,11 +781,13 @@ function renderDeliveryStatus() {
   }
 
   // ── 합계 (납품/반품 분리) ──
-  const delivDone  = done.filter(o => !o.isReturn);
-  const returnDone = done.filter(o => !!o.isReturn);
+  const delivDone  = done.filter(o => o.deliveryStatus !== 'returned');
+  const returnDone = done.filter(o => o.deliveryStatus === 'returned');
   const grandAmt   = done.reduce((s, o) => s + calcNetDelivery(o), 0);
+  // 업로드 반품서(isReturn)는 calcOrderBoxes가 이미 음수를 반환하므로 그대로 더하고,
+  // 수동 반품처리(qty가 원래 양수)는 부호를 뒤집어서 더한다 (기존엔 무조건 빼서 반품분이 오히려 두 배로 가산되던 버그)
   const grandBoxes = delivDone.reduce((s, o) => s + calcOrderBoxes(o), 0)
-                   - returnDone.reduce((s, o) => s + calcOrderBoxes(o), 0);
+                   + returnDone.reduce((s, o) => s + (o.isReturn ? calcOrderBoxes(o) : -calcOrderBoxes(o)), 0);
   const returnAmt   = returnDone.reduce((s, o) => s + Math.abs(calcNetDelivery(o)), 0);
   const returnCount = returnDone.length;
 
@@ -831,7 +836,7 @@ function renderDeliveryStatus() {
     <div style="display:flex;gap:0;margin-bottom:14px;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);border:2px solid #fca5a5;">
       <div style="flex:1;background:#fff0f0;color:#dc2626;padding:10px 16px;text-align:center;">
         <div style="font-size:14px;font-weight:800;">↩️ 반품 ${returnCount}건</div>
-        <div style="font-size:11px;opacity:.7;margin-top:2px;">반품서 포함</div>
+        <div style="font-size:11px;opacity:.7;margin-top:2px;">반품서·수동반품 포함</div>
       </div>
       <div style="flex:1;background:#fff0f0;color:#dc2626;padding:10px 16px;text-align:center;">
         <div style="font-size:14px;font-weight:800;">-${fmt(returnAmt)}</div>
@@ -940,9 +945,11 @@ function renderDeliveryStatus() {
           <tbody>
             ${day.orders.filter(o => !o.archived).map(o => {
               const isReturnDoc = !!o.isReturn;
-              const rowBg  = isReturnDoc ? '#fff0f0' : '#fff';
-              const rowBdl = isReturnDoc ? 'border-left:3px solid #dc2626;' : '';
-              const amtCol = isReturnDoc ? '#dc2626' : 'var(--success)';
+              const isManualReturn = o.deliveryStatus === 'returned' && !o.isReturn;
+              const isAnyReturn = isReturnDoc || isManualReturn;
+              const rowBg  = isAnyReturn ? '#fff0f0' : '#fff';
+              const rowBdl = isAnyReturn ? 'border-left:3px solid #dc2626;' : '';
+              const amtCol = isAnyReturn ? '#dc2626' : 'var(--success)';
               return `
             <tr style="border-top:1px solid var(--border);cursor:pointer;background:${rowBg};${rowBdl}"
                 onclick="openModal('${o.id}')">
@@ -954,22 +961,22 @@ function renderDeliveryStatus() {
                   const boxStr = formatItemBoxStr(item);
                   const rawDesc = item.desc || '';
                   const desc = escapeHtml(rawDesc.length > 18 ? rawDesc.slice(0,18)+'…' : rawDesc);
-                  const qtyCol = (item.qty||0) < 0 ? 'color:#dc2626;' : '';
+                  const qtyCol = ((item.qty||0) < 0 || isManualReturn) ? 'color:#dc2626;' : '';
                   return `<div style="font-size:10px;color:var(--muted);margin-top:3px;display:flex;gap:4px;align-items:center;">
                     <span style="color:var(--navy);font-weight:600;">${desc}</span>
                     <span style="${qtyCol}">${item.qty}${displayUnit(item.unit)}${boxStr ? ' · '+boxStr : ''}</span>
                   </div>`;
                 }).join('')}
               </td>
-              <td style="padding:10px;text-align:right;font-size:11px;font-weight:700;color:${isReturnDoc?'#dc2626':'#1a3a6e'};white-space:nowrap;vertical-align:top;">
+              <td style="padding:10px;text-align:right;font-size:11px;font-weight:700;color:${isAnyReturn?'#dc2626':'#1a3a6e'};white-space:nowrap;vertical-align:top;">
                 ${(o.items||[]).map(item => {
-                  const bc = calcItemBoxCount(item);
+                  const bc = calcItemBoxCount(item) * (isManualReturn ? -1 : 1);
                   const rawDesc = item.desc || '';
                   const isBrineItem = _isQuailBrine(item);
                   const isRawQItem  = _isQuailEgg(item);
                   const label = isBrineItem ? '깐메추리' : isRawQItem ? '🥚메추리' : '🥚계란';
                   if (_isPktUnit(item.unit)) {
-                    const q = Number(item.qty) || 0;
+                    const q = (Number(item.qty) || 0) * (isManualReturn ? -1 : 1);
                     if (!q) return '';
                     return `<div style="margin-bottom:2px;">🛍️봉지<br><span style="font-size:12px;">${formatPktCount(q)}</span></div>`;
                   }
@@ -1190,7 +1197,9 @@ function renderDashByDate() {
     if (!byDay[d]) byDay[d] = { date: d, orders: [], amt: 0, boxes: 0 };
     byDay[d].orders.push(o);
     byDay[d].amt   += calcNetDelivery(o);
-    byDay[d].boxes += calcOrderBoxes(o);
+    // 업로드 반품서는 qty가 이미 음수라 그대로, 수동 반품처리는 qty가 양수 그대로라 부호를 뒤집어야 함
+    const daySign = (o.deliveryStatus === 'returned' && !o.isReturn) ? -1 : 1;
+    byDay[d].boxes += daySign * calcOrderBoxes(o);
   });
 
   const dayList = Object.values(byDay).sort((a, b) => b.date.localeCompare(a.date));
@@ -1216,12 +1225,14 @@ function renderDashByDate() {
         ${day.orders.filter(o => !o.archived).map(o => {
           const isReturnDoc = !!o.isReturn;
           const isReturn    = o.deliveryStatus === 'returned';
+          const isManualReturn = isReturn && !isReturnDoc;
           // 반품서(업로드) → 빨간 배경+테두리 / 수동반품 → 연분홍 / 납품완료 → 연초록
           const statusColor = isReturnDoc ? '#fff0f0' : isReturn ? '#fef2f2' : '#f0fdf4';
           const borderLeft  = isReturnDoc ? '3px solid #dc2626' : 'none';
           const statusText  = isReturnDoc ? '↩️ 반품서' : isReturn ? '반품' : '납품완료';
           const statusCol   = isReturn ? '#dc2626' : '#16a34a';
           const amtCol      = isReturnDoc ? '#dc2626' : statusCol;
+          const rowBoxes    = calcOrderBoxes(o) * (isManualReturn ? -1 : 1);
           return `
           <div style="padding:10px 14px;border-top:1px solid var(--border);background:${statusColor};border-left:${borderLeft};cursor:pointer;"
                onclick="openModal('${o.id}')">
@@ -1230,7 +1241,7 @@ function renderDashByDate() {
                 <div style="font-size:13px;font-weight:700;color:var(--navy);">${escapeHtml(o.ship)}</div>
                 <div style="font-size:10px;color:var(--muted);margin-top:2px;">${escapeHtml(o.docNo)}</div>
                 ${(o.items||[]).map(i => {
-                  const qtyCol = (i.qty||0) < 0 ? 'color:#dc2626;' : '';
+                  const qtyCol = ((i.qty||0) < 0 || isManualReturn) ? 'color:#dc2626;' : '';
                   const boxStr = formatItemBoxStr(i);
                   return `<div style="font-size:11px;color:#555;margin-top:3px;${qtyCol}">${escapeHtml((i.desc||'').slice(0,22))} · ${i.qty}${displayUnit(i.unit)}${boxStr ? ' · '+boxStr : ''}</div>`;
                 }).join('')}
@@ -1238,7 +1249,7 @@ function renderDashByDate() {
               <div style="text-align:right;flex-shrink:0;margin-left:8px;">
                 <div style="font-size:13px;font-weight:700;color:${amtCol};">${fmt(calcNetDelivery(o))}</div>
                 <div style="font-size:10px;color:${amtCol};margin-top:3px;font-weight:600;">${statusText}</div>
-                <div style="font-size:10px;color:var(--muted);margin-top:2px;">${formatBoxCount(calcOrderBoxes(o))}</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:2px;">${formatBoxCount(rowBoxes)}</div>
               </div>
             </div>
           </div>`;

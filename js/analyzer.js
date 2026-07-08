@@ -348,7 +348,16 @@ function saveAll() {
       const idx = orders.findIndex(x => !x.isReturn && (x.docNo || '').trim() === docNo);
       if (idx !== -1) {
         const prev = orders[idx];
-        orders[idx] = { ...newOrder, deliveryStatus: prev.deliveryStatus, deliveryNote: prev.deliveryNote, returnAmount: prev.returnAmount, partialAmount: prev.partialAmount, updatedAt: Date.now() };
+        orders[idx] = {
+          ...newOrder,
+          deliveryStatus: prev.deliveryStatus,
+          deliveryNote:   prev.deliveryNote,
+          returnAmount:   prev.returnAmount,
+          partialAmount:  prev.partialAmount,
+          deliveredDate:  prev.deliveredDate,   // 재분석으로 납품일자가 초기화되는 것 방지
+          archived:       prev.archived,        // 재분석으로 보관 상태가 풀리는 것 방지
+          updatedAt:      Date.now()
+        };
         updated++; return;
       }
     }

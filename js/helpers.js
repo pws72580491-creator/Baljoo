@@ -141,11 +141,13 @@ function formatBoxCount(bc) {
 function formatPktCount(qty) {
   const q = Number(qty) || 0;
   if (q === 0) return '0봉지';
-  const boxes = Math.floor(q / 10);
-  const pkts  = q % 10;
-  if (boxes > 0 && pkts > 0) return `${boxes}박스 ${pkts}봉지`;
-  if (boxes > 0)              return `${boxes}박스`;
-  return `${pkts}봉지`;
+  const sign  = q < 0 ? '-' : '';
+  const abs   = Math.abs(q);
+  const boxes = Math.floor(abs / 10);
+  const pkts  = abs % 10;
+  if (boxes > 0 && pkts > 0) return `${sign}${boxes}박스 ${pkts}봉지`;
+  if (boxes > 0)              return `${sign}${boxes}박스`;
+  return `${sign}${pkts}봉지`;
 }
 
 // 품목의 단위가 pkt 계열인지 판별
