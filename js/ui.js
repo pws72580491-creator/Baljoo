@@ -367,19 +367,22 @@ function renderStats() {
           <span style="font-size:10px;color:var(--muted);font-weight:400;">${availableMonths.length}개월</span>
         </div>
         <div style="background:#fff;border-radius:10px;border:1px solid var(--border);padding:16px 12px 8px;">
-          <div style="display:flex;align-items:flex-end;gap:6px;height:90px;">
+          <div style="display:flex;align-items:stretch;gap:6px;height:130px;">
             ${[...monthData].reverse().map(d => {
               const pct = Math.max((d.net / maxNet) * 100, 2);
               const isThis = d.m === thisYM;
+              const manwon = Math.round(d.net / 10000).toLocaleString();
               return `
-                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;"
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;height:100%;"
                      onclick="selectStatMonth('${d.m}')">
-                  <div style="font-size:9px;color:var(--muted);writing-mode:initial;">
-                    ${fmt(d.net).replace('₩','').replace(',000','.0K').replace(/(\d{1,3}),(\d{3})$/,'$1.$2K')}
+                  <div style="font-size:9px;color:var(--muted);white-space:nowrap;">
+                    ${manwon}만
                   </div>
-                  <div style="width:100%;background:${isThis ? 'var(--accent)' : 'var(--accent-light)'};
-                              border-radius:4px 4px 0 0;height:${pct}%;min-height:4px;opacity:${isThis?1:0.7};
-                              transition:opacity .15s;" title="${d.m} · ${fmt(d.net)}"></div>
+                  <div style="flex:1;width:100%;display:flex;align-items:flex-end;">
+                    <div style="width:100%;background:${isThis ? 'var(--accent)' : 'var(--accent-light)'};
+                                border-radius:4px 4px 0 0;height:${pct}%;min-height:4px;opacity:${isThis?1:0.7};
+                                transition:opacity .15s;" title="${d.m} · ${fmt(d.net)}"></div>
+                  </div>
                   <div style="font-size:9px;color:${isThis?'var(--navy)':'var(--muted)'};font-weight:${isThis?700:400};">
                     ${Number(d.mo)}월
                   </div>
