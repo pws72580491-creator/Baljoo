@@ -40,9 +40,12 @@ function normalizeOrders(arr) {
     if (!o.deliveryStatus)           o.deliveryStatus = 'pending';
     if (o.returnAmount === undefined) o.returnAmount   = 0;
     if (!o.deliveryNote)             o.deliveryNote    = '';
-    if (o.category === 'return')     o.deliveryStatus  = 'returned';
-    // isReturn=true인 반품서는 항상 deliveryStatus='returned' 보장
-    if (o.isReturn === true && o.deliveryStatus !== 'returned') o.deliveryStatus = 'returned';
+    // category='return'인데 상태가 아직 미처리(pending)인 구버전 데이터만 'returned'로 보정
+    // (이미 사용자가 발주취소 등으로 명시적으로 바꾼 상태는 덮어쓰지 않음)
+    if (o.category === 'return' && (!o.deliveryStatus || o.deliveryStatus === 'pending')) o.deliveryStatus = 'returned';
+    // isReturn=true인 반품서도 최초 로드 시(미처리 상태)에만 deliveryStatus='returned' 보장
+    // (사용자가 발주취소 등으로 명시적으로 바꾼 상태는 덮어쓰지 않음)
+    if (o.isReturn === true && (!o.deliveryStatus || o.deliveryStatus === 'pending')) o.deliveryStatus = 'returned';
     // 구버전 "부분납품(partial)" 개념 폐지 → "발주취소(cancelled)"로 마이그레이션
     if (o.deliveryStatus === 'partial') {
       o.deliveryStatus = 'cancelled';

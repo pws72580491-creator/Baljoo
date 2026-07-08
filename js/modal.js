@@ -499,7 +499,18 @@ function saveEditOrder() {
   });
 
   // 합계 재계산
+  const oldTotal = o.total;
   o.total = o.items.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+
+  // 반품 건은 반품금액(returnAmount)도 함께 동기화
+  if (o.isReturn) {
+    // 업로드된 반품서: 반품금액은 항상 |총액|과 일치
+    o.returnAmount = Math.abs(o.total);
+  } else if (o.deliveryStatus === 'returned' && o.returnAmount === oldTotal) {
+    // 수동 반품(전액 반품, 커스텀 금액을 입력하지 않은 경우)만 총액을 따라감
+    // (반품 처리 시 일부 금액만 따로 입력해둔 경우는 그대로 유지)
+    o.returnAmount = o.total;
+  }
 
   save();
   renderAll();
