@@ -2,10 +2,18 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.2.92
-  Released: 2026-07-07
+  Version : v3.2.93
+  Released: 2026-07-08
   ────────────────────────────────────────
   CHANGELOG
+  v3.2.93 (2026-07-08)
+    - [CHG] "부분납품" 기능 폐지 → "발주취소"로 전환
+            📋 부분납품 버튼 → 🚫 발주취소 버튼으로 교체 (금액 입력 프롬프트 제거)
+            발주취소 처리 시 사유(선택) 입력 가능, 터치 한 번으로 취소↔미납품 토글
+            발주취소 건은 상단 총 건수/합계, 대시보드, 통계, 납품현황, 엑셀/CSV
+            내보내기 등 모든 금액·박스 집계에서 완전히 제외됨
+            구버전에 저장된 "부분납품" 데이터는 앱 구동 시 자동으로
+            "발주취소"로 마이그레이션 처리 (금액은 0으로 초기화)
   v3.2.92 (2026-07-07)
     - [CHG] 납품현황 — 계란 "목표"를 "입고"로 변경
             🎯 버튼에서 입력한 계란 수량 = 오늘 입고량
@@ -88,7 +96,7 @@
   --border:#dde3ef;--text:#1a2540;--muted:#6b7a99;
   --danger:#ef4444;--success:#22c55e;
   --warn:#f59e0b;
-  --delivered:#0ea5e9;--returned:#ef4444;--pending:#6b7a99;
+  --delivered:#0ea5e9;--returned:#ef4444;--pending:#6b7a99;--cancelled:#7c3aed;
   --r:12px;--sh:0 2px 12px rgba(15,31,61,.08);
   --nav-h:56px;--top-h:56px;
 }
@@ -213,7 +221,7 @@ body{
 }
 .order-card.status-delivered::before{background:var(--delivered);}
 .order-card.status-returned::before{background:var(--returned);}
-.order-card.status-partial::before{background:var(--warn);}
+.order-card.status-cancelled::before{background:var(--cancelled);}
 .order-card.is-return-doc{background:#fff5f5;border-color:#fca5a5;}
 .order-card.is-return-doc::before{background:#dc2626;width:4px;}
 .order-card:active{box-shadow:0 4px 20px rgba(41,121,212,.12);}
@@ -256,7 +264,7 @@ body{
 .b-manual{background:#f3e8ff;color:#7c3aed;}
 .b-delivered{background:#e0f7ff;color:#0369a1;}
 .b-returned{background:#fee2e2;color:#b91c1c;}
-.b-partial{background:#fef3c7;color:#92400e;}
+.b-cancelled{background:#ede9fe;color:#6d28d9;text-decoration:line-through;}
 .b-pending{background:#f1f5f9;color:#64748b;}
 
 /* ── SECTION HEADER ── */
@@ -383,6 +391,8 @@ body{
 .btn-success:active{background:var(--success);color:#fff;}
 .btn-warn{background:#fef3c7;color:#92400e;}
 .btn-warn:active{background:var(--warn);color:#fff;}
+.btn-cancel{background:#ede9fe;color:#6d28d9;}
+.btn-cancel:active{background:var(--cancelled);color:#fff;}
 .btn-sm{padding:6px 12px;font-size:12px;border-radius:7px;}
 
 /* ── MODAL ── */
@@ -524,7 +534,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.92</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.93</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
