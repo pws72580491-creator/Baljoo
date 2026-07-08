@@ -7,19 +7,27 @@
   ────────────────────────────────────────
   CHANGELOG
   v3.2.95 (2026-07-09)
-    - [FIX] 전체 코드 점검 후 다수 버그 수정
+    - [FIX] 전체 코드 감사 후 버그 다수 수정
       · 동작하지 않던 대시보드 "반품 진단/반품 수정" 버튼 제거(연결된 함수 없음)
       · 사용되지 않는 "직접입력" 죽은 코드(js/manual.js) 완전 제거
       · AI 납품사진 매칭에서 발주취소·반품 건이 "미납품"으로 잘못 표시되고
         실수로 납품완료 처리될 수 있던 문제 수정
       · 발주서 재분석(같은 서류번호 재업로드) 시 납품일자가 지워지고
         보관 상태가 풀리던 문제 수정
+      · 반품(카테고리/업로드 반품서) 건의 상태를 발주취소 등으로 바꿔도
+        앱 재시작 시 자동으로 "반품"으로 되돌아가던 문제 수정
+        → 최초 1회(미처리 상태)에만 자동 보정하도록 수정
       · 발주 수정 모달의 "구분" 선택지 부족으로 반품/직접입력 카테고리가
         저장 시 "크루즈"로 조용히 바뀌던 문제 수정
+      · 반품 건 품목 금액을 수정해도 반품금액 집계가 예전 값 그대로
+        남아있던 문제 수정 → 품목 수정 시 반품금액도 함께 동기화
       · 상세모달의 수동 "반품 처리" 건이 납품현황·재고이월 계산에서
         누락되거나, 날짜별 박스 집계 부호가 반대로 적용되던 문제 수정
       · 월별 CSV/통계 탭에서 반품·직접입력 구분이 "카고"로 잘못
         표시되던 문제 수정
+      · 봉지(pkt) 단위 반품 수량이 "-5봉지"처럼 잘못 표시되던 문제 수정
+      · 발주목록에서 발주취소 건만 걸러볼 방법이 없던 문제
+        → "🚫취소" 필터 칩 추가
   v3.2.94 (2026-07-08)
     - [FIX] 통계 탭 "월별 실납품 추이" 막대그래프가 실제로는 높이 차이 없이
             거의 납작하게(선처럼) 표시되던 CSS 버그 수정
@@ -326,6 +334,7 @@ body{
 .chip.active{background:var(--accent);border-color:var(--accent);color:#fff;}
 .chip.c-delivered.active{background:var(--delivered);border-color:var(--delivered);}
 .chip.c-returned.active{background:var(--returned);border-color:var(--returned);}
+.chip.c-cancelled.active{background:var(--cancelled);border-color:var(--cancelled);}
 
 /* 균등분할 칩 행: 보관함 등 텍스트가 잘리지 않도록 각 칩이 동일한 너비를 가짐 */
 .chips-equal{overflow-x:visible;}
@@ -697,6 +706,7 @@ body{
         <button class="chip c-delivered" onclick="filterStatus('delivered',this)">납품완료</button>
         <button class="chip c-returned" onclick="filterStatus('returned',this)">반품</button>
         <button class="chip" onclick="filterStatus('pending',this)">미납품</button>
+        <button class="chip c-cancelled" onclick="filterStatus('cancelled',this)">🚫취소</button>
         <button class="chip c-archived" onclick="filterStatus('archived',this)">📦 보관함</button>
       </div>
       <div id="orders-list"></div>
