@@ -133,6 +133,7 @@ unit 선택 기준(중요):
       parsed.id             = 'RET-' + (parsed.docNo || Date.now()) + '-' + Date.now();
       parsed.isReturn       = true;
       parsed.deliveryStatus = 'returned';
+      parsed._retMig        = true;  // 생성 시점에 이미 올바른 상태이므로 이후 자동 보정 대상에서 제외
       // total/amount 음수 보정 (AI가 양수로 반환한 경우 강제 음수화)
       if ((parsed.total || 0) > 0) parsed.total = -Math.abs(parsed.total);
       (parsed.items || []).forEach(i => {
