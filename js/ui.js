@@ -301,6 +301,39 @@ function selectStatMonth(m) {
   renderStats();
 }
 
+// ── 선명별 납품 주기 계산 (전체 orders 기준, 발주취소 제외) ──
+// 반환: { [선명]: { count, avgDays, lastDate } }
+//   count    : 서로 다른 납품일 수
+//   avgDays  : 납품일 간 평균 간격(일) — 납품일이 2개 미만이면 null
+//   lastDate : 가장 최근 납품일
+function _computeShipCycles() {
+  const byShipDates = {};
+  orders.forEach(o => {
+    if (o.deliveryStatus !== 'delivered') return;
+    const d = o.deliveredDate || o.date;
+    if (!d || d === '미상') return;
+    if (!byShipDates[o.ship]) byShipDates[o.ship] = new Set();
+    byShipDates[o.ship].add(d);
+  });
+  const result = {};
+  Object.entries(byShipDates).forEach(([ship, dateSet]) => {
+    const dates = Array.from(dateSet).sort();
+    if (dates.length < 2) {
+      result[ship] = { count: dates.length, avgDays: null, lastDate: dates[dates.length - 1] || null };
+      return;
+    }
+    const diffs = [];
+    for (let i = 1; i < dates.length; i++) {
+      const d1 = new Date(dates[i - 1] + 'T00:00:00');
+      const d2 = new Date(dates[i]     + 'T00:00:00');
+      diffs.push(Math.round((d2 - d1) / 86400000));
+    }
+    const avgDays = Math.round(diffs.reduce((a, b) => a + b, 0) / diffs.length);
+    result[ship] = { count: dates.length, avgDays, lastDate: dates[dates.length - 1] };
+  });
+  return result;
+}
+
 // ── 납품 통계 탭 렌더 ──
 function renderStats() {
   // ── 월 선택 칩 생성 ──
@@ -442,7 +475,6 @@ function renderStats() {
   const delivered = scopeOrders.filter(o => o.deliveryStatus === 'delivered');
   const returned  = scopeOrders.filter(o => o.deliveryStatus === 'returned');
   const cancelled = scopeOrders.filter(o => o.deliveryStatus === 'cancelled'); // 집계 제외, 건수만 참고
-  const pending   = scopeOrders.filter(o => !o.deliveryStatus || o.deliveryStatus === 'pending');
 
   const deliveredAmt = delivered.reduce((s, o) => s + (o.total || 0), 0);
   const returnedAmt  = returned.reduce((s, o) => s + (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount || Math.abs(o.total) || 0)), 0);
@@ -474,21 +506,10 @@ function renderStats() {
       </div>
     </div>` : '';
 
-  // ── 일별 납품 집계 (발주취소 제외) ──
-  const byDay = {};
-  [...delivered, ...returned].forEach(o => {
-    const d = o.deliveredDate || o.date || '미상';
-    if (!byDay[d]) byDay[d] = { date: d, cnt: 0, amt: 0, boxes: 0, orders: [] };
-    byDay[d].cnt++;
-    byDay[d].amt   += calcNetDelivery(o);
-    byDay[d].boxes += calcOrderBoxes(o);
-    byDay[d].orders.push(o);
-  });
-  const dayList = Object.values(byDay).sort((a, b) => b.date.localeCompare(a.date));
-
-  // ── 선명별 집계 (발주취소 제외) ──
+  // ── 선명별 집계 (납품완료·반품 건만 — 미납품/발주취소 제외, 선택된 월 기준) ──
+  // 미납품 건은 실제 납품이 이뤄진 시점(deliveredDate)에 자동으로 통계에 반영됨
   const byShip = {};
-  scopeOrders.filter(o => o.deliveryStatus !== 'cancelled').forEach(o => {
+  scopeOrders.filter(o => o.deliveryStatus === 'delivered' || o.deliveryStatus === 'returned').forEach(o => {
     if (!byShip[o.ship]) byShip[o.ship] = { ship: o.ship, cnt: 0, total: 0, net: 0, returned: 0, boxes: 0 };
     byShip[o.ship].cnt++;
     byShip[o.ship].total   += (o.total || 0);
@@ -498,6 +519,10 @@ function renderStats() {
       byShip[o.ship].returned += (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount || Math.abs(o.total) || 0));
   });
   const ships = Object.values(byShip).sort((a, b) => b.net - a.net);
+
+  // ── 선명별 납품 주기 (전체 기간 기준 — 월 필터와 무관하게 장기 패턴 산출) ──
+  const shipCycles = _computeShipCycles();
+  const maxShipNet = Math.max(...ships.map(s => s.net), 1);
 
   document.getElementById('stats-content').innerHTML = `
 
@@ -543,59 +568,43 @@ function renderStats() {
     <!-- 크루즈 / 카고 구분 -->
     ${categoryHtml}
 
-    <!-- 일별 납품 정리 -->
-    ${dayList.length ? `
+    <!-- 선명별 매출 · 납품 주기 -->
+    ${ships.length ? `
     <div class="sdiv" style="display:flex;align-items:center;justify-content:space-between;">
-      <span>일별 납품 현황</span>
-      <span style="font-size:10px;color:var(--muted);font-weight:400;">${dayList.length}일</span>
+      <span>선명별 매출 · 납품 주기</span>
+      <span style="font-size:10px;color:var(--muted);font-weight:400;">${ships.length}척</span>
     </div>
-    ${dayList.map(day => `
-      <div class="form-card" style="padding:0;overflow:hidden;margin-bottom:10px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;
-                    padding:10px 14px;background:var(--bg);border-bottom:1px solid var(--border);cursor:pointer;"
-             onclick="this.nextElementSibling.classList.toggle('collapsed')">
-          <div>
-            <span style="font-size:13px;font-weight:700;color:var(--navy);">📅 ${fmtDate(day.date)}</span>
-            <span style="font-size:11px;color:var(--muted);margin-left:8px;">${day.cnt}건 · ${formatBoxCount(day.boxes)}</span>
-          </div>
-          <span style="font-size:13px;font-weight:700;color:var(--success);">${fmt(day.amt)}</span>
-        </div>
-        <div class="day-orders">
-          ${day.orders.map(o => `
-            <div onclick="openModal('${o.id}')"
-                 style="display:flex;align-items:center;justify-content:space-between;
-                        padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;
-                        background:${o.isReturn ? '#fff0f0' : '#fff'};
-                        border-left:${o.isReturn ? '3px solid #dc2626' : 'none'};">
-              <div style="flex:1;min-width:0;">
-                <div style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(o.ship)}</div>
-                <div style="font-size:11px;color:var(--muted);margin-top:2px;">${escapeHtml(o.docNo)||'-'} ${o.items?.[0]?.desc?'· '+escapeHtml(o.items[0].desc):''}</div>
-              </div>
-              <div style="text-align:right;flex-shrink:0;margin-left:8px;">
-                <div style="font-size:13px;font-weight:700;color:${o.isReturn ? '#dc2626' : 'inherit'};">${fmt(calcNetDelivery(o))}</div>
-                <div style="font-size:10px;margin-top:2px;">${o.isReturn ? '<span class="badge b-returned">↩️ 반품서</span>' : statusBadge(o.deliveryStatus)}</div>
-              </div>
+    ${ships.map((s, idx) => {
+      const cyc = shipCycles[s.ship] || {};
+      const pct = Math.max((s.net / maxShipNet) * 100, 3);
+      const rankIcon = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '';
+      const cycleText = cyc.avgDays
+        ? `🔄 평균 ${cyc.avgDays}일 주기`
+        : (cyc.count === 1 ? '🔄 납품 1회 · 주기 산출 불가' : '🔄 주기 데이터 없음');
+      const lastText = cyc.lastDate ? `최근 ${fmtDate(cyc.lastDate)}` : '';
+      return `
+      <div class="form-card" style="padding:12px 14px;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-weight:700;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+              ${rankIcon ? rankIcon + ' ' : ''}${escapeHtml(s.ship)}
             </div>
-          `).join('')}
-          <div style="display:flex;justify-content:space-between;padding:8px 14px;
-                      background:var(--bg);font-size:12px;color:var(--muted);">
-            <span>${day.cnt}건 · ${formatBoxCount(day.boxes)}</span>
-            <span style="font-weight:700;color:var(--navy);">합계 ${fmt(day.amt)}</span>
+            <div style="font-size:11px;color:var(--muted);margin-top:3px;">${s.cnt}건 · ${formatBoxCount(s.boxes)}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <div style="font-size:14px;font-weight:800;color:var(--success);">${fmt(s.net)}</div>
+            ${s.returned ? `<div style="font-size:10px;color:var(--danger);margin-top:2px;">반품 -${fmt(s.returned)}</div>` : ''}
           </div>
         </div>
-      </div>
-    `).join('')}` : ''}
-
-    <!-- 미납품 목록 -->
-    ${pending.length ? `
-    <div class="sdiv">미납품 발주 (${pending.length}건)</div>
-    ${pending.sort((a, b) => a.date.localeCompare(b.date)).map(o => `
-      <div class="order-card" onclick="openModal('${o.id}')">
-        <div class="oc-top"><div class="oc-ship">${escapeHtml(o.ship)}</div><div class="oc-amount">${fmt(o.total)}</div></div>
-        <div class="oc-meta"><span class="oc-doc">${escapeHtml(o.docNo)}</span>${badge(o.category)}${statusBadge('pending')}</div>
-        <div class="oc-bottom"><div class="oc-item">${escapeHtml(o.date)}</div></div>
-      </div>
-    `).join('')}` : ''}
+        <div style="margin-top:8px;background:var(--bg);border-radius:4px;height:5px;overflow:hidden;">
+          <div style="width:${pct}%;height:100%;background:var(--accent);border-radius:4px;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:var(--muted);">
+          <span>${cycleText}</span>
+          <span>${lastText}</span>
+        </div>
+      </div>`;
+    }).join('')}` : ''}
 
     <!-- 반품 내역 -->
     ${returned.length ? `
