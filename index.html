@@ -2,10 +2,25 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.3.1
+  Version : v3.3.2
   Released: 2026-07-14
   ────────────────────────────────────────
   CHANGELOG
+  v3.3.2 (2026-07-14)
+    - [FIX] 업로드 미리보기 "⚠️ 선명 누락" 카드에서 "저장 전 선명을 직접
+      확인하거나 수정 후 저장하세요"라고 안내했지만 실제로는 수정할 입력창이
+      없어 고칠 방법이 없던 문제 수정
+      · 선명 표시 영역을 입력창으로 변경 — 선명을 바로 입력/수정한 뒤
+        전체 저장 가능 (updatePendingShip)
+      · 선명을 입력해 "선명 누락" 상태가 해소돼도 상단 상태 메시지가
+        이전 경고 문구 그대로 남아있던 문제도 함께 수정
+    - [CLEANUP] 미사용 함수 제거
+      · maybeResetDeliveryResult (delivery.js) — 호출부 없음
+      · toB64 (analyzer.js) — 호출부 없음
+      · saveGeminiKey/loadGeminiKey/resetGeminiKey/toggleGeminiKeyVisibility/
+        loadApiKey (gemini.js) — 구버전 호환용으로 남아있었으나 호출부 없음
+    - [CLEANUP] 앱 초기화(init) 시 migrateOldKey()·loadGeminiKeys()가
+      loadApiKey() 경유로 중복 호출되던 부분 정리 (동작 변화 없음)
   v3.3.1 (2026-07-14)
     - [NEW] 납품현황 탭 날짜별 선명 목록, 대시보드 날짜별 기록 목록을
       기본적으로 선명(알파벳) 오름차순으로 정렬
@@ -613,7 +628,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.3.1</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.3.2</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
