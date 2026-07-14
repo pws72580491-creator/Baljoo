@@ -250,12 +250,6 @@ function confirmSelectedDelivery() {
   }
 }
 
-// 매칭된 항목이 모두 처리되면 자동으로 업로드 준비 상태로 초기화
-function maybeResetDeliveryResult() {
-  const remaining = document.querySelectorAll('#del-result-section .btn-success:not([disabled])');
-  if (remaining.length === 0) resetDeliveryZone();
-}
-
 // 납품 매칭 영역을 다음 사진 업로드를 위한 초기 상태로 리셋
 function resetDeliveryZone() {
   setTimeout(() => {

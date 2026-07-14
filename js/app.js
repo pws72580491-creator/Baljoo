@@ -181,7 +181,6 @@ function init() {
   loadGeminiKeys();
   goTo(0, false);
   renderAll();
-  loadApiKey();
   document.getElementById('tabInk').style.left = '0%';
 
   // ── 더블탭/더블클릭 → 텍스트·비밀번호 input 전체선택 ──

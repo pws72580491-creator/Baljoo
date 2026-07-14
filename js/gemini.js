@@ -202,9 +202,4 @@ function migrateOldKey() {
   }
 }
 
-// 구버전 호환
-function loadApiKey() { migrateOldKey(); loadGeminiKeys(); }
-function saveGeminiKey() { saveGeminiKeys(); }
-function loadGeminiKey() { migrateOldKey(); loadGeminiKeys(); }
-function resetGeminiKey() { resetGeminiKeys(); }
-function toggleGeminiKeyVisibility() { toggleKeyVis(1); }
+

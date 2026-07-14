@@ -164,15 +164,6 @@ unit 선택 기준(중요):
   }
 }
 
-function toB64(file) {
-  return new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload  = () => res(r.result.split(',')[1]);
-    r.onerror = () => rej(new Error('read fail'));
-    r.readAsDataURL(file);
-  });
-}
-
 // ── 이미지 리사이즈 (Canvas 활용, 대용량 이미지 → API 오류 방지) ──
 function resizeImage(file, maxPx, quality) {
   return new Promise((res, rej) => {
@@ -264,14 +255,21 @@ function renderPreview() {
           : '';
 
     const totalStyle = isReturnDoc ? 'color:#dc2626;font-weight:700;' : '';
-    const shipDisplay = shipMissing
-      ? `<span style="color:#f97316;font-style:italic;">선명 미확인</span>`
-      : o.ship;
+    // 선명 입력창 — 선명 누락/오인식 시 이 자리에서 바로 수정 후 전체 저장 가능
+    const shipInputHtml = `<input type="text" class="prev-ship" id="pship-${idx}"
+      value="${escapeHtml(o.ship || '')}" placeholder="선명 입력" enterkeyhint="done"
+      onchange="updatePendingShip(${idx}, this.value)"
+      style="border:${shipMissing ? '1.5px solid #f97316' : '1px solid transparent'};
+             border-radius:6px;padding:2px 6px;margin:-2px -6px;min-width:0;
+             background:${shipMissing ? '#fff7ed' : 'transparent'};
+             color:${shipMissing ? '#f97316' : 'inherit'};
+             font-family:inherit;
+             font-style:${shipMissing ? 'italic' : 'normal'};">`;
 
     return `
     <div class="prev-card" id="pcard-${idx}" style="${cardStyle}">
       <div class="prev-head">
-        <div class="prev-ship">${shipDisplay}</div>
+        ${shipInputHtml}
         <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
           ${badge(o.category)}${statusBadgeHtml}
           <button onclick="removePending(${idx})" style="background:#fee2e2;border:none;border-radius:6px;color:#dc2626;font-size:12px;font-weight:700;padding:3px 8px;cursor:pointer;flex-shrink:0;">✕ 제거</button>
@@ -320,7 +318,18 @@ function renderPreview() {
   if (retCnt > 0)         parts.push(`↩️ 반품서 ${retCnt}건`);
   if (parts.length > 0) {
     setStatus(`📋 ${pendingOrders.length}건 확인 중 — ${parts.join(' · ')}. 확인 후 저장하세요.`);
+  } else {
+    setStatus(`✅ ${pendingOrders.length}건 분석 완료. 확인 후 저장하세요.`);
   }
+}
+
+// 미리보기 카드에서 선명을 직접 입력/수정했을 때 반영 (AI가 선명을 인식 못한 경우 등)
+function updatePendingShip(idx, val) {
+  if (!pendingOrders[idx]) return;
+  const trimmed = String(val || '').trim();
+  pendingOrders[idx].ship = trimmed;
+  pendingOrders[idx]._shipMissing = !trimmed;
+  renderPreview();
 }
 
 function removePending(idx) {
