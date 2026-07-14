@@ -742,57 +742,63 @@ function renderDeliveryStatus() {
 
   const dayList = Object.values(byDay).sort((a, b) => b.date.localeCompare(a.date));
 
-  // ── 계란 재고 이월 계산 (전체 이력 기준, 날짜 오름차순 누적) ──
+  // ── 품목별 재고 이월 계산 (전체 이력 기준, 날짜 오름차순 누적) ──
   // 화면에 보이는 월(_delivMonth)과 무관하게 정확히 이월되도록,
   // 이번 달로 필터링된 done이 아니라 전체 이력(allDone) + 저장된 모든 입고(delivGoal_) 날짜를 합쳐 계산한다.
   // 단, "입고"를 한 번도 입력한 적 없는 과거 날짜까지 소급해서 재고부족으로 잡으면
   // 이번 업데이트 이전 데이터가 전부 마이너스로 보이게 되므로, 최초로 입고를 입력한 날짜부터만 이월을 시작한다.
-  const eggStockByDate = {};
-  {
-    const eggByDateAll = {};
+  // 계란/메추리/깐메추리 모두 같은 방식(입고량)으로 취급하며, 품목별로 추적 시작일을 독립적으로 판정한다.
+  function _stockByDateFor(goalField, itemFilterFn) {
+    const stockByDate = {};
+    const byDateAll = {};
     allDone.forEach(o => {
       const d = o.deliveredDate || o.date || '미상';
       const sign = (o.deliveryStatus === 'returned' && !o.isReturn) ? -1 : 1;
       (o.items || []).forEach(item => {
-        if (_isQuailBrine(item) || _isQuailEgg(item)) return; // 계란만 집계
+        if (!itemFilterFn(item)) return;
         const bc = calcItemBoxCount(item);
-        eggByDateAll[d] = (eggByDateAll[d] || 0) + sign * bc;
+        byDateAll[d] = (byDateAll[d] || 0) + sign * bc;
       });
     });
 
-    // 실제로 "계란 입고" 값을 0보다 크게 입력해 둔 날짜만 수집 (그 시점부터가 "재고 추적 시작일")
-    // 메추리/깐메추리 목표만 입력한 날짜는 계란 추적 시작으로 치지 않는다.
+    // 실제로 해당 품목 "입고" 값을 0보다 크게 입력해 둔 날짜만 수집 (그 시점부터가 "재고 추적 시작일")
+    // 다른 품목만 입력한 날짜는 이 품목의 추적 시작으로 치지 않는다.
     const trackedGoalDates = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
       if (!k || !k.startsWith('delivGoal_')) continue;
       let g = null;
       try { g = JSON.parse(localStorage.getItem(k) || 'null'); } catch(e) {}
-      if (g && Number(g.egg) > 0) trackedGoalDates.push(k.slice('delivGoal_'.length));
+      if (g && Number(g[goalField]) > 0) trackedGoalDates.push(k.slice('delivGoal_'.length));
     }
+    if (!trackedGoalDates.length) return stockByDate;
 
-    if (trackedGoalDates.length) {
-      const firstTrackedDate = trackedGoalDates.sort((a, b) => a.localeCompare(b))[0];
+    const firstTrackedDate = trackedGoalDates.sort((a, b) => a.localeCompare(b))[0];
 
-      const stockDates = new Set(trackedGoalDates);
-      Object.keys(eggByDateAll)
-        .filter(d => d >= firstTrackedDate) // 추적 시작일 이전 납품 실적은 이월 계산에서 제외
-        .forEach(d => stockDates.add(d));
+    const stockDates = new Set(trackedGoalDates);
+    Object.keys(byDateAll)
+      .filter(d => d >= firstTrackedDate) // 추적 시작일 이전 납품 실적은 이월 계산에서 제외
+      .forEach(d => stockDates.add(d));
 
-      const ascDates = [...stockDates].sort((a, b) => a.localeCompare(b));
-      let carry = 0;
-      ascDates.forEach(d => {
-        let g = null;
-        try { g = JSON.parse(localStorage.getItem('delivGoal_' + d) || 'null'); } catch(e) {}
-        const stockIn   = g ? (g.egg || 0) : 0;
-        const opening   = carry;
-        const delivered = eggByDateAll[d] || 0;
-        const closing   = opening + stockIn - delivered;
-        eggStockByDate[d] = { stockIn, opening, delivered, closing };
-        carry = closing;
-      });
-    }
+    const ascDates = [...stockDates].sort((a, b) => a.localeCompare(b));
+    let carry = 0;
+    ascDates.forEach(d => {
+      let g = null;
+      try { g = JSON.parse(localStorage.getItem('delivGoal_' + d) || 'null'); } catch(e) {}
+      const stockIn   = g ? (g[goalField] || 0) : 0;
+      const opening   = carry;
+      const delivered = byDateAll[d] || 0;
+      const closing   = opening + stockIn - delivered;
+      stockByDate[d] = { stockIn, opening, delivered, closing };
+      carry = closing;
+    });
+    return stockByDate;
   }
+
+  const eggStockByDate   = _stockByDateFor('egg',   item => !_isQuailBrine(item) && !_isQuailEgg(item));
+  const quailStockByDate = _stockByDateFor('quail', item => _isQuailEgg(item));
+  const brineStockByDate = _stockByDateFor('brine', item => _isQuailBrine(item) && !_isPktUnit(item.unit));
+
 
   // ── 합계 (납품/반품 분리) ──
   const delivDone  = done.filter(o => o.deliveryStatus !== 'returned');
@@ -862,53 +868,37 @@ function renderDeliveryStatus() {
     ${dayList.map((day, idx) => {
       const dayId = `deliv-day-${idx}`;
 
-      // ── 목표 박스 불러오기 (메추리/깐메추리는 기존 목표/잔여 방식 유지) ──
+      // ── 품목별 입고/재고 불러오기 (계란·메추리·깐메추리 모두 "입고량" 방식) ──
       let goal = null;
       try { goal = JSON.parse(localStorage.getItem('delivGoal_' + day.date) || 'null'); } catch(e) {}
-      // goal = { egg: N, quail: N, brine: N } 또는 null (egg는 "입고" 수량으로 사용)
+      // goal = { egg: N, quail: N, brine: N } 또는 null — 세 품목 모두 "입고" 수량으로 사용
 
-      // 실납품 박스 (품목별)
-      const actualQuail = day.quailRawBoxes  || 0;
-      const actualBrine = day.quailBrineBoxes|| 0;
+      // 품목별: 입고 + 전일 재고 이월 → 오늘 재고
+      const eggStock   = eggStockByDate[day.date]   || { stockIn: 0, opening: 0, delivered: 0, closing: 0 };
+      const quailStock = quailStockByDate[day.date] || { stockIn: 0, opening: 0, delivered: 0, closing: 0 };
+      const brineStock = brineStockByDate[day.date] || { stockIn: 0, opening: 0, delivered: 0, closing: 0 };
 
-      // 메추리/깐메추리 잔여 계산 (기존 방식)
-      const remQuail   = goal ? (goal.quail||0) - actualQuail : null;
-      const remBrine   = goal ? (goal.brine||0) - actualBrine : null;
-      const remQBTotal = goal ? (goal.quail ? remQuail : 0) + (goal.brine ? remBrine : 0) : null;
-      const remQBColor = remQBTotal !== null ? (remQBTotal <= 0 ? '#22c55e' : '#f59e0b') : '#94a3b8';
+      const hasEggFlow   = !!(goal && goal.egg)   || eggStock.opening   !== 0 || eggStock.closing   !== 0;
+      const hasQuailFlow = !!(goal && goal.quail) || quailStock.opening !== 0 || quailStock.closing !== 0;
+      const hasBrineFlow = !!(goal && goal.brine) || brineStock.opening !== 0 || brineStock.closing !== 0;
 
-      // 계란: 입고 + 전일 재고 이월 → 오늘 재고
-      const eggStock   = eggStockByDate[day.date] || { stockIn: 0, opening: 0, delivered: 0, closing: 0 };
-      const hasEggFlow = !!(goal && goal.egg) || eggStock.opening !== 0 || eggStock.closing !== 0;
-      const eggColor   = eggStock.closing < 0 ? '#dc2626' : eggStock.closing === 0 ? '#22c55e' : '#f59e0b';
-
-      // 목표/입고/재고 배지 텍스트
+      // 입고/재고 배지 텍스트 (계란·메추리·깐메추리 동일한 방식으로 표시)
       const goalBadgeHtml = (() => {
         const blocks = [];
-
-        if (hasEggFlow) {
-          const openingText = eggStock.opening ? ` + 전일재고 ${formatBoxCount(eggStock.opening)}` : '';
-          const stockText = eggStock.closing < 0
-            ? `⚠️ 재고부족 ${formatBoxCount(Math.abs(eggStock.closing))}`
-            : `재고 계란 ${formatBoxCount(eggStock.closing)}`;
+        const addStockBlock = (label, stock) => {
+          const color = stock.closing < 0 ? '#dc2626' : stock.closing === 0 ? '#22c55e' : '#f59e0b';
+          const openingText = stock.opening ? ` + 전일재고 ${formatBoxCount(stock.opening)}` : '';
+          const stockText = stock.closing < 0
+            ? `⚠️ 재고부족 ${formatBoxCount(Math.abs(stock.closing))}`
+            : `재고 ${label} ${formatBoxCount(stock.closing)}`;
           blocks.push(`
-          <div style="font-size:10px;opacity:.75;margin-top:2px;">입고 계란 ${formatBoxCount(eggStock.stockIn)}${openingText}</div>
-          <div style="font-size:11px;font-weight:700;color:${eggColor};margin-top:3px;">${stockText}</div>`);
-        }
+          <div style="font-size:10px;opacity:.75;margin-top:${blocks.length ? '6' : '2'}px;">입고 ${label} ${formatBoxCount(stock.stockIn)}${openingText}</div>
+          <div style="font-size:11px;font-weight:700;color:${color};margin-top:3px;">${stockText}</div>`);
+        };
 
-        if (goal && (goal.quail || goal.brine)) {
-          const parts = [];
-          if (goal.quail) parts.push(`메추리 ${goal.quail}박스`);
-          if (goal.brine) parts.push(`깐메추리 ${goal.brine}박스`);
-          const remParts = [];
-          if (goal.quail) remParts.push(`메추리 ${remQuail <= 0 ? '✓' : remQuail + '박스'}`);
-          if (goal.brine) remParts.push(`깐메추리 ${remBrine <= 0 ? '✓' : remBrine + '박스'}`);
-          blocks.push(`
-          <div style="font-size:10px;opacity:.75;margin-top:${hasEggFlow ? '6' : '2'}px;">목표 ${parts.join(' · ')}</div>
-          <div style="font-size:11px;font-weight:700;color:${remQBColor};margin-top:3px;">
-            ${remQBTotal <= 0 ? '✅ 납품완료' : `잔여 ${remParts.join(' · ')}`}
-          </div>`);
-        }
+        if (hasEggFlow)   addStockBlock('계란', eggStock);
+        if (hasQuailFlow) addStockBlock('메추리', quailStock);
+        if (hasBrineFlow) addStockBlock('깐메추리', brineStock);
 
         return blocks.join('');
       })();
@@ -1051,8 +1041,8 @@ function openDelivGoal(dateStr) {
                 box-sizing:border-box;box-shadow:0 -4px 24px rgba(0,0,0,.18);">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
         <div>
-          <div style="font-size:16px;font-weight:800;color:var(--navy);">🎯 입고 · 목표 박스 입력</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:2px;">${dateStr} · 계란은 입고량, 메추리/깐메추리는 목표량</div>
+          <div style="font-size:16px;font-weight:800;color:var(--navy);">🎯 입고 박스 입력</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">${dateStr} · 계란·메추리·깐메추리 모두 입고량으로 재고에 반영됩니다</div>
         </div>
         <button onclick="closeDelivGoal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);padding:4px 8px;">✕</button>
       </div>
@@ -1061,14 +1051,14 @@ function openDelivGoal(dateStr) {
       <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:22px;">
         ${[
           { id:'egg',   label:'🥚 계란(입고)' },
-          { id:'quail', label:'🥚 메추리' },
-          { id:'brine', label:'깐메추리' },
+          { id:'quail', label:'🥚 메추리(입고)' },
+          { id:'brine', label:'깐메추리(입고)' },
         ].map(({id, label}, i, arr) => {
           const isLast = i === arr.length - 1;
           const nextId = isLast ? '' : 'goal-' + arr[i + 1].id;
           return `
         <div style="display:flex;align-items:center;gap:8px;">
-          <div style="width:82px;font-size:12px;font-weight:700;color:var(--navy);flex-shrink:0;">${label}</div>
+          <div style="width:96px;font-size:12px;font-weight:700;color:var(--navy);flex-shrink:0;white-space:nowrap;">${label}</div>
           <button onclick="adjustGoalVal('${id}',-1)"
                   style="width:36px;height:36px;flex-shrink:0;border-radius:50%;border:1px solid var(--border);
                          background:#f8fafc;font-size:20px;cursor:pointer;line-height:1;">−</button>
@@ -1091,7 +1081,7 @@ function openDelivGoal(dateStr) {
         <button onclick="clearDelivGoal('${dateStr}')"
                 style="flex:1;padding:13px;border-radius:12px;border:1px solid #fca5a5;
                        background:#fff;color:#dc2626;font-size:14px;font-weight:700;cursor:pointer;">
-          목표 삭제
+          입고 삭제
         </button>
         <button onclick="saveDelivGoal('${dateStr}')"
                 style="flex:2;padding:13px;border-radius:12px;border:none;
@@ -1145,14 +1135,14 @@ function saveDelivGoal(dateStr) {
   closeDelivGoal();
   // 현재 열려있는 날짜 인덱스 기억 후 재렌더
   _reRenderDelivKeepOpen();
-  toast('🎯 입고/목표가 저장되었습니다.');
+  toast('🎯 입고가 저장되었습니다.');
 }
 
 function clearDelivGoal(dateStr) {
   localStorage.removeItem('delivGoal_' + dateStr);
   closeDelivGoal();
   _reRenderDelivKeepOpen();
-  toast('입고/목표가 삭제되었습니다.');
+  toast('입고가 삭제되었습니다.');
 }
 
 // 현재 열려있는 날짜 인덱스를 보존하며 납품현황 재렌더
