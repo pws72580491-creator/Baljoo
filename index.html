@@ -2,10 +2,15 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.3.0
+  Version : v3.3.1
   Released: 2026-07-14
   ────────────────────────────────────────
   CHANGELOG
+  v3.3.1 (2026-07-14)
+    - [NEW] 납품현황 탭 날짜별 선명 목록, 대시보드 날짜별 기록 목록을
+      기본적으로 선명(알파벳) 오름차순으로 정렬
+      · 기존엔 업로드/발주 순서 그대로 표시되어 특정 날짜에 척수가
+        많으면 원하는 선박을 찾기 번거로웠음
   v3.3.0 (2026-07-14)
     - [FIX] 납품현황 탭 날짜 카드 헤더 레이아웃 깨짐 수정
       · 계란 외에 메추리/깐메추리 품목이 섞인 날(예: 7/10)은 우측 박스
@@ -608,7 +613,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.3.0</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.3.1</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
