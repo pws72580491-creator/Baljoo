@@ -735,6 +735,11 @@ function renderDeliveryStatus() {
     });
   });
 
+  // 각 날짜 내 선명은 기본적으로 알파벳(가나다) 순 정렬
+  Object.values(byDay).forEach(day => {
+    day.orders.sort((a, b) => (a.ship || '').localeCompare(b.ship || ''));
+  });
+
   const dayList = Object.values(byDay).sort((a, b) => b.date.localeCompare(a.date));
 
   // ── 계란 재고 이월 계산 (전체 이력 기준, 날짜 오름차순 누적) ──
@@ -1229,6 +1234,11 @@ function renderDashByDate() {
     // 업로드 반품서는 qty가 이미 음수라 그대로, 수동 반품처리는 qty가 양수 그대로라 부호를 뒤집어야 함
     const daySign = (o.deliveryStatus === 'returned' && !o.isReturn) ? -1 : 1;
     byDay[d].boxes += daySign * calcOrderBoxes(o);
+  });
+
+  // 각 날짜 내 선명은 기본적으로 알파벳(가나다) 순 정렬
+  Object.values(byDay).forEach(day => {
+    day.orders.sort((a, b) => (a.ship || '').localeCompare(b.ship || ''));
   });
 
   const dayList = Object.values(byDay).sort((a, b) => b.date.localeCompare(a.date));
