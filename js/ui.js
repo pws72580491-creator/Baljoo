@@ -911,20 +911,26 @@ function renderDeliveryStatus() {
       return `
       <div style="background:#fff;border-radius:12px;overflow:hidden;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,.07);">
         <!-- 날짜 헤더 (클릭 시 접기/펼치기) -->
-        <div style="display:flex;align-items:center;justify-content:space-between;
-                    padding:11px 14px;background:var(--navy);color:#fff;cursor:pointer;user-select:none;"
+        <div style="padding:11px 14px;background:var(--navy);color:#fff;cursor:pointer;user-select:none;"
              onclick="toggleDelivDay('${dayId}')">
-          <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;">
-            <span id="${dayId}-arrow" style="font-size:11px;opacity:.7;transition:transform .2s;flex-shrink:0;">▼</span>
-            <div style="min-width:0;">
-              <div style="display:flex;align-items:center;gap:6px;">
-                <span style="font-size:13px;font-weight:700;">📅 ${fmtDate(day.date)}</span>
-                <span style="font-size:11px;opacity:.65;">${day.orders.length}척</span>
-              </div>
-              ${goalBadgeHtml}
+          <!-- 상단 행: 날짜·척수(좌, 절대 줄바꿈 없음) / 목표버튼(우, 항상 고정폭) -->
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <div style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;">
+              <span id="${dayId}-arrow" style="font-size:11px;opacity:.7;transition:transform .2s;flex-shrink:0;">▼</span>
+              <span style="font-size:13px;font-weight:700;white-space:nowrap;">📅 ${fmtDate(day.date)}</span>
+              <span style="font-size:11px;opacity:.65;white-space:nowrap;flex-shrink:0;">${day.orders.length}척</span>
             </div>
+            <!-- 목표 입력 버튼 (이벤트 전파 차단) -->
+            <button onclick="event.stopPropagation();openDelivGoal('${day.date}')"
+                    style="background:${goal ? '#f59e0b' : 'rgba(255,255,255,.18)'};color:#fff;border:none;
+                           border-radius:8px;padding:6px 8px;font-size:16px;cursor:pointer;flex-shrink:0;line-height:1;">
+              🎯
+            </button>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+          <!-- 목표/재고 배지 (있을 때만, 자유롭게 줄바꿈되어도 상단 행에 영향 없음) -->
+          ${goalBadgeHtml ? `<div style="margin-left:17px;">${goalBadgeHtml}</div>` : ''}
+          <!-- 금액 + 박스 요약 (우측 정렬, 자유롭게 줄바꿈) -->
+          <div style="display:flex;justify-content:flex-end;margin-top:6px;">
             <div style="text-align:right;">
               <div style="font-size:13px;font-weight:700;">${fmt(day.totalAmt)}</div>
               <div style="font-size:10px;opacity:.8;margin-top:2px;">
@@ -933,12 +939,6 @@ function renderDeliveryStatus() {
                 ${day.quailBrineBoxes || day.quailBrinePkts ? ' · 깐메추리 ' + (day.quailBrineBoxes ? formatBoxCount(day.quailBrineBoxes) : '') + (day.quailBrineBoxes && day.quailBrinePkts ? ' ' : '') + (day.quailBrinePkts ? formatPktCount(day.quailBrinePkts) : '') : ''}
               </div>
             </div>
-            <!-- 목표 입력 버튼 (이벤트 전파 차단) -->
-            <button onclick="event.stopPropagation();openDelivGoal('${day.date}')"
-                    style="background:${goal ? '#f59e0b' : 'rgba(255,255,255,.18)'};color:#fff;border:none;
-                           border-radius:8px;padding:6px 8px;font-size:16px;cursor:pointer;flex-shrink:0;line-height:1;">
-              🎯
-            </button>
           </div>
         </div>
         <!-- 선명별 행 (접기/펼치기 대상) -->
@@ -1058,21 +1058,27 @@ function openDelivGoal(dateStr) {
           { id:'egg',   label:'🥚 계란(입고)' },
           { id:'quail', label:'🥚 메추리' },
           { id:'brine', label:'깐메추리' },
-        ].map(({id, label}) => `
+        ].map(({id, label}, i, arr) => {
+          const isLast = i === arr.length - 1;
+          const nextId = isLast ? '' : 'goal-' + arr[i + 1].id;
+          return `
         <div style="display:flex;align-items:center;gap:8px;">
           <div style="width:82px;font-size:12px;font-weight:700;color:var(--navy);flex-shrink:0;">${label}</div>
           <button onclick="adjustGoalVal('${id}',-1)"
                   style="width:36px;height:36px;flex-shrink:0;border-radius:50%;border:1px solid var(--border);
                          background:#f8fafc;font-size:20px;cursor:pointer;line-height:1;">−</button>
-          <input id="goal-${id}" type="number" min="0"
+          <input id="goal-${id}" type="number" min="0" inputmode="numeric"
+                 enterkeyhint="${isLast ? 'done' : 'next'}"
                  value="${id==='egg'?goal.egg||0:id==='quail'?goal.quail||0:goal.brine||0}"
+                 onkeydown="_goalInputKeydown(event,'${nextId}')"
+                 onfocus="this.select()"
                  style="width:64px;flex-shrink:0;text-align:center;font-size:18px;font-weight:800;
                         border:2px solid var(--border);border-radius:10px;padding:5px 4px;color:var(--navy);">
           <button onclick="adjustGoalVal('${id}',1)"
                   style="width:36px;height:36px;flex-shrink:0;border-radius:50%;border:1px solid var(--border);
                          background:#f8fafc;font-size:20px;cursor:pointer;line-height:1;">+</button>
           <span style="font-size:12px;color:var(--muted);flex-shrink:0;">박스</span>
-        </div>`).join('')}
+        </div>`;}).join('')}
       </div>
 
       <!-- 버튼 -->
@@ -1097,6 +1103,20 @@ function openDelivGoal(dateStr) {
 function closeDelivGoal() {
   const m = document.getElementById('deliv-goal-modal');
   if (m) m.remove();
+}
+
+// 모바일 키보드의 '다음/완료' 버튼(Enter) 처리 — 다음 입력칸으로 포커스 이동,
+// 마지막 칸이면 키보드를 닫는다 (기존엔 아무 반응이 없어 다음 필드로 못 넘어가던 문제)
+function _goalInputKeydown(e, nextId) {
+  if (e.key !== 'Enter' && e.keyCode !== 13) return;
+  e.preventDefault();
+  const nextEl = nextId && document.getElementById(nextId);
+  if (nextEl) {
+    nextEl.focus();
+    nextEl.select();
+  } else {
+    e.target.blur();
+  }
 }
 
 function adjustGoalVal(field, delta) {
