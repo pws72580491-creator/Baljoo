@@ -949,12 +949,12 @@ function renderDeliveryStatus() {
         </div>
         <!-- 선명별 행 (접기/펼치기 대상) -->
         <div id="${dayId}">
-        <table style="width:100%;border-collapse:collapse;">
+        <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
           <thead>
             <tr style="background:#f8fafc;">
               <th style="padding:7px 14px;text-align:left;font-size:10px;color:var(--muted);font-weight:700;letter-spacing:.5px;">선명</th>
-              <th style="padding:7px 10px;text-align:right;font-size:10px;color:var(--muted);font-weight:700;">박스</th>
-              <th style="padding:7px 14px;text-align:right;font-size:10px;color:var(--muted);font-weight:700;">금액</th>
+              <th style="width:76px;padding:7px 8px;text-align:right;font-size:10px;color:var(--muted);font-weight:700;">박스</th>
+              <th style="width:128px;padding:7px 14px;text-align:right;font-size:10px;color:var(--muted);font-weight:700;">금액</th>
             </tr>
           </thead>
           <tbody>
