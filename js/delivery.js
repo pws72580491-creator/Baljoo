@@ -142,7 +142,7 @@ function renderDeliveryResult(result) {
       </span>
       ${matched.length < totalCnt ? `<span style="font-size:11px;color:#b45309;">미매칭 ${totalCnt - matched.length}척</span>` : ''}
     </div>
-    ${result.summary ? `<div style="font-size:12px;color:var(--muted);margin-bottom:10px;padding:8px 10px;background:var(--bg);border-radius:8px;">📋 ${result.summary}</div>` : ''}
+    ${result.summary ? `<div style="font-size:12px;color:var(--muted);margin-bottom:10px;padding:8px 10px;background:var(--bg);border-radius:8px;">📋 ${escapeHtml(result.summary)}</div>` : ''}
 
     ${matchedOrders.length ? `
       <div class="sdiv" style="margin-top:0;">이른아침 매칭된 발주 (${matchedOrders.length}건)</div>
@@ -179,7 +179,7 @@ function renderDeliveryResult(result) {
                     : '미납품'}
                 </span>
               </div>
-              <div style="font-size:11px;color:var(--muted);margin-top:2px;">${m.reason}</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px;">${escapeHtml(m.reason)}</div>
               <div style="font-size:11px;color:var(--muted);margin-top:1px;">${escapeHtml(m.order.docNo||'-')} · ${m.order.date} · ${fmt(m.order.total)}</div>
             </div>
           </div>
@@ -205,7 +205,7 @@ function renderDeliveryResult(result) {
     ${result.skipped_other_vendors ? `<div style="font-size:11px;color:var(--muted);padding:4px 0;">ℹ️ 타 업체 항목은 자동으로 제외되었습니다</div>` : ''}
     ${unmatched.length ? `
       <div class="sdiv">목록 미매칭 항목</div>
-      ${unmatched.map(u => `<div style="font-size:12px;color:var(--muted);padding:4px 0;">• ${u}</div>`).join('')}
+      ${unmatched.map(u => `<div style="font-size:12px;color:var(--muted);padding:4px 0;">• ${escapeHtml(u)}</div>`).join('')}
     ` : ''}
   `;
 }

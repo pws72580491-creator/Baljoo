@@ -3,8 +3,9 @@
 // ══════════════════════════════════════════════════════
 
 // Firebase SDK (ESM → CDN global 방식으로 변경, module 충돌 방지)
-const FB_APP_URL = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-const FB_DB_URL  = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+const FB_APP_URL  = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+const FB_DB_URL   = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+const FB_AUTH_URL = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 
 const firebaseConfig = {
   apiKey:            "AIzaSyBdRMVcJWMoSA2cSbry90YVRYiKwPEg5WU",
@@ -17,48 +18,45 @@ const firebaseConfig = {
   measurementId:     "G-MENVMYT1H2"
 };
 
-let _db = null;
+let _db          = null;
+let _authReady   = null;   // 익명 로그인 완료 Promise
+let _initPromise = null;   // 동시 호출 시 초기화 중복 방지
 
-// Firebase 지연 초기화 (버튼 클릭 시점에 로드)
+// Firebase 지연 초기화 (버튼 클릭/자동동기화 시점에 로드) + 익명 인증
+// 보안규칙을 auth != null로 걸어두려면 모든 read/write 전에 로그인이 끝나 있어야 하므로,
+// db를 반환하기 전에 항상 익명 로그인 완료를 기다린다.
 async function getDb() {
-  if (_db) return _db;
-  const { initializeApp, getApps } = await import(FB_APP_URL);
-  const { getDatabase }              = await import(FB_DB_URL);
-  const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-  _db = getDatabase(app);
+  if (_db) { await _authReady; return _db; }
+  if (!_initPromise) {
+    _initPromise = (async () => {
+      const { initializeApp, getApps }               = await import(FB_APP_URL);
+      const { getDatabase }                            = await import(FB_DB_URL);
+      const { getAuth, signInAnonymously }              = await import(FB_AUTH_URL);
+      const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+      _db = getDatabase(app);
+      const auth = getAuth(app);
+      _authReady = auth.currentUser
+        ? Promise.resolve(auth.currentUser)
+        : signInAnonymously(auth).then(cred => cred.user);
+      await _authReady;
+    })();
+  }
+  await _initPromise;
   return _db;
+}
+
+// 인증 관련 에러(콘솔에서 익명 로그인을 아직 활성화하지 않은 경우)를 사람이 읽을 수 있게 보강
+function _friendlyFbError(e) {
+  const msg = e?.message || String(e);
+  if (/operation-not-allowed|admin-restricted/.test(msg)) {
+    return msg + ' — Firebase 콘솔 → Authentication → Sign-in method에서 "익명" 로그인을 활성화해주세요.';
+  }
+  return msg;
 }
 
 function setFbStatus(msg, color = 'var(--muted)') {
   const el = document.getElementById('fb-status');
   if (el) { el.textContent = msg; el.style.color = color; }
-}
-
-// 복원 데이터 하위 호환 처리 (storage.js load()와 동일한 로직)
-function normalizeOrders(arr) {
-  arr.forEach(o => {
-    if (!o.deliveryStatus)           o.deliveryStatus = 'pending';
-    if (o.returnAmount === undefined) o.returnAmount   = 0;
-    if (!o.deliveryNote)             o.deliveryNote    = '';
-    // 반품(카테고리='return' 또는 업로드 반품서 isReturn=true) 건은
-    // 이 발주를 최초로 만나는 딱 1번만 미처리(pending) 상태를 'returned'로 보정한다.
-    // 한 번 마이그레이션된 뒤로는 사용자가 발주취소/미납품 등 어떤 상태로 바꾸든
-    // 다시는 강제로 '반품'으로 되돌리지 않는다 (_retMig 플래그로 재적용 방지).
-    if ((o.category === 'return' || o.isReturn === true) && !o._retMig) {
-      if (o.deliveryStatus === 'pending') o.deliveryStatus = 'returned';
-      o._retMig = true;
-    }
-    // 구버전 "부분납품(partial)" 개념 폐지 → "발주취소(cancelled)"로 마이그레이션
-    if (o.deliveryStatus === 'partial') {
-      o.deliveryStatus = 'cancelled';
-      o.deliveredDate  = '';
-      o.partialAmount  = 0;
-    }
-    if (o.deliveredDate === undefined) {
-      o.deliveredDate = (o.deliveryStatus === 'delivered') ? (o.date || '') : '';
-    }
-  });
-  return arr;
 }
 
 // ── 자동 동기화 (save() 후 debounce 3초, 실패 시 backoff 재시도) ──
@@ -80,12 +78,13 @@ async function _doAutoSync() {
     _syncRetryCount = 0;  // 성공 시 재시도 카운터 초기화
     setFbStatus(`☁️ 자동 동기화 완료 (${new Date().toLocaleTimeString('ko-KR')})`, 'var(--success)');
   } catch (e) {
-    console.warn('[firebase] 자동 동기화 실패:', e.message);
+    console.warn('[firebase] 자동 동기화 실패:', _friendlyFbError(e));
     if (_syncRetryCount < SYNC_MAX_RETRY) {
       _syncRetryCount++;
       const delay = SYNC_RETRY_BASE * _syncRetryCount;
       setFbStatus(`⚠️ 동기화 실패 — ${_syncRetryCount}/${SYNC_MAX_RETRY}회 재시도 (${delay/1000}초 후)`, '#d69e2e');
-      setTimeout(_doAutoSync, delay);
+      // _autoSyncTimer에 저장해야 새 저장(scheduleAutoSync)이 이 재시도를 취소할 수 있음
+      _autoSyncTimer = setTimeout(_doAutoSync, delay);
     } else {
       _syncRetryCount = 0;
       setFbStatus('⚠️ 동기화 실패 (수동 백업 권장)', '#d69e2e');
@@ -115,7 +114,7 @@ window.fbBackup = async function() {
     toast('☁️ Firebase 백업 완료');
   } catch (e) {
     console.error('[firebase] 백업 실패:', e);
-    setFbStatus('❌ 백업 실패: ' + e.message, '#e53e3e');
+    setFbStatus('❌ 백업 실패: ' + _friendlyFbError(e), '#e53e3e');
     toast('❌ 백업 실패');
   }
 };
@@ -137,14 +136,12 @@ window.fbRestore = async function() {
       setFbStatus('⚠️ 유효하지 않은 백업 데이터', '#d69e2e');
       return;
     }
-    // 하위 호환 필드 정규화 후 저장
-    orders = normalizeOrders(data.orders);
-    // 복원 중 자동 동기화 방지
+    // 복원 중 자동 동기화 방지 (대기 중인 이전 동기화가 방금 복원한 데이터를 덮어쓰지 않도록)
     clearTimeout(_autoSyncTimer);
-    localStorage.setItem('baljuOrders_v2', JSON.stringify(orders));
-    clearTimeout(_autoSyncTimer);
+    // 원본 그대로 저장 후 load()에게 하위 호환 정규화를 위임
+    // (storage.js load()의 정규화 로직과 중복 실행되는 것을 방지)
+    localStorage.setItem('baljuOrders_v2', JSON.stringify(data.orders));
     load();
-    clearTimeout(_autoSyncTimer);
     if (typeof window.renderAll === 'function') window.renderAll();
     else if (typeof renderAll === 'function') renderAll();
     const backedAt = data.backedAt ? new Date(data.backedAt).toLocaleString('ko-KR') : '알 수 없음';
@@ -152,7 +149,7 @@ window.fbRestore = async function() {
     toast(`📥 복원 완료 — ${orders.length}건`);
   } catch (e) {
     console.error('[firebase] 복원 실패:', e);
-    setFbStatus('❌ 복원 실패: ' + e.message, '#e53e3e');
+    setFbStatus('❌ 복원 실패: ' + _friendlyFbError(e), '#e53e3e');
     toast('❌ 복원 실패');
   }
 };

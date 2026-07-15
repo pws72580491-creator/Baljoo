@@ -130,7 +130,7 @@ unit 선택 기준(중요):
 
     if (isReturnDoc) {
       // 반품서: 고유 id 부여 (원본 발주서와 분리), deliveryStatus='returned'로 저장
-      parsed.id             = 'RET-' + (parsed.docNo || Date.now()) + '-' + Date.now();
+      parsed.id             = 'RET-' + (sanitizeId(parsed.docNo) || Date.now()) + '-' + Date.now();
       parsed.isReturn       = true;
       parsed.deliveryStatus = 'returned';
       parsed._retMig        = true;  // 생성 시점에 이미 올바른 상태이므로 이후 자동 보정 대상에서 제외
@@ -142,7 +142,7 @@ unit 선택 기준(중요):
       });
       parsed.returnAmount = Math.abs(parsed.total);
     } else {
-      parsed.id             = parsed.docNo || ('UP-' + Date.now());
+      parsed.id             = sanitizeId(parsed.docNo) || ('UP-' + Date.now());
       parsed.isReturn       = false;
       parsed.deliveryStatus = 'pending';
       parsed.returnAmount   = 0;
@@ -276,9 +276,9 @@ function renderPreview() {
         </div>
       </div>
       <div class="prev-meta">
-        <div><span class="pm-label">서류번호</span>${o.docNo || '-'}</div>
-        <div><span class="pm-label">발주일자</span>${o.date || '-'}</div>
-        <div><span class="pm-label">납기일자</span>${o.delivery || '-'}</div>
+        <div><span class="pm-label">서류번호</span>${escapeHtml(o.docNo) || '-'}</div>
+        <div><span class="pm-label">발주일자</span>${escapeHtml(o.date) || '-'}</div>
+        <div><span class="pm-label">납기일자</span>${escapeHtml(o.delivery) || '-'}</div>
         <div><span class="pm-label">총액</span><strong style="${totalStyle}">${fmt(o.total)}</strong></div>
         ${infoMsg}
       </div>
@@ -286,7 +286,7 @@ function renderPreview() {
         <thead><tr><th>품목</th><th>수량</th><th>박스</th><th>단가</th><th>금액</th></tr></thead>
         <tbody>
           ${(o.items || []).map(i => `<tr>
-            <td>${i.desc || '-'}</td>
+            <td>${escapeHtml(i.desc) || '-'}</td>
             <td style="font-family:monospace;${(i.qty||0)<0?'color:#dc2626;':''}">${fmtQ(i)}</td>
             <td style="font-family:monospace;${(i.qty||0)<0?'color:#dc2626;':''}">${formatBoxCount(calcItemBoxCount(i))}</td>
             <td style="font-family:monospace;">${i.price ? '\u20a9' + Number(i.price).toLocaleString() : '-'}</td>

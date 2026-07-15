@@ -66,22 +66,16 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
       await new Promise(r => setTimeout(r, 2000));
       return callGemini(parts, maxTokens, model, _retry, _keyRetry + 1);
     }
-    // 모든 키 429/503 → 분당 한도 리셋 대기 후 키1로 재시도
+    // 모든 키 소진 → 키1로 재시도.
+    // 429(분당 한도초과)는 한도 리셋을 기다려야 하므로 6초/12초로 느리게,
+    // 503(서버 과부하)은 키 문제가 아니라 일시적 과부하이므로 2초/4초로 빠르게 재시도한다.
     if (_retry < 2) {
       _keyIndex = 0;
-      const delay = (2 ** _retry) * 6000; // 6초, 12초
+      const delay = resp.status === 429 ? (2 ** _retry) * 6000 : (2 ** _retry) * 2000;
       console.warn(`[Gemini] 모든 키 ${resp.status} → ${delay/1000}초 대기 후 키1로 재시도 (${_retry + 1}/2)`);
       await new Promise(r => setTimeout(r, delay));
       return callGemini(parts, maxTokens, model, _retry + 1, 0);
     }
-  }
-
-  // 같은 키로 503 재시도 (키가 1개일 때)
-  if (resp.status === 503 && _retry < 2) {
-    const delay = (2 ** _retry) * 2000;
-    console.warn(`[Gemini] 503, ${delay/1000}초 후 재시도 (${_retry + 1}/2)...`);
-    await new Promise(r => setTimeout(r, delay));
-    return callGemini(parts, maxTokens, model, _retry + 1, _keyRetry);
   }
 
   // 모델 오류(404/deprecated) → 단계적 모델 폴백

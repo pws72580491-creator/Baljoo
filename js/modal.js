@@ -259,8 +259,8 @@ function openEditModal(id) {
     const amountDisplay = item.amount ? Number(item.amount).toLocaleString() : '';
     return `
     <div class="edit-item-row" id="eitem-${idx}">
-      <input type="text" id="ei-desc-${idx}"  value="${(item.desc||'').replace(/"/g,'&quot;')}" placeholder="품목명" enterkeyhint="next">
-      <input type="text" id="ei-code-${idx}"  value="${item.code||''}" placeholder="CODE" enterkeyhint="next">
+      <input type="text" id="ei-desc-${idx}"  value="${escapeHtml(item.desc)}" placeholder="품목명" enterkeyhint="next">
+      <input type="text" id="ei-code-${idx}"  value="${escapeHtml(item.code)}" placeholder="CODE" enterkeyhint="next">
       <input type="number" id="ei-qty-${idx}" value="${item.qty||0}" step="any" min="0" inputmode="decimal" enterkeyhint="next" oninput="recalcEditItem(${idx})">
       <select id="ei-unit-${idx}">
         ${[['box','박스'],['pcs','pcs'],['doz','doz'],['pkt','봉지']].map(([v,l]) =>
@@ -281,7 +281,7 @@ function openEditModal(id) {
     <div class="edit-row">
       <div class="edit-field">
         <label>선명</label>
-        <input id="ef-ship" type="text" value="${(o.ship||'').replace(/"/g,'&quot;')}" enterkeyhint="next">
+        <input id="ef-ship" type="text" value="${escapeHtml(o.ship)}" enterkeyhint="next">
       </div>
       <div class="edit-field">
         <label>구분</label>
@@ -306,11 +306,11 @@ function openEditModal(id) {
     <div class="edit-row">
       <div class="edit-field">
         <label>서류번호</label>
-        <input id="ef-docno" type="text" value="${(o.docNo||'').replace(/"/g,'&quot;')}" enterkeyhint="next">
+        <input id="ef-docno" type="text" value="${escapeHtml(o.docNo)}" enterkeyhint="next">
       </div>
       <div class="edit-field">
         <label>거래처발주번호</label>
-        <input id="ef-pono" type="text" value="${(o.poNo||'').replace(/"/g,'&quot;')}" enterkeyhint="next">
+        <input id="ef-pono" type="text" value="${escapeHtml(o.poNo)}" enterkeyhint="next">
       </div>
     </div>
 

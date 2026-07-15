@@ -646,6 +646,9 @@ function renderDeliveryStatus() {
   const el = document.getElementById('delivery-status-content');
   if (!el) return;
 
+  // 더블체크 세트는 렌더 1회당 한 번만 로드 (행마다 localStorage 재파싱 방지)
+  const _dblSet = _loadDblCheckSet();
+
   // ── 월 선택 칩 ──
   const availableMonths = _getAvailableMonths();
   const today   = new Date();
@@ -962,7 +965,7 @@ function renderDeliveryStatus() {
               const rowBg  = isAnyReturn ? '#fff0f0' : '#fff';
               const rowBdl = isAnyReturn ? 'border-left:3px solid #dc2626;' : '';
               const amtCol = isAnyReturn ? '#dc2626' : 'var(--success)';
-              const isChecked = _isDblChecked(o.id);
+              const isChecked = _dblSet.has(o.id);
               return `
             <tr id="dblrow-${o.id}" style="border-top:1px solid var(--border);cursor:pointer;background:${rowBg};${rowBdl}opacity:${isChecked ? '.55' : '1'};"
                 onclick="openModal('${o.id}')">

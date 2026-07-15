@@ -13,6 +13,15 @@ function escapeHtml(str) {
     .replace(/'/g,  '&#x27;');
 }
 
+// ── ID 안전화 ──
+// 발주 id는 AI가 업로드된 파일에서 추출한 서류번호(docNo)를 그대로 사용하는데,
+// docNo는 신뢰할 수 없는 외부 텍스트라 HTML 속성이나 onclick="...('${id}')" 같은
+// 인라인 이벤트 핸들러 문자열을 깨뜨릴 수 있는 문자(따옴표/꺾쇠괄호/백슬래시/개행)를
+// 포함할 수 있다. id 생성 시점에 한 번만 제거해 모든 사용처를 원천적으로 보호한다.
+function sanitizeId(str) {
+  return String(str || '').replace(/[<>"'`\\\r\n]/g, '');
+}
+
 // ── 안전한 JSON 파싱 ──
 function safeParse(txt, fallback = null) {
   try {
