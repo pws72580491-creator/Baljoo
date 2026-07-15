@@ -73,7 +73,7 @@ async function _doAutoSync() {
       orders,
       backedAt: new Date().toISOString(),
       count:    orders.length,
-      version:  document.title.match(/v[\d.]+/)?.[0] || 'unknown'
+      version:  (typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown')
     });
     _syncRetryCount = 0;  // 성공 시 재시도 카운터 초기화
     setFbStatus(`☁️ 자동 동기화 완료 (${new Date().toLocaleTimeString('ko-KR')})`, 'var(--success)');
@@ -107,7 +107,7 @@ window.fbBackup = async function() {
       orders,
       backedAt: new Date().toISOString(),
       count:    orders.length,
-      version:  document.title.match(/v[\d.]+/)?.[0] || 'unknown'
+      version:  (typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown')
     };
     await set(ref(db, 'baljoo/backup'), data);
     setFbStatus(`✅ 백업 완료 — ${orders.length}건 (${new Date().toLocaleString('ko-KR')})`, 'var(--success)');

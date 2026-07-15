@@ -185,6 +185,10 @@ function init() {
   renderAll();
   document.getElementById('tabInk').style.left = '0%';
 
+  // 대시보드 상단 버전 배지를 APP_VERSION 단일 소스에서 채움 (하드코딩된 값이 릴리즈마다 밀리는 것 방지)
+  const verBadge = document.getElementById('app-version-badge');
+  if (verBadge && typeof APP_VERSION !== 'undefined') verBadge.textContent = '발주관리 ' + APP_VERSION;
+
   // ── 더블탭/더블클릭 → 텍스트·비밀번호 input 전체선택 ──
   // 정적 input (index.html에 이미 존재하는 것)
   document.querySelectorAll('input[type="text"], input[type="password"], input:not([type])')
