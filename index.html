@@ -2,10 +2,46 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.3.5
-  Released: 2026-07-15
+  Version : v3.3.7
+  Released: 2026-07-16
   ────────────────────────────────────────
   CHANGELOG
+  v3.3.7 (2026-07-16)
+    - [SECURITY] Firebase Realtime Database에 익명 인증(Anonymous Auth) 추가.
+      기존엔 인증 없이 백업/복원/자동동기화를 했는데, 테스트 모드 보안규칙은
+      30일마다 만료되어 계속 콘솔에서 수동 연장이 필요했음. getDb()가 db
+      참조를 반환하기 전에 signInAnonymously()로 로그인을 먼저 완료하도록
+      바꿔서, 보안규칙을 "auth != null"로 고정해도 앱은 그대로 동작하고
+      규칙 만료 문제도 재발하지 않도록 함. Firebase 콘솔에서 익명 로그인
+      활성화 + 아래 보안규칙 반영이 별도로 필요 (콘솔 작업, 코드 배포와 무관).
+
+  v3.3.6 (2026-07-16)
+    - [FIX][SECURITY] AI가 업로드 파일에서 추출한 텍스트(서류번호/날짜/품목명/
+      CODE/AI 응답 요약 등)가 escapeHtml() 없이 화면에 그대로 삽입되던 지점
+      다수 수정 (analyzer.js 미리보기 카드, delivery.js 매칭결과, modal.js
+      수정폼의 CODE 필드). 악의적인 발주서/납품사진을 업로드해 문서번호나
+      품목명에 스크립트를 심으면 미리보기 단계에서 바로 실행될 수 있었음.
+    - [FIX][SECURITY] 발주 id를 문서번호(docNo) 원문 그대로 사용하던 것을
+      sanitizeId()로 위험 문자(따옴표/꺾쇠괄호/백슬래시 등) 제거 후 생성하도록
+      변경 (helpers.js). id가 onclick="openModal('...')" 형태로 여러 곳에
+      따옴표 없이 그대로 삽입되는데, id 안에 따옴표가 있으면 인라인 이벤트
+      핸들러 문자열이 깨지며 임의 스크립트를 주입할 수 있었음.
+    - [FIX] index.html <title> 태그가 v3.2.77에 멈춰있던 것 수정. firebase.js가
+      document.title에서 버전을 파싱해 백업에 태깅하므로, 그동안의 모든
+      Firebase 백업이 실제 버전과 무관하게 v3.2.77로 잘못 태깅되고 있었음.
+    - [FIX] gemini.js: 키 1개일 때 503 에러의 "빠른 재시도(2초/4초)" 분기가
+      상위 429/503 공통 처리 블록에 재시도 횟수를 이미 소진당해 도달 불가능한
+      죽은 코드였음. 429(분당 한도)는 6초/12초, 503(서버 과부하)는 2초/4초로
+      상태코드별 분기하여 하나의 블록으로 정리.
+    - [FIX] firebase.js: 동기화 실패 후 재시도 타이머가 _autoSyncTimer에
+      저장되지 않아, 재시도 대기 중 새 저장이 발생해도 취소되지 않고 중복
+      동기화가 발생할 수 있었음. 재시도 타이머도 추적하도록 수정.
+    - [CLEANUP] firebase.js: fbRestore()에서 normalizeOrders()로 정규화 후
+      load()가 storage.js 쪽에서 동일한 정규화를 한 번 더 수행하던 중복 제거,
+      정규화는 load() 한 곳에 위임. 불필요해진 normalizeOrders() 삭제.
+    - [PERF] ui.js: 납품현황 렌더 시 행마다 localStorage를 다시 파싱하던
+      _isDblChecked() 호출을 렌더 1회당 1번 로드하는 방식으로 변경.
+
   v3.3.5 (2026-07-15)
     - [NEW] 납품현황 탭 선명 좌측 상단에 "더블체크" 체크박스 추가
       · 납품상태와는 별개로, 눈으로 한 번 더 확인했다는 표시를 남길 수
@@ -211,7 +247,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<title>이른아침 · 발주관리 v3.2.77</title>
+<title>이른아침 · 발주관리 v3.3.7</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
