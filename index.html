@@ -2,10 +2,23 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.3.7
+  Version : v3.3.8
   Released: 2026-07-16
   ────────────────────────────────────────
   CHANGELOG
+  v3.3.8 (2026-07-16)
+    - [FIX] 대시보드 상단 로고 옆 버전 배지가 v3.3.5에 하드코딩된 채 방치되어
+      있던 것 발견·수정 (사용자 스크린샷으로 제보받음). v3.3.6에서 <title>
+      태그만 고치고 본문에 별도로 박혀있던 이 배지는 놓쳤었음.
+    - [REFACTOR] 버전 문자열을 <title>/배지/Firebase 백업 태그 세 곳이 각자
+      들고 있다가 릴리즈마다 하나씩 누락되던 구조를 근본적으로 정리.
+      index.html <head>에 APP_VERSION 상수 하나만 두고, title과 배지는
+      app.js init()에서, firebase.js 백업 태그는 직접 이 값을 참조하도록
+      변경 (기존의 document.title 정규식 파싱 방식 제거). 이제 릴리즈마다
+      APP_VERSION 한 곳만 바꾸면 됨 — 단, sw.js CACHE_NAME과 manifest.json
+      description은 별도 실행 컨텍스트(서비스워커/정적 파일)라 이 상수를
+      참조할 수 없어 여전히 수동으로 맞춰야 함.
+
   v3.3.7 (2026-07-16)
     - [SECURITY] Firebase Realtime Database에 익명 인증(Anonymous Auth) 추가.
       기존엔 인증 없이 백업/복원/자동동기화를 했는데, 테스트 모드 보안규칙은
@@ -247,7 +260,17 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-<title>이른아침 · 발주관리 v3.3.7</title>
+<title>이른아침 · 발주관리</title>
+<script>
+  // ── 단일 버전 소스 ──
+  // title 태그·대시보드 배지·Firebase 백업 태그가 각자 버전 문자열을
+  // 따로 들고 있다가 릴리즈마다 하나씩 빠뜨리던 문제(v3.2.77 title 방치 등)를
+  // 막기 위해, 버전은 여기 한 곳에서만 관리하고 나머지는 이 값을 참조한다.
+  // ⚠️ sw.js의 CACHE_NAME과 manifest.json의 description은 별도 실행 컨텍스트라
+  //    이 값을 직접 참조할 수 없음 — 릴리즈 시 그 두 곳만 수동으로 맞춰줄 것.
+  const APP_VERSION = 'v3.3.8';
+  document.title = '이른아침 · 발주관리 ' + APP_VERSION;
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -701,7 +724,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.3.5</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge" id="app-version-badge">발주관리</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
