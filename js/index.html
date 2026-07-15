@@ -2,10 +2,131 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.2.94
-  Released: 2026-07-08
+  Version : v3.3.5
+  Released: 2026-07-15
   ────────────────────────────────────────
   CHANGELOG
+  v3.3.5 (2026-07-15)
+    - [NEW] 납품현황 탭 선명 좌측 상단에 "더블체크" 체크박스 추가
+      · 납품상태와는 별개로, 눈으로 한 번 더 확인했다는 표시를 남길 수
+        있도록 각 선명 행에 체크박스 추가 (금액·재고 집계에는 영향 없음)
+      · 체크박스 클릭 시 행 클릭(상세보기) 이벤트로 번지지 않도록 처리,
+        체크된 행은 살짝 흐리게 표시되어 스크롤하며 훑어보기 쉬움
+      · localStorage에 확인된 발주 id만 저장 — 전체 재렌더 없이 해당
+        행만 즉시 갱신되어 스크롤 위치가 유지됨
+  v3.3.4 (2026-07-15)
+    - [MERGE] 병렬 세션으로 갈라진 두 v3.3.2를 대조·병합
+      · 이 세션: v3.3.2 "반품건 재고 처리 전면 점검" (_boxSign/_isPhantomReturn
+        헬퍼로 phantom 반품 재고 오류 수정, 6개 지점 + CSV/엑셀 내보내기)
+      · 다른 세션: v3.3.2 "업로드 미리보기 선명 누락 수정" + 죽은 코드 정리,
+        이어서 v3.3.3 "메추리·깐메추리 입고량 방식 통일"
+      · 두 갈래 모두 원본은 v3.3.1로 동일 (분기점 확인됨), modal.js/
+        firebase.js/storage.js/manifest.json은 완전히 동일해 충돌 없음
+    - [MERGE] 최종본 = v3.3.3(입고량 통일 구조 + 선명 입력창 + 죽은 코드
+      정리)을 기준으로, 이 세션의 반품 재고 부호 보정 로직을 새 구조에
+      맞춰 재적용
+      · 메추리·깐메추리가 새로 계란과 동일한 재고 이월 방식(_stockByDateFor)
+        으로 통합되면서, 그동안 계란에만 있던 phantom 반품 취약점이
+        메추리/깐메추리 재고에도 그대로 노출될 뻔한 부분을 함께 차단
+      · 선명별 매출 박스, 날짜별 박스 소계, 총 박스 요약, 대시보드 날짜별
+        박스, CSV/엑셀 내보내기까지 총 9개 지점에 _boxSign() 일괄 재적용
+    - 병합 후 전체 JS 파일 문법 검증(node -c) + 반품 부호 시나리오
+      4종 재검증, 두 v3.3.2 브랜치 대비 diff로 반품 로직 외 변경분(입고량
+      통일, 선명 입력창, 죽은 코드 정리)이 그대로 보존됐는지 확인 완료
+  v3.3.3 (2026-07-15)
+    - [CHG] 메추리·깐메추리를 계란과 동일한 "입고량" 방식으로 통일
+      · 기존: 메추리/깐메추리는 그날 하루의 "목표" 대비 "잔여/납품완료"만 표시
+        (다음 날로 이월되지 않음)
+      · 변경: 계란처럼 "입고 + 전일재고 → 오늘재고"로 이월 계산
+        (재고 계란/메추리/깐메추리 N박스, 부족 시 ⚠️ 재고부족 표시)
+      · 모달 문구도 "입고 · 목표 박스 입력" → "입고 박스 입력", 각 항목
+        라벨에 "(입고)" 표기 추가, 버튼 "목표 삭제" → "입고 삭제"로 통일
+      · 기존에 저장된 값은 그대로 재사용되며, 품목별로 최초 입고 입력일부터
+        독립적으로 이월 추적 시작 (계란과 동일한 방식)
+  v3.3.2 (2026-07-14)
+    - [FIX] 업로드 미리보기 "⚠️ 선명 누락" 카드에서 "저장 전 선명을 직접
+      확인하거나 수정 후 저장하세요"라고 안내했지만 실제로는 수정할 입력창이
+      없어 고칠 방법이 없던 문제 수정
+      · 선명 표시 영역을 입력창으로 변경 — 선명을 바로 입력/수정한 뒤
+        전체 저장 가능 (updatePendingShip)
+      · 선명을 입력해 "선명 누락" 상태가 해소돼도 상단 상태 메시지가
+        이전 경고 문구 그대로 남아있던 문제도 함께 수정
+    - [CLEANUP] 미사용 함수 제거
+      · maybeResetDeliveryResult (delivery.js) — 호출부 없음
+      · toB64 (analyzer.js) — 호출부 없음
+      · saveGeminiKey/loadGeminiKey/resetGeminiKey/toggleGeminiKeyVisibility/
+        loadApiKey (gemini.js) — 구버전 호환용으로 남아있었으나 호출부 없음
+    - [CLEANUP] 앱 초기화(init) 시 migrateOldKey()·loadGeminiKeys()가
+      loadApiKey() 경유로 중복 호출되던 부분 정리 (동작 변화 없음)
+  v3.3.1 (2026-07-14)
+    - [NEW] 납품현황 탭 날짜별 선명 목록, 대시보드 날짜별 기록 목록을
+      기본적으로 선명(알파벳) 오름차순으로 정렬
+      · 기존엔 업로드/발주 순서 그대로 표시되어 특정 날짜에 척수가
+        많으면 원하는 선박을 찾기 번거로웠음
+  v3.3.0 (2026-07-14)
+    - [FIX] 납품현황 탭 날짜 카드 헤더 레이아웃 깨짐 수정
+      · 계란 외에 메추리/깐메추리 품목이 섞인 날(예: 7/10)은 우측 박스
+        요약 텍스트가 길어져 좌측 "7월 N일 (요일)" 제목과 척수가
+        가로 공간을 두고 밀리며 글자 단위로 줄바꿈되던 문제
+      · 헤더를 상단 행(날짜·척수 + 🎯버튼, 항상 한 줄 고정)과 하단 행
+        (목표/재고 배지, 금액·박스 요약, 자유 줄바꿈)으로 분리하여
+        날짜 제목이 다른 날짜와 동일하게 항상 한 줄로 표시되도록 수정
+    - [FIX] "입고 · 목표 박스 입력" 모달에서 계란→메추리→깐메추리 입력칸
+      이동 시 키보드의 '다음' 버튼을 눌러도 다음 칸으로 포커스가
+      이동하지 않던 문제 수정
+      · 각 입력칸에 inputmode="numeric", enterkeyhint(다음/완료) 지정
+      · 다음 버튼(Enter) 입력 시 다음 필드로 포커스 이동, 마지막 칸은
+        키보드를 닫도록 처리 (_goalInputKeydown)
+  v3.2.99 (2026-07-09)
+    - [FIX] 통계 탭 "선명별 매출 · 납품 주기" 집계에서 미납품(pending) 건 제외
+      · 기존: 미납품 건도 건수·박스수에 포함되어(매출은 0으로 계산되지만)
+        선박별 건수가 실제보다 부풀려져 보이는 문제
+      · 수정: 납품완료·반품 건만 집계 — 미납품 건은 실제 납품이 완료되어
+        deliveredDate가 기록되는 시점에 자동으로 통계에 반영됨
+  v3.2.98 (2026-07-09)
+    - [CHANGE] 통계 탭 개편 — 납품현황 탭과 중복되던 "일별 납품 현황"과
+      의미 없던 "미납품 발주" 목록을 제거
+    - [NEW] "선명별 매출 · 납품 주기" 섹션 추가
+      · 선택된 월(또는 전체) 기준 선명별 실납품 매출·건수·박스수를
+        매출 순으로 랭킹(상위 3척 메달 아이콘) 표시, 미니 바 그래프로 시각화
+      · 전체 기간 데이터를 바탕으로 선명별 평균 납품 간격(일)을 계산해
+        "🔄 평균 N일 주기"로 표시 (납품 이력 1회 이하인 선박은 산출 불가 안내)
+      · 반품 차감액이 있는 선박은 카드 내 별도 표기
+  v3.2.97 (2026-07-09)
+    - [VERIFY] 코드 변경 없음 — 병합 버전(v3.2.96, MERGE)과 이번 버전(v3.2.96,
+      _retMig 개선)을 대조 검증하여 충돌 없이 완전히 호환됨을 확인하고
+      버전 번호만 정리 (병렬 세션 간 버전 번호 충돌 방지 목적)
+  v3.2.96 (2026-07-09)
+    - [FIX] 반품 상태 자동 보정 로직의 남은 사각지대 수정
+      · v3.2.95에서 "반품 건을 발주취소로 바꿔도 재시작 시 반품으로
+        되돌아가던 문제"는 고쳤지만, "⏳ 미납품으로" 버튼으로 되돌린
+        경우는 여전히 재보정 대상(pending)과 구분이 안 되어 다시
+        "반품"으로 되돌아갈 수 있었음
+      · 1회성 마이그레이션 플래그(_retMig)를 도입해, 반품 건은
+        생성 시점 또는 최초 로드 시 딱 한 번만 자동 보정하고
+        이후로는 사용자가 어떤 상태로 바꾸든 다시 덮어쓰지 않도록 수정
+  v3.2.95 (2026-07-09)
+    - [FIX] 전체 코드 감사 후 버그 다수 수정
+      · 동작하지 않던 대시보드 "반품 진단/반품 수정" 버튼 제거(연결된 함수 없음)
+      · 사용되지 않는 "직접입력" 죽은 코드(js/manual.js) 완전 제거
+      · AI 납품사진 매칭에서 발주취소·반품 건이 "미납품"으로 잘못 표시되고
+        실수로 납품완료 처리될 수 있던 문제 수정
+      · 발주서 재분석(같은 서류번호 재업로드) 시 납품일자가 지워지고
+        보관 상태가 풀리던 문제 수정
+      · 반품(카테고리/업로드 반품서) 건의 상태를 발주취소 등으로 바꿔도
+        앱 재시작 시 자동으로 "반품"으로 되돌아가던 문제 수정
+        → 최초 1회(미처리 상태)에만 자동 보정하도록 수정
+      · 발주 수정 모달의 "구분" 선택지 부족으로 반품/직접입력 카테고리가
+        저장 시 "크루즈"로 조용히 바뀌던 문제 수정
+      · 반품 건 품목 금액을 수정해도 반품금액 집계가 예전 값 그대로
+        남아있던 문제 수정 → 품목 수정 시 반품금액도 함께 동기화
+      · 상세모달의 수동 "반품 처리" 건이 납품현황·재고이월 계산에서
+        누락되거나, 날짜별 박스 집계 부호가 반대로 적용되던 문제 수정
+      · 월별 CSV/통계 탭에서 반품·직접입력 구분이 "카고"로 잘못
+        표시되던 문제 수정
+      · 봉지(pkt) 단위 반품 수량이 "-5봉지"처럼 잘못 표시되던 문제 수정
+      · 발주목록에서 발주취소 건만 걸러볼 방법이 없던 문제
+        → "🚫취소" 필터 칩 추가
   v3.2.94 (2026-07-08)
     - [FIX] 통계 탭 "월별 실납품 추이" 막대그래프가 실제로는 높이 차이 없이
             거의 납작하게(선처럼) 표시되던 CSS 버그 수정
@@ -312,6 +433,7 @@ body{
 .chip.active{background:var(--accent);border-color:var(--accent);color:#fff;}
 .chip.c-delivered.active{background:var(--delivered);border-color:var(--delivered);}
 .chip.c-returned.active{background:var(--returned);border-color:var(--returned);}
+.chip.c-cancelled.active{background:var(--cancelled);border-color:var(--cancelled);}
 
 /* 균등분할 칩 행: 보관함 등 텍스트가 잘리지 않도록 각 칩이 동일한 너비를 가짐 */
 .chips-equal{overflow-x:visible;}
@@ -543,7 +665,7 @@ body{
 
 <!-- TOP BAR -->
 <div class="topbar">
-  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.2.94</span></div>
+  <div class="logo">🥚 이른아침 <span class="logo-badge">발주관리 v3.3.5</span></div>
   <div class="topbar-stats">
     총 <b id="h-cnt">0</b>건&nbsp;&nbsp;|&nbsp;&nbsp;합계 <b id="h-tot">₩0</b>
   </div>
@@ -628,16 +750,6 @@ body{
         <div id="fb-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;"></div>
       </div>
 
-      <!-- 반품 진단 (임시) -->
-      <div class="sdiv" style="margin-top:16px;">🔍 반품 진단</div>
-      <div class="form-card" style="padding:13px 14px;">
-        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">반품 관련 데이터 상태를 확인하고 수정합니다</div>
-        <div style="display:flex;gap:8px;margin-bottom:8px;">
-          <button class="btn btn-g btn-sm" onclick="diagReturns()" style="flex:1;padding:9px 0;">🔍 반품 진단</button>
-          <button class="btn btn-p btn-sm" onclick="fixReturns()" style="flex:1;padding:9px 0;">🔧 반품 수정</button>
-        </div>
-        <div id="diag-status" style="font-size:11px;color:var(--muted);margin-top:8px;white-space:pre-wrap;word-break:break-all;"></div>
-      </div>
     </div>
 
     <!-- ── VIEW 1: ORDERS ── -->
@@ -693,6 +805,7 @@ body{
         <button class="chip c-delivered" onclick="filterStatus('delivered',this)">납품완료</button>
         <button class="chip c-returned" onclick="filterStatus('returned',this)">반품</button>
         <button class="chip" onclick="filterStatus('pending',this)">미납품</button>
+        <button class="chip c-cancelled" onclick="filterStatus('cancelled',this)">🚫취소</button>
         <button class="chip c-archived" onclick="filterStatus('archived',this)">📦 보관함</button>
       </div>
       <div id="orders-list"></div>
@@ -861,7 +974,6 @@ body{
 <script src="js/gemini.js"></script>
 <script src="js/analyzer.js"></script>
 <script src="js/delivery.js"></script>
-<script src="js/manual.js"></script>
 <!-- Firebase -->
 <script src="js/firebase.js"></script>
 <script src="js/app.js"></script>
