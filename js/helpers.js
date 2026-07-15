@@ -180,6 +180,25 @@ function calcOrderBoxes(order) {
   return (order.items || []).reduce((s, i) => s + calcItemBoxCount(i), 0);
 }
 
+// ── 반품건 재고 처리 보정 ──
+// "수동 반품처리"(isReturn=false, deliveryStatus='returned')는 원래 "납품완료 → 반품"
+// 흐름을 전제로, 이미 나간 재고가 되돌아온 것으로 보고 박스 수를 마이너스로 잡는다.
+// 그런데 상세 모달의 "반품 처리" 버튼은 미납품 상태에서도 눌러 곧바로 반품으로 전환할 수 있어
+// (납품완료를 거친 적이 없으면 deliveredDate가 비어있음), 이 경우 실제로는 재고가 나간 적이
+// 없는데도 "반품으로 돌아온 재고"로 잘못 가산되는 문제가 있었다.
+// → 납품완료 이력 없이(=deliveredDate 없이) 바로 반품 처리된 건은 "phantom return"으로 보고
+//    박스/재고 집계에서는 0으로 처리한다 (금액·표시는 그대로 유지, 재고 수치만 보정).
+function _isPhantomReturn(o) {
+  return o.deliveryStatus === 'returned' && !o.isReturn && !o.deliveredDate;
+}
+
+// 박스/재고 집계 전용 부호: 납품완료·업로드 반품서 = +1,
+// 납품 이력이 있는 수동 반품 = -1, phantom 반품(납품 이력 없음) = 0
+function _boxSign(o) {
+  if (_isPhantomReturn(o)) return 0;
+  return (o.deliveryStatus === 'returned' && !o.isReturn) ? -1 : 1;
+}
+
 // ── 실납품금액 계산 ──
 function calcNetDelivery(order) {
   const total = order.total || 0;

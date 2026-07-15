@@ -514,7 +514,9 @@ function renderStats() {
     byShip[o.ship].cnt++;
     byShip[o.ship].total   += (o.total || 0);
     byShip[o.ship].net     += calcNetDelivery(o);
-    byShip[o.ship].boxes   += calcOrderBoxes(o);
+    // 반품(수동)은 boxes도 차감되어야 함 — 그동안 부호 보정이 없어 반품 박스가
+    // 오히려 더해져 선박별 박스 수가 부풀려지던 문제 수정
+    byShip[o.ship].boxes   += calcOrderBoxes(o) * _boxSign(o);
     if (o.deliveryStatus === 'returned')
       byShip[o.ship].returned += (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount || Math.abs(o.total) || 0));
   });
@@ -717,8 +719,9 @@ function renderDeliveryStatus() {
     byDay[d].orders.push(o);
     byDay[d].totalAmt += calcNetDelivery(o);
     // 업로드 반품서(isReturn)는 품목 qty가 이미 음수라 그대로 두면 되고,
-    // 상세모달의 수동 반품처리(qty는 원래 양수 그대로)만 부호를 뒤집어야 함
-    const sign = (o.deliveryStatus === 'returned' && !o.isReturn) ? -1 : 1;
+    // 상세모달의 수동 반품처리(qty는 원래 양수 그대로)만 부호를 뒤집어야 함.
+    // 납품완료 이력 없이 곧바로 반품 처리된 건(phantom return)은 0 처리 (재고 영향 없음)
+    const sign = _boxSign(o);
     (o.items||[]).forEach(item => {
       const bc = calcItemBoxCount(item);
       const isBrine = _isQuailBrine(item);
@@ -753,7 +756,7 @@ function renderDeliveryStatus() {
     const byDateAll = {};
     allDone.forEach(o => {
       const d = o.deliveredDate || o.date || '미상';
-      const sign = (o.deliveryStatus === 'returned' && !o.isReturn) ? -1 : 1;
+      const sign = _boxSign(o);
       (o.items || []).forEach(item => {
         if (!itemFilterFn(item)) return;
         const bc = calcItemBoxCount(item);
@@ -805,19 +808,24 @@ function renderDeliveryStatus() {
   const returnDone = done.filter(o => o.deliveryStatus === 'returned');
   const grandAmt   = done.reduce((s, o) => s + calcNetDelivery(o), 0);
   // 업로드 반품서(isReturn)는 calcOrderBoxes가 이미 음수를 반환하므로 그대로 더하고,
-  // 수동 반품처리(qty가 원래 양수)는 부호를 뒤집어서 더한다 (기존엔 무조건 빼서 반품분이 오히려 두 배로 가산되던 버그)
+  // 수동 반품처리(qty가 원래 양수)는 부호를 뒤집어서 더한다. 납품완료 이력 없이 곧바로
+  // 반품 처리된 건(phantom return)은 실제 재고 이동이 없으므로 0 처리한다.
   const grandBoxes = delivDone.reduce((s, o) => s + calcOrderBoxes(o), 0)
-                   + returnDone.reduce((s, o) => s + (o.isReturn ? calcOrderBoxes(o) : -calcOrderBoxes(o)), 0);
+                   + returnDone.reduce((s, o) => s + _boxSign(o) * calcOrderBoxes(o), 0);
   const returnAmt   = returnDone.reduce((s, o) => s + Math.abs(calcNetDelivery(o)), 0);
   const returnCount = returnDone.length;
 
   // 계란 / 생메추리 / 깐메추리 분리 집계
+  // (반품 차감을 포함해 "총 박스"(grandBoxes)와 동일한 기준으로 계산 —
+  //  delivDone만 집계하면 반품 건의 품목별 차감이 전혀 반영되지 않음)
   let grandEggBoxes = 0, grandQuailRawBoxes = 0, grandQuailBrineBoxes = 0, grandQuailBrinePkts = 0;
-  delivDone.forEach(o => {
+  done.forEach(o => {
+    const sign = _boxSign(o);
+    if (!sign) return; // phantom return(납품 이력 없이 바로 반품 처리)은 재고 영향 없음
     (o.items||[]).forEach(item => {
-      const bc = calcItemBoxCount(item);
+      const bc = calcItemBoxCount(item) * sign;
       if (_isQuailBrine(item)) {
-        if (_isPktUnit(item.unit)) grandQuailBrinePkts  += (Number(item.qty)||0);
+        if (_isPktUnit(item.unit)) grandQuailBrinePkts  += sign * (Number(item.qty)||0);
         else                       grandQuailBrineBoxes += bc;
       } else if (_isQuailEgg(item)) {
         grandQuailRawBoxes += bc;
@@ -954,23 +962,32 @@ function renderDeliveryStatus() {
               const rowBg  = isAnyReturn ? '#fff0f0' : '#fff';
               const rowBdl = isAnyReturn ? 'border-left:3px solid #dc2626;' : '';
               const amtCol = isAnyReturn ? '#dc2626' : 'var(--success)';
+              const isChecked = _isDblChecked(o.id);
               return `
-            <tr style="border-top:1px solid var(--border);cursor:pointer;background:${rowBg};${rowBdl}"
+            <tr id="dblrow-${o.id}" style="border-top:1px solid var(--border);cursor:pointer;background:${rowBg};${rowBdl}opacity:${isChecked ? '.55' : '1'};"
                 onclick="openModal('${o.id}')">
               <td style="padding:10px 14px;">
-                <div style="font-size:13px;font-weight:600;color:var(--navy);
-                            white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">${escapeHtml(o.ship)}</div>
-                <div style="font-size:10px;color:var(--muted);margin-top:2px;">${escapeHtml(o.docNo)}</div>
-                ${(o.items||[]).map(item => {
-                  const boxStr = formatItemBoxStr(item);
-                  const rawDesc = item.desc || '';
-                  const desc = escapeHtml(rawDesc.length > 18 ? rawDesc.slice(0,18)+'…' : rawDesc);
-                  const qtyCol = ((item.qty||0) < 0 || isManualReturn) ? 'color:#dc2626;' : '';
-                  return `<div style="font-size:10px;color:var(--muted);margin-top:3px;display:flex;gap:4px;align-items:center;">
-                    <span style="color:var(--navy);font-weight:600;">${desc}</span>
-                    <span style="${qtyCol}">${item.qty}${displayUnit(item.unit)}${boxStr ? ' · '+boxStr : ''}</span>
-                  </div>`;
-                }).join('')}
+                <div style="display:flex;align-items:flex-start;gap:6px;">
+                  <input type="checkbox" id="dblchk-${o.id}" ${isChecked ? 'checked' : ''}
+                         onclick="toggleDblCheck('${o.id}', event)"
+                         title="더블체크(확인 표시)"
+                         style="margin-top:2px;width:16px;height:16px;flex-shrink:0;cursor:pointer;accent-color:var(--navy);">
+                  <div style="min-width:0;flex:1;">
+                    <div style="font-size:13px;font-weight:600;color:var(--navy);
+                                white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">${escapeHtml(o.ship)}</div>
+                    <div style="font-size:10px;color:var(--muted);margin-top:2px;">${escapeHtml(o.docNo)}</div>
+                    ${(o.items||[]).map(item => {
+                      const boxStr = formatItemBoxStr(item);
+                      const rawDesc = item.desc || '';
+                      const desc = escapeHtml(rawDesc.length > 18 ? rawDesc.slice(0,18)+'…' : rawDesc);
+                      const qtyCol = ((item.qty||0) < 0 || isManualReturn) ? 'color:#dc2626;' : '';
+                      return `<div style="font-size:10px;color:var(--muted);margin-top:3px;display:flex;gap:4px;align-items:center;">
+                        <span style="color:var(--navy);font-weight:600;">${desc}</span>
+                        <span style="${qtyCol}">${item.qty}${displayUnit(item.unit)}${boxStr ? ' · '+boxStr : ''}</span>
+                      </div>`;
+                    }).join('')}
+                  </div>
+                </div>
               </td>
               <td style="padding:10px;text-align:right;font-size:11px;font-weight:700;color:${isAnyReturn?'#dc2626':'#1a3a6e'};white-space:nowrap;vertical-align:top;">
                 ${(o.items||[]).map(item => {
@@ -1165,6 +1182,35 @@ function _reRenderDelivKeepOpen() {
   });
 }
 
+// ── 납품현황 행 더블체크(수기 확인) ──
+// 납품상태와는 별개로, 사람이 눈으로 한 번 더 확인했다는 표시를 남기고 싶을 때 사용.
+// localStorage에 확인된 발주 id 목록만 저장한다 (금액/재고 집계에는 전혀 영향 없음).
+const DBL_CHECK_KEY = 'deliveryDblCheck';
+
+function _loadDblCheckSet() {
+  try { return new Set(JSON.parse(localStorage.getItem(DBL_CHECK_KEY) || '[]')); }
+  catch(e) { return new Set(); }
+}
+function _saveDblCheckSet(set) {
+  try { localStorage.setItem(DBL_CHECK_KEY, JSON.stringify([...set])); } catch(e) {}
+}
+function _isDblChecked(id) {
+  return _loadDblCheckSet().has(id);
+}
+
+function toggleDblCheck(id, ev) {
+  if (ev) ev.stopPropagation(); // 체크박스 클릭이 행 전체의 openModal로 번지지 않도록 차단
+  const set = _loadDblCheckSet();
+  const willCheck = !set.has(id);
+  if (willCheck) set.add(id); else set.delete(id);
+  _saveDblCheckSet(set);
+  // 전체 재렌더 없이 해당 행만 즉시 반영 (스크롤 위치 유지)
+  const cb  = document.getElementById('dblchk-' + id);
+  const row = document.getElementById('dblrow-' + id);
+  if (cb)  cb.checked = willCheck;
+  if (row) row.style.opacity = willCheck ? '.55' : '1';
+}
+
 // ── 납품현황 날짜 그룹 접기/펼치기 ──
 function toggleDelivDay(dayId) {
   const body  = document.getElementById(dayId);
@@ -1221,8 +1267,9 @@ function renderDashByDate() {
     if (!byDay[d]) byDay[d] = { date: d, orders: [], amt: 0, boxes: 0 };
     byDay[d].orders.push(o);
     byDay[d].amt   += calcNetDelivery(o);
-    // 업로드 반품서는 qty가 이미 음수라 그대로, 수동 반품처리는 qty가 양수 그대로라 부호를 뒤집어야 함
-    const daySign = (o.deliveryStatus === 'returned' && !o.isReturn) ? -1 : 1;
+    // 업로드 반품서는 qty가 이미 음수라 그대로, 수동 반품처리는 qty가 양수 그대로라 부호를 뒤집어야 함.
+    // 납품완료 이력 없이 곧바로 반품 처리된 건(phantom return)은 0 처리 (재고 영향 없음)
+    const daySign = _boxSign(o);
     byDay[d].boxes += daySign * calcOrderBoxes(o);
   });
 

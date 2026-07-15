@@ -153,7 +153,9 @@ function exportExcel() {
       const mDelAmt   = mDel.reduce((s,o) => s+(o.total||0), 0);
       const mRetAmt   = mRet.reduce((s,o) => s+(o.isReturn ? Math.abs(o.total||0) : (o.returnAmount||Math.abs(o.total)||0)), 0);
       const mNet      = mDelAmt - mRetAmt;
-      const mBoxes    = mDel.reduce((s,o) => s+calcOrderBoxes(o), 0);
+      // 박스수도 금액(mNet)과 동일하게 반품분을 차감 (부호 보정, phantom 반품은 0 처리)
+      const mBoxes    = mDel.reduce((s,o) => s+calcOrderBoxes(o), 0)
+                      + mRet.reduce((s,o) => s+calcOrderBoxes(o) * _boxSign(o), 0);
       return {
         '년월':       `${y}년 ${Number(mo)}월`,
         '납품완료건': mDel.length,
@@ -397,7 +399,11 @@ function exportMonthCSV(ym) {
                   : o.deliveryStatus === 'returned'  ? '반품'
                   : o.deliveryStatus === 'cancelled' ? '발주취소' : '미납품';
     const net     = calcNetDelivery(o);
-    const boxes   = calcOrderBoxes(o);
+    // 납품완료·반품 건만 방향(부호) 보정 적용 — 수동 반품은 원래 qty가 양수로 저장되어 있어
+    // 보정 없이는 반품인데도 박스수가 플러스로 찍혀 같은 행의 실납품금액(마이너스)과 앞뒤가
+    // 맞지 않았음. 미납품·발주취소는 보정 대상이 아니므로 그대로 둔다.
+    const sign    = (o.deliveryStatus === 'delivered' || o.deliveryStatus === 'returned') ? _boxSign(o) : 1;
+    const boxes   = calcOrderBoxes(o) * sign;
     const items   = o.items || [];
 
     if (items.length === 0) {
@@ -405,7 +411,7 @@ function exportMonthCSV(ym) {
                  o.total||0, net, status, o.deliveryNote||'']);
     } else {
       items.forEach((item, idx) => {
-        const iBoxes = calcItemBoxCount(item);
+        const iBoxes = calcItemBoxCount(item) * sign;
         rows.push([
           date, o.ship, cat, o.docNo||'', o.poNo||'',
           item.desc||'', item.qty||'', displayUnit(item.unit)||'', iBoxes.toFixed(1),
@@ -418,9 +424,12 @@ function exportMonthCSV(ym) {
     }
   });
 
-  // 합계 행 (발주취소 건은 금액·박스 집계에서 제외)
+  // 합계 행 (박스수는 실제 재고 이동이 있는 납품완료·반품 건만 집계 — 미납품·발주취소는 제외,
+  //          반품은 부호 보정하여 차감)
   const totalNet   = scopeOrders.reduce((s, o) => s + calcNetDelivery(o), 0);
-  const totalBoxes = scopeOrders.filter(o => o.deliveryStatus !== 'cancelled').reduce((s, o) => s + calcOrderBoxes(o), 0);
+  const totalBoxes = scopeOrders
+    .filter(o => o.deliveryStatus === 'delivered' || o.deliveryStatus === 'returned')
+    .reduce((s, o) => s + calcOrderBoxes(o) * _boxSign(o), 0);
   rows.push([]);
   rows.push(['합계', '', '', '', '', '', '', '', totalBoxes.toFixed(1), '', totalNet, '', '']);
 
