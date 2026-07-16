@@ -2,10 +2,26 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.3.11
+  Version : v3.3.12
   Released: 2026-07-16
   ────────────────────────────────────────
   CHANGELOG
+  v3.3.12 (2026-07-16)
+    - [NEW] 서류번호·발주번호 중복 필터 추가. 기존에는 업로드 미리보기
+      단계(analyzer.js)에서 새로 올리는 문서가 이미 저장된 발주와
+      겹치는지만 확인했고, 이미 저장된 발주들끼리의 중복은 확인할 방법이
+      없었음 — 사용자 확인 후 보강.
+    - helpers.js에 _computeDupOrderIdSet() 추가: 저장된 전체 발주 중
+      서류번호 또는 발주번호가 같은 건들을 찾아 id Set으로 반환
+      (반품서는 원본 발주 번호를 그대로 참조하는 경우가 많아 제외 —
+      업로드 미리보기의 기존 중복 판별 기준과 동일).
+    - 발주목록 탭에 "⚠️ 서류번호·발주번호 중복만 보기" 토글 칩 추가
+      (카테고리·상태·검색·기간 필터와 함께 AND로 적용됨). 목록 상단
+      건수 옆에 전체 중복 건수(⚠️중복 N)도 항상 표시.
+    - 중복에 해당하는 발주는 필터를 켜지 않아도 카드에 ⚠️ 중복 뱃지가
+      바로 보이도록 orderCard()에 dupIdSet 파라미터 추가 (발주목록·
+      대시보드 최근내역 양쪽에 적용).
+
   v3.3.11 (2026-07-16)
     - [NEW] 발주목록 탭 · 반품(deliveryStatus='returned') 카드에 "확인"
       체크박스 추가. 반품 물품을 실제로 확인한 뒤 체크해두는 개인용
@@ -301,7 +317,7 @@
   // 막기 위해, 버전은 여기 한 곳에서만 관리하고 나머지는 이 값을 참조한다.
   // ⚠️ sw.js의 CACHE_NAME과 manifest.json의 description은 별도 실행 컨텍스트라
   //    이 값을 직접 참조할 수 없음 — 릴리즈 시 그 두 곳만 수동으로 맞춰줄 것.
-  const APP_VERSION = 'v3.3.11';
+  const APP_VERSION = 'v3.3.12';
   document.title = '이른아침 · 발주관리 ' + APP_VERSION;
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -526,6 +542,8 @@ body{
 .chip.c-delivered.active{background:var(--delivered);border-color:var(--delivered);}
 .chip.c-returned.active{background:var(--returned);border-color:var(--returned);}
 .chip.c-cancelled.active{background:var(--cancelled);border-color:var(--cancelled);}
+.chip.c-dup{color:#92400e;border-color:#f3d38a;}
+.chip.c-dup.active{background:#f59e0b;border-color:#f59e0b;color:#fff;}
 
 /* 균등분할 칩 행: 보관함 등 텍스트가 잘리지 않도록 각 칩이 동일한 너비를 가짐 */
 .chips-equal{overflow-x:visible;}
@@ -899,6 +917,10 @@ body{
         <button class="chip" onclick="filterStatus('pending',this)">미납품</button>
         <button class="chip c-cancelled" onclick="filterStatus('cancelled',this)">🚫취소</button>
         <button class="chip c-archived" onclick="filterStatus('archived',this)">📦 보관함</button>
+      </div>
+      <!-- 서류번호·발주번호 중복 필터 (다른 필터와 함께 적용되는 토글) -->
+      <div class="chips" id="dup-chips">
+        <button class="chip c-dup" id="dup-toggle-chip" onclick="toggleDupOnly(this)">⚠️ 서류번호·발주번호 중복만 보기</button>
       </div>
       <div id="orders-list"></div>
     </div>
