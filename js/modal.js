@@ -33,13 +33,16 @@ function openModal(id) {
     <table class="items-tbl">
       <thead><tr><th>품목</th><th>수량</th><th>박스</th><th>단가</th><th>금액</th></tr></thead>
       <tbody>
-        ${(o.items || []).map(i => `<tr>
+        ${(o.items || []).map(i => {
+          const boxWarn = _boxRatioWarning(i);
+          return `<tr>
           <td>${escapeHtml(i.desc)}</td>
           <td style="font-family:monospace;">${fmtQ(i)}</td>
-          <td style="font-family:monospace;">${formatBoxCount(calcItemBoxCount(i))}</td>
+          <td style="font-family:monospace;${boxWarn ? 'color:#c2410c;font-weight:700;background:#fff7ed;' : ''}"${boxWarn ? ` title="${escapeHtml(boxWarn)}"` : ''}>${formatBoxCount(calcItemBoxCount(i))}${boxWarn ? ' ⚠️' : ''}</td>
           <td style="font-family:monospace;">${i.price ? '₩' + Number(i.price).toLocaleString() : '-'}</td>
           <td style="font-family:monospace;font-weight:700;">${i.amount ? '₩' + Number(i.amount).toLocaleString() : '-'}</td>
-        </tr>`).join('')}
+        </tr>${boxWarn ? `<tr><td colspan="5" style="font-size:10px;color:#9a3412;background:#ffedd5;padding:5px 8px;">${escapeHtml(boxWarn)}</td></tr>` : ''}`;
+        }).join('')}
         <tr class="tr">
           <td colspan="4">TOTAL</td>
           <td style="font-family:monospace;">${fmt(o.total)}</td>

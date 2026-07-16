@@ -285,13 +285,16 @@ function renderPreview() {
       <table class="prev-table">
         <thead><tr><th>품목</th><th>수량</th><th>박스</th><th>단가</th><th>금액</th></tr></thead>
         <tbody>
-          ${(o.items || []).map(i => `<tr>
+          ${(o.items || []).map(i => {
+            const boxWarn = _boxRatioWarning(i);
+            return `<tr>
             <td>${escapeHtml(i.desc) || '-'}</td>
             <td style="font-family:monospace;${(i.qty||0)<0?'color:#dc2626;':''}">${fmtQ(i)}</td>
-            <td style="font-family:monospace;${(i.qty||0)<0?'color:#dc2626;':''}">${formatBoxCount(calcItemBoxCount(i))}</td>
+            <td style="font-family:monospace;${(i.qty||0)<0?'color:#dc2626;':''}${boxWarn ? 'color:#c2410c;font-weight:700;background:#fff7ed;' : ''}"${boxWarn ? ` title="${escapeHtml(boxWarn)}"` : ''}>${formatBoxCount(calcItemBoxCount(i))}${boxWarn ? ' ⚠️' : ''}</td>
             <td style="font-family:monospace;">${i.price ? '\u20a9' + Number(i.price).toLocaleString() : '-'}</td>
             <td style="font-family:monospace;font-weight:700;${(i.amount||0)<0?'color:#dc2626;':''}">${i.amount ? '\u20a9' + Number(i.amount).toLocaleString() : '-'}</td>
-          </tr>`).join('')}
+          </tr>${boxWarn ? `<tr><td colspan="5" style="font-size:10px;color:#9a3412;background:#ffedd5;padding:5px 8px;">${escapeHtml(boxWarn)}</td></tr>` : ''}`;
+          }).join('')}
           <tr class="total-row">
             <td colspan="3">TOTAL</td>
             <td colspan="2" style="${isReturnDoc?'color:#dc2626;':''}">${fmt(o.total)}</td>

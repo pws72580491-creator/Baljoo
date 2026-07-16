@@ -140,6 +140,33 @@ function calcItemBoxCount(item) {
   return Number(item.qty) / d;
 }
 
+// 품목 설명(desc)에서 파싱한 "NNN DOZ/BOX" · "NNN PCS/BOX" 배수가 이 앱의
+// 표준 배수(DOZ 30 / PCS·EA 360)와 3배 이상 차이나면 경고 메시지를 반환한다.
+// AI가 원본 발주서 숫자를 잘못 읽었을 가능성(예: "30"→"300" 0 오인식)을
+// 저장 전 미리보기 단계에서 사용자에게 알리기 위함 — 값을 임의로 고치지는 않음.
+function _boxRatioWarning(item) {
+  if (!item || !item.desc || _isQuailEgg(item)) return null;
+  const unitNorm = String(item.unit || '').toLowerCase().replace(/[^a-z]/g, '');
+  const isBoxUnit = unitNorm === 'box' || unitNorm === 'ctn' || unitNorm === 'case' || unitNorm === 'carton' || unitNorm === 'ct';
+  if (isBoxUnit) return null;
+
+  const mPcs = String(item.desc).match(/(\d+)\s*(?:PCS|EA)[\s\/]*(?:BOX|CTN|CS|CASE)/i);
+  const mDoz = String(item.desc).match(/(\d+)\s*(?:DOZ|DOZEN)[\s\/]*(?:BOX|CTN|CS|CASE)/i);
+  const m = mPcs || mDoz;
+  if (!m) return null;
+
+  const parsed   = Number(m[1]);
+  const standard = getBoxDivisor(mPcs ? 'pcs' : 'doz'); // 360 or 30
+  if (!parsed || !standard) return null;
+
+  const ratio = parsed / standard;
+  if (ratio >= 3 || ratio <= 1 / 3) {
+    const unitLabel = mPcs ? '개' : '다스';
+    return `⚠️ 품목설명 "${m[0]}" 인식 — 통상 박스당 ${standard}${unitLabel}인데 ${parsed}${unitLabel}로 읽혔습니다. 원본 발주서를 확인해주세요.`;
+  }
+  return null;
+}
+
 function formatBoxCount(bc) {
   if (!bc) return '0박스';
   return (bc % 1 === 0) ? `${bc}박스` : `${bc.toFixed(1)}박스`;
