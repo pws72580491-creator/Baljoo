@@ -45,9 +45,15 @@ async function getDb() {
   return _db;
 }
 
-// 인증 관련 에러(콘솔에서 익명 로그인을 아직 활성화하지 않은 경우)를 사람이 읽을 수 있게 보강
+// 인증 관련 에러를 사람이 읽을 수 있게 보강
 function _friendlyFbError(e) {
   const msg = e?.message || String(e);
+  // Authentication 자체가 프로젝트에서 아직 한 번도 초기화(Get started)되지 않은 경우.
+  // "익명 로그인만 꺼져있는" operation-not-allowed와는 원인이 다르므로 별도 안내가 필요함.
+  if (/configuration-not-found/.test(msg)) {
+    return msg + ' — Firebase 콘솔 → Authentication에서 "시작하기(Get started)"를 아직 누르지 않았을 가능성이 높습니다. '
+      + 'Authentication 메뉴에 처음 들어가 시작하기 → Sign-in method 탭에서 "익명" 로그인을 사용 설정해주세요.';
+  }
   if (/operation-not-allowed|admin-restricted/.test(msg)) {
     return msg + ' — Firebase 콘솔 → Authentication → Sign-in method에서 "익명" 로그인을 활성화해주세요.';
   }
