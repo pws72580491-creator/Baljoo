@@ -249,6 +249,24 @@ function calcNetDelivery(order) {
   return 0;
 }
 
+// ── 서류번호·발주번호 중복 검사 (저장된 발주 전체 대상) ──
+// 반품서(isReturn)는 원본 발주의 서류번호/발주번호를 그대로 참조하는 경우가 많아
+// 중복 판정에서 제외한다 (업로드 미리보기 단계의 중복 판별과 동일한 기준 —
+// analyzer.js의 renderPreview() 참고).
+function _computeDupOrderIdSet() {
+  const docMap = new Map(); // docNo -> [id, ...]
+  const poMap  = new Map(); // poNo  -> [id, ...]
+  orders.forEach(o => {
+    if (o.isReturn) return;
+    if (o.docNo) { if (!docMap.has(o.docNo)) docMap.set(o.docNo, []); docMap.get(o.docNo).push(o.id); }
+    if (o.poNo)  { if (!poMap.has(o.poNo))  poMap.set(o.poNo, []);  poMap.get(o.poNo).push(o.id); }
+  });
+  const dupIds = new Set();
+  docMap.forEach(ids => { if (ids.length > 1) ids.forEach(id => dupIds.add(id)); });
+  poMap.forEach(ids  => { if (ids.length > 1) ids.forEach(id => dupIds.add(id)); });
+  return dupIds;
+}
+
 // ── 필터된 발주 목록 ──
 // ── 정렬 상태: 'date_desc'|'date_asc'|'name_asc'|'name_desc' ──
 let sortMode = 'date_desc';
@@ -257,13 +275,15 @@ function filtered() {
   const from = document.getElementById('fDateFrom')?.value || '';
   const to   = document.getElementById('fDateTo')?.value   || '';
   const isArchiveMode = statusMode === 'archived';
+  const dupIds = dupOnlyMode ? _computeDupOrderIdSet() : null;
   const list = orders
     .filter(o => isArchiveMode ? !!o.archived : !o.archived)
     .filter(o => filterMode === 'all' || o.category === filterMode)
     .filter(o => isArchiveMode || statusMode === 'all' || o.deliveryStatus === statusMode)
     .filter(o => !searchQ || (o.ship + o.docNo + o.poNo).toLowerCase().includes(searchQ.toLowerCase()))
     .filter(o => !from || o.date >= from)
-    .filter(o => !to   || o.date <= to);
+    .filter(o => !to   || o.date <= to)
+    .filter(o => !dupOnlyMode || dupIds.has(o.id));
 
   list.sort((a, b) => {
     switch (sortMode) {

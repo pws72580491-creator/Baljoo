@@ -3,9 +3,10 @@
 // ══════════════════════════════════════════════════════
 
 // ── 필터 상태 ──
-let filterMode = 'all';
-let statusMode = 'all';
-let searchQ    = '';
+let filterMode  = 'all';
+let statusMode  = 'all';
+let searchQ     = '';
+let dupOnlyMode = false; // 서류번호·발주번호 중복 건만 보기 (다른 필터와 함께 AND로 적용)
 
 // ── 일괄납품 상태 ──
 let isBulkMode   = false;
@@ -135,12 +136,13 @@ function renderAll() {
   document.getElementById('ds-net-amt').textContent       = fmt(netAmt);
 
   // 대시보드 최근 목록 — 납품완료 + 반품 + 발주취소 표시 (보관건 제외, 해당 월)
+  const dupIdSet = _computeDupOrderIdSet(); // 서류번호·발주번호 중복 (양쪽 목록에서 공용)
   const recent = [...monthOrders]
     .filter(o => !o.archived && (o.deliveryStatus === 'delivered' || o.deliveryStatus === 'cancelled' || o.deliveryStatus === 'returned'))
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 10);
   document.getElementById('dash-list').innerHTML = recent.length
-    ? recent.map(o => orderCard(o, false)).join('')
+    ? recent.map(o => orderCard(o, false, dupIdSet)).join('')
     : '<div class="empty"><div class="empty-icon">📦</div><div class="empty-t">납품완료 내역 없음</div></div>';
 
   // 날짜별 기록 (펼쳐진 상태면 즉시 재렌더)
@@ -153,17 +155,18 @@ function renderAll() {
   // 발주 목록
   const list = filtered();
   const archivedCnt = orders.filter(o => !!o.archived).length;
+  const dupCnt = dupIdSet.size;
   const subTxt = statusMode === 'archived'
     ? `보관함 ${list.length}건`
-    : `${list.length}건${archivedCnt > 0 ? ` · 📦보관 ${archivedCnt}` : ''}`;
+    : `${list.length}건${archivedCnt > 0 ? ` · 📦보관 ${archivedCnt}` : ''}${dupCnt > 0 ? ` · ⚠️중복 ${dupCnt}` : ''}`;
   document.getElementById('o-sub').textContent      = subTxt;
   document.getElementById('orders-list').innerHTML  = list.length
-    ? list.map(o => orderCard(o, true)).join('')
+    ? list.map(o => orderCard(o, true, dupIdSet)).join('')
     : `<div class="empty"><div class="empty-icon">${statusMode === 'archived' ? '📦' : '📭'}</div><div class="empty-t">${statusMode === 'archived' ? '보관된 발주가 없습니다' : '결과 없음'}</div></div>`;
 }
 
 // ── 발주 카드 HTML ──
-function orderCard(o, showDel) {
+function orderCard(o, showDel, dupIdSet) {
   const item        = o.items?.[0] || {};
   const isReturnDoc = !!o.isReturn;
   const delBtn      = showDel
@@ -183,6 +186,10 @@ function orderCard(o, showDel) {
   // 반품서 뱃지 (업로드된 반품서만)
   const returnDocBadge = isReturnDoc
     ? `<span class="badge b-returned" style="font-size:10px;">↩️ 반품서</span>`
+    : '';
+  // 서류번호·발주번호 중복 뱃지 (dupIdSet이 전달된 경우에만 표시)
+  const dupBadge = (dupIdSet && dupIdSet.has(o.id))
+    ? `<span class="badge" style="background:#fef3c7;color:#92400e;" title="서류번호 또는 발주번호가 다른 발주와 동일합니다">⚠️ 중복</span>`
     : '';
   // 금액 색상: 반품서는 빨간색, 발주취소는 취소선
   const amtStyle = isReturnDoc ? 'color:#dc2626;font-weight:700;' : isCancelledCard ? 'text-decoration:line-through;color:var(--muted);' : '';
@@ -235,6 +242,7 @@ function orderCard(o, showDel) {
       ${badge(o.category)}
       ${returnDocBadge}
       ${archivedBadge}
+      ${dupBadge}
       ${isReturnDoc ? '' : statusBadge(o.deliveryStatus || 'pending')}
       ${delBtn}
     </div>
@@ -261,6 +269,13 @@ function filterStatus(m, btn) {
   statusMode = m;
   document.querySelectorAll('#status-chips .chip').forEach(c => c.classList.remove('active'));
   btn.classList.add('active');
+  renderAll();
+}
+
+// 서류번호·발주번호 중복 건만 보기 토글 — 다른 필터(카테고리/상태/검색/기간)와 함께 AND로 적용됨
+function toggleDupOnly(btn) {
+  dupOnlyMode = !dupOnlyMode;
+  btn.classList.toggle('active', dupOnlyMode);
   renderAll();
 }
 
