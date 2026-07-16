@@ -2,10 +2,19 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.3.10
+  Version : v3.3.11
   Released: 2026-07-16
   ────────────────────────────────────────
   CHANGELOG
+  v3.3.11 (2026-07-16)
+    - [NEW] 발주목록 탭 · 반품(deliveryStatus='returned') 카드에 "확인"
+      체크박스 추가. 반품 물품을 실제로 확인한 뒤 체크해두는 개인용
+      체크리스트 용도로, 납품현황 더블체크와 동일하게 localStorage에
+      기기별로만 저장되며 다른 기기·직원과는 공유되지 않음. 체크 시
+      카드가 흐리게(opacity .55) 표시되어 처리 여부를 한눈에 구분 가능.
+      대시보드 최근내역 카드는 중복 표시를 피하기 위해 이 체크박스에서
+      제외됨(발주목록 탭에서만 노출).
+
   v3.3.10 (2026-07-16)
     - [NEW] 품목설명(desc)에서 파싱한 "NNN DOZ/BOX"·"NNN PCS/BOX" 배수가
       이 앱의 표준 배수(DOZ 30 / PCS·EA 360)와 3배 이상 차이나면 경고를
@@ -292,7 +301,7 @@
   // 막기 위해, 버전은 여기 한 곳에서만 관리하고 나머지는 이 값을 참조한다.
   // ⚠️ sw.js의 CACHE_NAME과 manifest.json의 description은 별도 실행 컨텍스트라
   //    이 값을 직접 참조할 수 없음 — 릴리즈 시 그 두 곳만 수동으로 맞춰줄 것.
-  const APP_VERSION = 'v3.3.10';
+  const APP_VERSION = 'v3.3.11';
   document.title = '이른아침 · 발주관리 ' + APP_VERSION;
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
