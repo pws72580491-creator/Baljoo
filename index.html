@@ -2,10 +2,22 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.3.9
+  Version : v3.3.10
   Released: 2026-07-16
   ────────────────────────────────────────
   CHANGELOG
+  v3.3.10 (2026-07-16)
+    - [NEW] 품목설명(desc)에서 파싱한 "NNN DOZ/BOX"·"NNN PCS/BOX" 배수가
+      이 앱의 표준 배수(DOZ 30 / PCS·EA 360)와 3배 이상 차이나면 경고를
+      표시하는 _boxRatioWarning() 추가 (helpers.js). AI가 원본 발주서의
+      숫자를 잘못 읽어(예: "30"→"300", 0 오인식) 박스 수가 크게 틀어지는
+      사례가 사용자 제보로 확인됨 (WOODSIDE BILANGAMA 건, 150doz를
+      300doz/box로 나눠 0.5박스로 계산 — 실제는 30doz/box, 5박스가 맞음).
+    - [NEW] 업로드 미리보기(analyzer.js)와 발주 상세 모달(modal.js)의
+      품목 테이블에 위 경고가 뜨면 박스 칸을 주황색으로 강조하고 ⚠️ 아이콘 +
+      안내 문구를 표시. 값을 임의로 고치지는 않고 저장 전(또는 저장된
+      과거 건 조회 시) 사용자가 원본과 대조해 직접 확인하도록 함.
+
   v3.3.9 (2026-07-16)
     - [FIX] 납품현황 탭 날짜별 카드의 선명/박스/금액 테이블에서 금액(및
       박스) 열이 화면 우측 바깥으로 밀려 마지막 글자가 잘려 보이던 문제
@@ -280,7 +292,7 @@
   // 막기 위해, 버전은 여기 한 곳에서만 관리하고 나머지는 이 값을 참조한다.
   // ⚠️ sw.js의 CACHE_NAME과 manifest.json의 description은 별도 실행 컨텍스트라
   //    이 값을 직접 참조할 수 없음 — 릴리즈 시 그 두 곳만 수동으로 맞춰줄 것.
-  const APP_VERSION = 'v3.3.9';
+  const APP_VERSION = 'v3.3.10';
   document.title = '이른아침 · 발주관리 ' + APP_VERSION;
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
