@@ -210,8 +210,21 @@ function orderCard(o, showDel) {
     clickHandler = `onclick="openModal('${o.id}')"`;
   }
 
+  // 반품 확인 체크 (발주목록에서만 표시 — 대시보드 최근내역과 id 중복 방지)
+  const isReturnedForChk = showDel && o.deliveryStatus === 'returned';
+  const isReturnChecked  = isReturnedForChk && _isReturnChecked(o.id);
+  const returnChkHtml    = isReturnedForChk
+    ? `<label style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);cursor:pointer;" onclick="event.stopPropagation();">
+         <input type="checkbox" id="retchk-${o.id}" ${isReturnChecked ? 'checked' : ''}
+                onclick="toggleReturnChk('${o.id}', event)"
+                title="반품 확인 표시 (내 기기에만 저장)"
+                style="width:16px;height:16px;cursor:pointer;accent-color:#dc2626;">
+         확인${isReturnChecked ? '됨' : ''}
+       </label>`
+    : '';
+
   return `
-  <div class="order-card ${statusClass}${isReturnDoc ? ' is-return-doc' : ''}${o.archived ? ' archived-card' : ''}${bulkClass}" ${clickHandler}>
+  <div id="ordercard-${o.id}" class="order-card ${statusClass}${isReturnDoc ? ' is-return-doc' : ''}${o.archived ? ' archived-card' : ''}${bulkClass}"${isReturnChecked ? ' style="opacity:.55;"' : ''} ${clickHandler}>
     ${bulkChk}
     <div class="oc-top">
       <div class="oc-ship">${escapeHtml(o.ship)}</div>
@@ -232,7 +245,7 @@ function orderCard(o, showDel) {
         <span class="oc-dates">${escapeHtml(o.date)}${o.delivery ? ' → ' + escapeHtml(o.delivery) : ''}</span>
       </div>
     </div>
-    ${netStr ? `<div class="oc-status-row">${netStr}</div>` : ''}
+    ${netStr ? `<div class="oc-status-row">${netStr}${returnChkHtml}</div>` : ''}
   </div>`;
 }
 
@@ -1212,6 +1225,30 @@ function toggleDblCheck(id, ev) {
   const row = document.getElementById('dblrow-' + id);
   if (cb)  cb.checked = willCheck;
   if (row) row.style.opacity = willCheck ? '.55' : '1';
+}
+
+// ── 발주목록 반품 확인 체크 (기기별 저장, 더블체크와 동일한 방식·다른 기기와는 공유되지 않음) ──
+const RETURN_CHK_KEY = 'orderReturnCheck';
+function _loadReturnChkSet() {
+  try { return new Set(JSON.parse(localStorage.getItem(RETURN_CHK_KEY) || '[]')); }
+  catch(e) { return new Set(); }
+}
+function _saveReturnChkSet(set) {
+  try { localStorage.setItem(RETURN_CHK_KEY, JSON.stringify([...set])); } catch(e) {}
+}
+function _isReturnChecked(id) {
+  return _loadReturnChkSet().has(id);
+}
+function toggleReturnChk(id, ev) {
+  if (ev) ev.stopPropagation(); // 체크박스 클릭이 카드 전체의 openModal로 번지지 않도록 차단
+  const set = _loadReturnChkSet();
+  const willCheck = !set.has(id);
+  if (willCheck) set.add(id); else set.delete(id);
+  _saveReturnChkSet(set);
+  const cb   = document.getElementById('retchk-' + id);
+  const card = document.getElementById('ordercard-' + id);
+  if (cb)   cb.checked = willCheck;
+  if (card) card.style.opacity = willCheck ? '.55' : '1';
 }
 
 // ── 납품현황 날짜 그룹 접기/펼치기 ──
