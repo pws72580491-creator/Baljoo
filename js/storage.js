@@ -83,6 +83,8 @@ function resetOrders() {
   if (!confirm('발주 목록 전체를 초기화할까요?\n저장된 모든 내역이 삭제됩니다.')) return;
   orders = [];
   save();
+  // v3.3.14: 전체 초기화 시 더블체크·반품확인 표시도 함께 정리 (모든 id가 사라지므로)
+  try { localStorage.removeItem('deliveryDblCheck'); localStorage.removeItem('orderReturnCheck'); } catch(e) {}
   renderAll();
   toast('🗑️ 목록 초기화 완료');
 }

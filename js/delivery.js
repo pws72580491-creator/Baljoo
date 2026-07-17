@@ -13,7 +13,6 @@ function onDropDelivery(e) {
 }
 
 function setDelStatus(m)   { document.getElementById('delStatus').textContent = m; }
-function escAttr(s) { return String(s).replace(/"/g, '&quot;'); }
 function setDelProgress(p) { document.getElementById('delProgBar').style.width = p + '%'; }
 
 async function handleDeliveryFiles(files) {
@@ -129,7 +128,9 @@ function renderDeliveryResult(result) {
     return order ? { ...m, order } : null;
   }).filter(Boolean);
 
-  const pendingOrders = matchedOrders.filter(m => !['delivered', 'cancelled', 'returned'].includes(m.order.deliveryStatus));
+  // v3.3.14: analyzer.js의 전역 pendingOrders(업로드 미리보기 큐)와 이름이 겹쳐 헷갈리기 쉬웠던
+  // 지역변수 이름을 정리 (동작에는 영향 없던 단순 네이밍 충돌).
+  const undeliveredMatches = matchedOrders.filter(m => !['delivered', 'cancelled', 'returned'].includes(m.order.deliveryStatus));
   const totalCnt = result.totalCount ?? matched.length;
   const todayVal = todayStr();
 
@@ -148,7 +149,7 @@ function renderDeliveryResult(result) {
       <div class="sdiv" style="margin-top:0;">이른아침 매칭된 발주 (${matchedOrders.length}건)</div>
 
       <!-- 전체선택 + 선택 카운트 -->
-      ${pendingOrders.length ? `
+      ${undeliveredMatches.length ? `
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;
                   padding:8px 12px;background:#f8fafc;border-radius:8px;">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:700;color:var(--navy);">
@@ -164,7 +165,7 @@ function renderDeliveryResult(result) {
         <div class="prev-card" style="border-left:3px solid ${m.order.deliveryStatus === 'delivered' ? '#86efac' : 'var(--success)'};">
           <div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;">
             ${!['delivered', 'cancelled', 'returned'].includes(m.order.deliveryStatus) ? `
-            <input type="checkbox" data-del-id="${escAttr(m.order.id)}" onchange="delUpdateCount()"
+            <input type="checkbox" data-del-id="${escapeHtml(m.order.id)}" onchange="delUpdateCount()"
                    style="width:20px;height:20px;margin-top:2px;flex-shrink:0;accent-color:var(--navy);">
             ` : `<span style="font-size:18px;flex-shrink:0;">${
               m.order.deliveryStatus === 'delivered' ? '✅' : m.order.deliveryStatus === 'cancelled' ? '🚫' : '↩️'
@@ -187,7 +188,7 @@ function renderDeliveryResult(result) {
       `).join('')}
 
       <!-- 납품 날짜 선택 + 처리 버튼 -->
-      ${pendingOrders.length ? `
+      ${undeliveredMatches.length ? `
       <div style="margin-top:14px;padding:14px;background:#f8fafc;border-radius:12px;">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
           <span style="font-size:13px;font-weight:700;color:var(--navy);white-space:nowrap;">📅 납품 날짜</span>

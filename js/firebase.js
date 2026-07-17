@@ -71,16 +71,57 @@ let _syncRetryCount = 0;
 const SYNC_MAX_RETRY = 3;
 const SYNC_RETRY_BASE = 5000; // 5초, 10초, 20초
 
+// v3.3.14 fix: 전체 노드 덮어쓰기(set) → runTransaction 기반 병합으로 변경.
+// 기존엔 자동동기화·수동백업 모두 set(ref('baljoo/backup'), {orders: 전체배열, ...})로
+// 매번 "이 기기가 알고 있는 전체 목록"을 통째로 덮어썼다. 두 기기(또는 두 탭)를
+// 동시에 쓰는 경우, A가 방금 추가/수정한 발주를 B가 아직 로컬에 받기 전 상태에서
+// B가 먼저 동기화를 돌리면 B의 (A의 변경분이 빠진) 배열이 A의 변경분을 그대로
+// 지워버리는 문제가 있었음 — 사용 패턴상 괜찮을 거라 보고 넘어갔던 부분인데,
+// 의도적으로 남겨둔 게 아니었으므로 정식으로 수정.
+// → runTransaction()으로 baljoo/backup을 갱신: 트랜잭션 함수는 "현재 원격 값"을
+//   받아 (1) 내가 로컬에서 지운 id만 골라 제거하고 (2) 내가 갖고 있는 최신 발주로
+//   덮어쓴 뒤 나머지(내가 모르는 다른 기기의 항목)는 그대로 둔 배열을 반환한다.
+//   Firebase가 중간에 다른 기기의 변경이 커밋된 걸 감지하면 최신 값으로 자동
+//   재시도하므로, 내가 모르는 사이 다른 기기가 추가/수정한 발주는 보존된다.
+//   백업 데이터 형태(orders 배열 + backedAt/count/version)는 이전과 완전히 동일해
+//   fbRestore()나 과거 백업과의 호환성에 영향 없음.
+const SYNCED_IDS_KEY = 'fbSyncedOrderIds'; // 이 기기가 마지막으로 성공 동기화한 id 목록(삭제 판정 기준)
+
+function _getSyncedIds() {
+  try { return new Set(JSON.parse(localStorage.getItem(SYNCED_IDS_KEY) || '[]')); }
+  catch(e) { return new Set(); }
+}
+function _setSyncedIds(idSet) {
+  try { localStorage.setItem(SYNCED_IDS_KEY, JSON.stringify([...idSet])); } catch(e) {}
+}
+
+async function _mergeOrdersTransaction(db) {
+  const { ref, runTransaction } = await import(FB_DB_URL);
+  const localById = new Map(orders.filter(o => o.id).map(o => [o.id, o]));
+  // 마지막 동기화 땐 있었는데 지금 로컬엔 없는 id = 이 기기에서 삭제된 것
+  const deletedIds = _getSyncedIds();
+  localById.forEach((_, id) => deletedIds.delete(id));
+
+  const result = await runTransaction(ref(db, 'baljoo/backup'), (current) => {
+    const remoteOrders = Array.isArray(current?.orders) ? current.orders : [];
+    const merged = new Map(remoteOrders.filter(o => o && o.id).map(o => [o.id, o]));
+    deletedIds.forEach(id => merged.delete(id));      // 내가 지운 것만 반영
+    localById.forEach((o, id) => merged.set(id, o));  // 내가 아는 최신 값으로 덮어씀
+    return {
+      orders:   [...merged.values()],
+      backedAt: new Date().toISOString(),
+      count:    merged.size,
+      version:  (typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown')
+    };
+  });
+  if (result.committed) _setSyncedIds(new Set(localById.keys()));
+  return result;
+}
+
 async function _doAutoSync() {
   try {
-    const { ref, set } = await import(FB_DB_URL);
     const db = await getDb();
-    await set(ref(db, 'baljoo/backup'), {
-      orders,
-      backedAt: new Date().toISOString(),
-      count:    orders.length,
-      version:  (typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown')
-    });
+    await _mergeOrdersTransaction(db);
     _syncRetryCount = 0;  // 성공 시 재시도 카운터 초기화
     setFbStatus(`☁️ 자동 동기화 완료 (${new Date().toLocaleTimeString('ko-KR')})`, 'var(--success)');
   } catch (e) {
@@ -107,15 +148,8 @@ function scheduleAutoSync() {
 window.fbBackup = async function() {
   try {
     setFbStatus('백업 중...');
-    const { ref, set } = await import(FB_DB_URL);
-    const db   = await getDb();
-    const data = {
-      orders,
-      backedAt: new Date().toISOString(),
-      count:    orders.length,
-      version:  (typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown')
-    };
-    await set(ref(db, 'baljoo/backup'), data);
+    const db = await getDb();
+    await _mergeOrdersTransaction(db);
     setFbStatus(`✅ 백업 완료 — ${orders.length}건 (${new Date().toLocaleString('ko-KR')})`, 'var(--success)');
     toast('☁️ Firebase 백업 완료');
   } catch (e) {
@@ -148,6 +182,9 @@ window.fbRestore = async function() {
     // (storage.js load()의 정규화 로직과 중복 실행되는 것을 방지)
     localStorage.setItem('baljuOrders_v2', JSON.stringify(data.orders));
     load();
+    // v3.3.14: 복원 직후를 "이 기기의 마지막 동기화 시점"으로 재설정해야
+    // 다음 자동동기화가 복원된 항목을 엉뚱하게 삭제 대상으로 오판하지 않음
+    _setSyncedIds(new Set(orders.map(o => o.id).filter(Boolean)));
     if (typeof window.renderAll === 'function') window.renderAll();
     else if (typeof renderAll === 'function') renderAll();
     const backedAt = data.backedAt ? new Date(data.backedAt).toLocaleString('ko-KR') : '알 수 없음';

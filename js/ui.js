@@ -1266,6 +1266,16 @@ function toggleReturnChk(id, ev) {
   if (card) card.style.opacity = willCheck ? '.55' : '1';
 }
 
+// v3.3.14 fix: 발주 삭제(개별/전체초기화) 시 더블체크·반품확인 표시도 함께 정리.
+// 그동안 orders에서 발주를 지워도 deliveryDblCheck·orderReturnCheck localStorage
+// Set에는 그 id가 계속 남아 데이터가 커질수록 조금씩 쌓이기만 했음.
+function _pruneOrderChecks(id) {
+  const dbl = _loadDblCheckSet();
+  if (dbl.delete(id)) _saveDblCheckSet(dbl);
+  const ret = _loadReturnChkSet();
+  if (ret.delete(id)) _saveReturnChkSet(ret);
+}
+
 // ── 납품현황 날짜 그룹 접기/펼치기 ──
 function toggleDelivDay(dayId) {
   const body  = document.getElementById(dayId);

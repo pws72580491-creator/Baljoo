@@ -236,6 +236,7 @@ function delOrder(id) {
     if (!confirm('삭제하시겠습니까?')) return;
     orders = orders.filter(o => o.id !== id);
     save();
+    _pruneOrderChecks(id); // v3.3.14: 삭제된 id의 더블체크/반품확인 표시도 함께 정리
     renderAll();
     toast('삭제되었습니다.');
   } catch (err) {
@@ -248,6 +249,21 @@ function delOrder(id) {
 // 발주 수정 모달
 // ══════════════════════════════════════════════════════
 let _editId = null;
+
+// v3.3.14 fix: 품목 단위 select 옵션 생성 헬퍼.
+// 기존엔 select 옵션이 box/pcs/doz/pkt 4개뿐이라, analyzer.js AI가 반환하는
+// ctn·kg·l·btl(그리고 구버전 데이터의 cs) 단위 품목을 수정 모달에서 열었다가
+// 단위를 건드리지 않고 그냥 저장만 눌러도 select가 첫 옵션(box)으로 조용히
+// 바뀌어 저장되는 문제가 있었다. kg/l/btl은 박스 환산 자체가 없는(0박스) 단위인데
+// box로 바뀌면 수량이 그대로 박스수로 잡혀버려 재고 집계가 틀어짐.
+// → 기본 옵션 목록에 없는 단위는 원래 값 그대로 옵션을 하나 추가해 선택해 두어
+//   어떤 단위든 손대지 않으면 절대 값이 바뀌지 않도록 함.
+const _EDIT_UNIT_BASE = [['box','박스'],['ctn','ctn'],['pcs','pcs'],['doz','doz'],['pkt','봉지'],['kg','kg'],['l','L'],['btl','병']];
+function _unitOptions(current) {
+  const known = _EDIT_UNIT_BASE.some(([v]) => v === current);
+  const list  = (known || !current) ? _EDIT_UNIT_BASE : [..._EDIT_UNIT_BASE, [current, current]];
+  return list.map(([v,l]) => `<option value="${escapeHtml(v)}"${current===v?' selected':''}>${escapeHtml(l)}</option>`).join('');
+}
 
 function openEditModal(id) {
   const o = orders.find(x => x.id === id);
@@ -266,9 +282,7 @@ function openEditModal(id) {
       <input type="text" id="ei-code-${idx}"  value="${escapeHtml(item.code)}" placeholder="CODE" enterkeyhint="next">
       <input type="number" id="ei-qty-${idx}" value="${item.qty||0}" step="any" min="0" inputmode="decimal" enterkeyhint="next" oninput="recalcEditItem(${idx})">
       <select id="ei-unit-${idx}">
-        ${[['box','박스'],['pcs','pcs'],['doz','doz'],['pkt','봉지']].map(([v,l]) =>
-          `<option value="${v}"${item.unit===v?' selected':''}>${l}</option>`
-        ).join('')}
+        ${_unitOptions(item.unit)}
       </select>
       <input type="text" id="ei-price-${idx}" value="${priceDisplay}" placeholder="단가"
         inputmode="numeric" enterkeyhint="next"
@@ -421,10 +435,7 @@ function addEditItem() {
       <input type="text"   id="ei-code-${idx}"  placeholder="CODE"    enterkeyhint="next">
       <input type="number" id="ei-qty-${idx}"   value="0" step="any" min="0" inputmode="decimal" enterkeyhint="next" oninput="recalcEditItem(${idx})">
       <select id="ei-unit-${idx}">
-        <option value="box">박스</option>
-        <option value="pcs">pcs</option>
-        <option value="doz">doz</option>
-        <option value="pkt">봉지</option>
+        ${_unitOptions('box')}
       </select>
       <input type="text" id="ei-price-${idx}" value="" placeholder="단가"
         inputmode="numeric" enterkeyhint="next"
