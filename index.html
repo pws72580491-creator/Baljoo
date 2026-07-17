@@ -2,10 +2,33 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.3.13
-  Released: 2026-07-16
+  Version : v3.3.14
+  Released: 2026-07-18
   ────────────────────────────────────────
   CHANGELOG
+  v3.3.14 (2026-07-18)
+    - [FIX] 발주 수정 모달의 품목 단위(unit) select에 box/pcs/doz/pkt 4개
+      옵션만 있어서, analyzer.js AI가 반환하는 ctn·kg·l·btl(및 구버전 cs)
+      단위 품목을 수정 모달에서 열었다가 단위를 건드리지 않고 저장만 눌러도
+      select가 첫 옵션(box)으로 조용히 바뀌어 저장되던 문제 수정. kg/l/btl은
+      박스 환산이 없는(0박스) 단위라 box로 바뀌면 수량이 그대로 박스수로
+      잡혀 재고 집계가 틀어짐. → 기본 옵션에 ctn·kg·l·btl 추가, 그래도 없는
+      값은 원래 단위 그대로 옵션을 하나 추가해 선택해 둠(_unitOptions()).
+    - [FIX] Firebase 자동동기화·수동백업이 매번 baljoo/backup 노드를
+      set()으로 전체 덮어쓰기 하던 방식 → runTransaction() 기반 병합으로
+      변경. 두 기기를 동시에 쓸 때 한쪽이 모르는 사이 다른 쪽이 추가·수정한
+      발주가 통째로 지워질 수 있던 레이스 컨디션 수정(의도적으로 남겨둔
+      것이 아니었음). 백업 데이터 형태는 이전과 동일해 fbRestore() 및 과거
+      백업과 호환됨.
+    - [FIX] delivery.js의 renderDeliveryResult() 내부 지역변수가
+      analyzer.js 전역 pendingOrders와 이름이 겹쳐 헷갈리기 쉬웠던 것을
+      정리(undeliveredMatches로 개명, 동작 변화 없음).
+    - [CLEANUP] delivery.js의 escAttr()이 helpers.js escapeHtml()과 사실상
+      중복이라 제거하고 escapeHtml()로 통일.
+    - [CLEANUP] 발주 삭제(개별/전체초기화) 시 더블체크·반품확인 표시
+      localStorage(deliveryDblCheck·orderReturnCheck)에 지운 id가 계속
+      남아 쌓이던 것을 정리하도록 함.
+
   v3.3.13 (2026-07-16)
     - [FIX] Firebase 백업 화면에서 "auth/configuration-not-found" 에러가
       기존 "익명 로그인 비활성화" 안내(operation-not-allowed)와 같은
@@ -328,7 +351,7 @@
   // 막기 위해, 버전은 여기 한 곳에서만 관리하고 나머지는 이 값을 참조한다.
   // ⚠️ sw.js의 CACHE_NAME과 manifest.json의 description은 별도 실행 컨텍스트라
   //    이 값을 직접 참조할 수 없음 — 릴리즈 시 그 두 곳만 수동으로 맞춰줄 것.
-  const APP_VERSION = 'v3.3.13';
+  const APP_VERSION = 'v3.3.14';
   document.title = '이른아침 · 발주관리 ' + APP_VERSION;
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
