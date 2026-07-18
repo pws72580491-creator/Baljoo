@@ -257,19 +257,29 @@ function calcNetDelivery(order) {
 // analyzer.js의 renderPreview()에서 이 함수 하나만 참조하도록 정리 —
 // 이전엔 같은 조건식이 두 군데(카드별 뱃지 / 상단 건수 집계)에 따로 박혀 있어
 // 기준을 바꿀 때 한쪽만 고치고 놓치기 쉬웠음.
+//
+// v3.3.16: 어느 필드(docNo/poNo)가 어떤 기존 발주와 겹쳤는지까지 반환하도록
+// _findDupMatch()로 확장. 화면엔 서류번호만 보이는데 실제로는 안 보이는
+// 거래처발주번호 쪽이 겹쳐서 중복 판정되는 경우, 사용자가 "왜 중복이라는데
+// 서류번호로 검색하면 안 나오지?"라며 헷갈리는 문제가 있었음 — 매칭된
+// 필드·값·상대 발주를 그대로 보여주면 바로 확인 가능해짐.
+function _findDupMatch(o) {
+  if (o.isReturn) return null;
+  if (!o.docNo && !o.poNo) return null;
+  for (const x of orders) {
+    if (o.docNo && x.docNo && x.docNo === o.docNo) return { order: x, field: 'docNo' };
+    if (o.poNo  && x.poNo  && x.poNo  === o.poNo)  return { order: x, field: 'poNo'  };
+  }
+  return null;
+}
 function _isDupOfSaved(o) {
-  if (o.isReturn) return false;
-  if (!o.docNo && !o.poNo) return false;
-  return orders.some(x =>
-    (o.docNo && x.docNo && x.docNo === o.docNo) ||
-    (o.poNo  && x.poNo  && x.poNo  === o.poNo)
-  );
+  return !!_findDupMatch(o);
 }
 
 // ── 서류번호·발주번호 중복 검사 (저장된 발주 전체 대상) ──
 // 반품서(isReturn)는 원본 발주의 서류번호/발주번호를 그대로 참조하는 경우가 많아
 // 중복 판정에서 제외한다 (업로드 미리보기 단계의 중복 판별과 동일한 기준 —
-// analyzer.js의 _isDupOfSaved() 참고).
+// analyzer.js의 _findDupMatch() 참고).
 function _computeDupOrderIdSet() {
   const docMap = new Map(); // docNo -> [id, ...]
   const poMap  = new Map(); // poNo  -> [id, ...]

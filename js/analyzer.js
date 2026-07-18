@@ -220,7 +220,13 @@ function renderPreview() {
     // 반품서는 중복 판별 대상에서 완전히 제외
     const isReturnDoc  = !!o.isReturn;
     const shipMissing  = !!o._shipMissing;
-    const isDup = _isDupOfSaved(o);
+    const dupMatch = _findDupMatch(o);
+    const isDup = !!dupMatch;
+
+    // v3.3.16: 중복 사유(어느 필드가 기존 어떤 발주와 겹쳤는지)를 사람이 읽을 수 있게 구성
+    const dupFieldLabel = dupMatch ? (dupMatch.field === 'docNo' ? '서류번호' : '거래처발주번호') : '';
+    const dupValue      = dupMatch ? (dupMatch.field === 'docNo' ? dupMatch.order.docNo : dupMatch.order.poNo) : '';
+    const dupShip       = dupMatch ? (dupMatch.order.ship || '선명없음') : '';
 
     // 뱃지: 반품서 / 선명누락 / 중복 / 신규
     const statusBadgeHtml = isReturnDoc
@@ -228,7 +234,7 @@ function renderPreview() {
       : shipMissing
         ? `<span class="badge" style="background:#fee2e2;color:#991b1b;margin-left:4px;">⚠️ 선명 누락</span>`
         : isDup
-          ? `<span class="badge" style="background:#fef3c7;color:#92400e;margin-left:4px;">⚠️ 중복</span>`
+          ? `<span class="badge" style="background:#fef3c7;color:#92400e;margin-left:4px;" title="${escapeHtml(dupFieldLabel)}(${escapeHtml(dupValue)})가 '${escapeHtml(dupShip)}' 발주와 동일">⚠️ 중복</span>`
           : `<span class="badge" style="background:#dcfce7;color:#15803d;margin-left:4px;">신규</span>`;
 
     // 카드 테두리: 반품서=빨강, 선명누락=주황-빨강, 중복=노랑, 신규=기본
@@ -240,13 +246,13 @@ function renderPreview() {
           ? 'border:2px solid #f59e0b;background:#fffbeb;'
           : '';
 
-    // 안내 메시지
+    // 안내 메시지 — 중복인 경우 어느 필드가 어떤 기존 발주와 겹쳤는지 구체적으로 표시
     const infoMsg = isReturnDoc
       ? `<div style="font-size:11px;color:#991b1b;background:#fee2e2;border-radius:6px;padding:5px 8px;grid-column:1/-1;">↩️ 반품서로 인식되었습니다. 기존 발주서는 유지되고 반품 내역으로 별도 추가됩니다.</div>`
       : shipMissing
         ? `<div style="font-size:11px;color:#9a3412;background:#ffedd5;border-radius:6px;padding:5px 8px;grid-column:1/-1;">⚠️ AI가 선명을 인식하지 못했습니다. 저장 전 선명을 직접 확인하거나 수정 후 저장하세요.</div>`
         : isDup
-          ? `<div style="font-size:11px;color:#92400e;background:#fde68a;border-radius:6px;padding:5px 8px;grid-column:1/-1;">⚠️ 이미 등록된 발주서입니다. 제거하거나 저장 시 기존 데이터를 덮어씁니다.</div>`
+          ? `<div style="font-size:11px;color:#92400e;background:#fde68a;border-radius:6px;padding:5px 8px;grid-column:1/-1;">⚠️ <b>${escapeHtml(dupFieldLabel)}</b>(${escapeHtml(dupValue)})가 기존 발주 "<b>${escapeHtml(dupShip)}</b>"와 동일합니다. 제거하거나 저장 시 기존 데이터를 덮어씁니다.</div>`
           : '';
 
     const totalStyle = isReturnDoc ? 'color:#dc2626;font-weight:700;' : '';
