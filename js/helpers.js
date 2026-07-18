@@ -263,12 +263,26 @@ function calcNetDelivery(order) {
 // 거래처발주번호 쪽이 겹쳐서 중복 판정되는 경우, 사용자가 "왜 중복이라는데
 // 서류번호로 검색하면 안 나오지?"라며 헷갈리는 문제가 있었음 — 매칭된
 // 필드·값·상대 발주를 그대로 보여주면 바로 확인 가능해짐.
+//
+// v3.3.17: 발주일자 일치까지 조건에 추가, 반품서는 비교 대상(x)에서도 제외.
+// 실사용 중 거래처가 서류번호·거래처발주번호를 재사용해 완전히 다른 날짜의
+// 새 발주를 넣었는데도 "이미 등록됨"으로 잘못 뜨는 사례 발견— 번호가 같아도
+// 발주일자가 다르면 별개 건으로 판단하도록 함. 또한 이전엔 x(비교 대상)에서
+// 반품서를 걸러내지 않아서, 원본 발주와 그 반품서가 같은 서류번호를 공유할 때
+// (반품서는 원본 번호를 그대로 참조) 배열 순서에 따라 반품서 쪽이 매칭되어
+// 엉뚱한 상대가 표시되거나(안내문구) saveAll()에서 잘못 덮어써질 수 있었음.
 function _findDupMatch(o) {
   if (o.isReturn) return null;
-  if (!o.docNo && !o.poNo) return null;
+  const oDoc = (o.docNo || '').trim();
+  const oPo  = (o.poNo  || '').trim();
+  if (!oDoc && !oPo) return null;
   for (const x of orders) {
-    if (o.docNo && x.docNo && x.docNo === o.docNo) return { order: x, field: 'docNo' };
-    if (o.poNo  && x.poNo  && x.poNo  === o.poNo)  return { order: x, field: 'poNo'  };
+    if (x.isReturn) continue;         // 반품서는 원본 서류번호를 그대로 참조 — 비교 대상에서 제외
+    if (x.date !== o.date) continue;  // 번호가 같아도 발주일자가 다르면 별개 건
+    const xDoc = (x.docNo || '').trim();
+    const xPo  = (x.poNo  || '').trim();
+    if (oDoc && xDoc && xDoc === oDoc) return { order: x, field: 'docNo' };
+    if (oPo  && xPo  && xPo  === oPo)  return { order: x, field: 'poNo'  };
   }
   return null;
 }
@@ -280,13 +294,15 @@ function _isDupOfSaved(o) {
 // 반품서(isReturn)는 원본 발주의 서류번호/발주번호를 그대로 참조하는 경우가 많아
 // 중복 판정에서 제외한다 (업로드 미리보기 단계의 중복 판별과 동일한 기준 —
 // analyzer.js의 _findDupMatch() 참고).
+// v3.3.17: _findDupMatch()와 동일하게 발주일자까지 같아야 중복 그룹으로 묶이도록
+// 키를 "번호|발주일자" 조합으로 변경 (번호 재사용에 대한 오탐 방지).
 function _computeDupOrderIdSet() {
-  const docMap = new Map(); // docNo -> [id, ...]
-  const poMap  = new Map(); // poNo  -> [id, ...]
+  const docMap = new Map(); // "docNo|date" -> [id, ...]
+  const poMap  = new Map(); // "poNo|date"  -> [id, ...]
   orders.forEach(o => {
     if (o.isReturn) return;
-    if (o.docNo) { if (!docMap.has(o.docNo)) docMap.set(o.docNo, []); docMap.get(o.docNo).push(o.id); }
-    if (o.poNo)  { if (!poMap.has(o.poNo))  poMap.set(o.poNo, []);  poMap.get(o.poNo).push(o.id); }
+    if (o.docNo) { const k = o.docNo + '|' + (o.date || ''); if (!docMap.has(k)) docMap.set(k, []); docMap.get(k).push(o.id); }
+    if (o.poNo)  { const k = o.poNo  + '|' + (o.date || ''); if (!poMap.has(k))  poMap.set(k, []);  poMap.get(k).push(o.id); }
   });
   const dupIds = new Set();
   docMap.forEach(ids => { if (ids.length > 1) ids.forEach(id => dupIds.add(id)); });

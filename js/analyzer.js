@@ -142,7 +142,14 @@ unit 선택 기준(중요):
       });
       parsed.returnAmount = Math.abs(parsed.total);
     } else {
-      parsed.id             = sanitizeId(parsed.docNo) || ('UP-' + Date.now());
+      // v3.3.17: id를 서류번호만으로 만들면, 거래처가 서류번호를 재사용해 만든
+      // "완전히 다른 날짜의 새 발주"가 기존 발주와 같은 id를 갖게 되어 저장 시
+      // 조용히 무시되는 문제가 있었음(방금 _findDupMatch에 추가한 발주일자 조건과
+      // 어긋남) — 서류번호+발주일자 조합으로 id를 만들어 이 둘을 맞춤.
+      const _docNoTrim = (parsed.docNo || '').trim();
+      parsed.id = _docNoTrim
+        ? (sanitizeId(_docNoTrim + '_' + (parsed.date || '')) || ('UP-' + Date.now()))
+        : ('UP-' + Date.now());
       parsed.isReturn       = false;
       parsed.deliveryStatus = 'pending';
       parsed.returnAmount   = 0;
@@ -349,24 +356,27 @@ function saveAll() {
       returnAdded++;
       return;
     }
-    // 일반 발주서: docNo 일치 시 업데이트
-    const docNo = (newOrder.docNo || '').trim();
-    if (docNo) {
-      const idx = orders.findIndex(x => !x.isReturn && (x.docNo || '').trim() === docNo);
-      if (idx !== -1) {
-        const prev = orders[idx];
-        orders[idx] = {
-          ...newOrder,
-          deliveryStatus: prev.deliveryStatus,
-          deliveryNote:   prev.deliveryNote,
-          returnAmount:   prev.returnAmount,
-          partialAmount:  prev.partialAmount,
-          deliveredDate:  prev.deliveredDate,   // 재분석으로 납품일자가 초기화되는 것 방지
-          archived:       prev.archived,        // 재분석으로 보관 상태가 풀리는 것 방지
-          updatedAt:      Date.now()
-        };
-        updated++; return;
-      }
+    // 일반 발주서: 미리보기 중복 판정(_findDupMatch)과 동일한 기준으로 겹치는
+    // 기존 건을 찾아 업데이트, 없으면 신규 추가. 이전엔 서류번호만 보고 찾아서
+    // 거래처가 서류번호를 재사용해 만든 완전히 다른(날짜가 다른) 새 발주를
+    // 저장할 때 기존 건 데이터를 통째로 덮어써버릴 위험이 있었음 — 이제 미리보기와
+    // 완전히 같은 로직(날짜까지 일치해야 동일 건)을 타므로 그 위험이 없음.
+    const match = _findDupMatch(newOrder);
+    if (match) {
+      const idx  = orders.indexOf(match.order);
+      const prev = orders[idx];
+      orders[idx] = {
+        ...newOrder,
+        id:             prev.id,              // 병합해도 원래 발주의 id는 유지(재분석해도 안 바뀌게)
+        deliveryStatus: prev.deliveryStatus,
+        deliveryNote:   prev.deliveryNote,
+        returnAmount:   prev.returnAmount,
+        partialAmount:  prev.partialAmount,
+        deliveredDate:  prev.deliveredDate,   // 재분석으로 납품일자가 초기화되는 것 방지
+        archived:       prev.archived,        // 재분석으로 보관 상태가 풀리는 것 방지
+        updatedAt:      Date.now()
+      };
+      updated++; return;
     }
     if (!orders.find(x => x.id === newOrder.id)) { orders.push({ ...newOrder, updatedAt: Date.now() }); added++; }
   });
