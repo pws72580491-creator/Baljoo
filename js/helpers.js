@@ -249,10 +249,27 @@ function calcNetDelivery(order) {
   return 0;
 }
 
+// ── 발주서 중복 판정 (업로드 미리보기 등, 발주 1건 vs 저장된 전체 목록) ──
+// v3.3.15: 서류번호(docNo) 또는 거래처발주번호(poNo)가 저장된 발주와 하나라도
+// 같으면 중복으로 통일. 이전엔 docNo·poNo가 둘 다 없을 때 "선명+날짜 일치"를
+// 예비 기준으로 썼는데, 선명은 더 이상 중복 판정에 쓰지 않기로 해서 제거함
+// (그런 경우 비교할 기준이 없는 것으로 보고 중복 판정하지 않음).
+// analyzer.js의 renderPreview()에서 이 함수 하나만 참조하도록 정리 —
+// 이전엔 같은 조건식이 두 군데(카드별 뱃지 / 상단 건수 집계)에 따로 박혀 있어
+// 기준을 바꿀 때 한쪽만 고치고 놓치기 쉬웠음.
+function _isDupOfSaved(o) {
+  if (o.isReturn) return false;
+  if (!o.docNo && !o.poNo) return false;
+  return orders.some(x =>
+    (o.docNo && x.docNo && x.docNo === o.docNo) ||
+    (o.poNo  && x.poNo  && x.poNo  === o.poNo)
+  );
+}
+
 // ── 서류번호·발주번호 중복 검사 (저장된 발주 전체 대상) ──
 // 반품서(isReturn)는 원본 발주의 서류번호/발주번호를 그대로 참조하는 경우가 많아
 // 중복 판정에서 제외한다 (업로드 미리보기 단계의 중복 판별과 동일한 기준 —
-// analyzer.js의 renderPreview() 참고).
+// analyzer.js의 _isDupOfSaved() 참고).
 function _computeDupOrderIdSet() {
   const docMap = new Map(); // docNo -> [id, ...]
   const poMap  = new Map(); // poNo  -> [id, ...]

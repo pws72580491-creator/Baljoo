@@ -220,12 +220,7 @@ function renderPreview() {
     // 반품서는 중복 판별 대상에서 완전히 제외
     const isReturnDoc  = !!o.isReturn;
     const shipMissing  = !!o._shipMissing;
-    const existing = isReturnDoc ? null : orders.find(x =>
-      (o.docNo && x.docNo && x.docNo === o.docNo) ||
-      (o.poNo  && x.poNo  && x.poNo  === o.poNo)  ||
-      (!o.docNo && !o.poNo && x.ship === o.ship && x.date === o.date)
-    );
-    const isDup = !!existing;
+    const isDup = _isDupOfSaved(o);
 
     // 뱃지: 반품서 / 선명누락 / 중복 / 신규
     const statusBadgeHtml = isReturnDoc
@@ -306,14 +301,7 @@ function renderPreview() {
 
   // 상태 메시지 — 선명누락 / 중복 / 반품서 건수 표시
   const shipMissingCnt = pendingOrders.filter(o => o._shipMissing).length;
-  const dupCnt = pendingOrders.filter(o =>
-    !o.isReturn &&
-    orders.find(x =>
-      (o.docNo && x.docNo && x.docNo === o.docNo) ||
-      (o.poNo  && x.poNo  && x.poNo  === o.poNo)  ||
-      (!o.docNo && !o.poNo && x.ship === o.ship && x.date === o.date)
-    )
-  ).length;
+  const dupCnt = pendingOrders.filter(o => _isDupOfSaved(o)).length;
   const retCnt = pendingOrders.filter(o => o.isReturn).length;
   const parts  = [];
   if (shipMissingCnt > 0) parts.push(`🚢 선명 누락 ${shipMissingCnt}건`);
