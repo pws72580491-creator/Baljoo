@@ -2,10 +2,22 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.3.14
+  Version : v3.3.15
   Released: 2026-07-18
   ────────────────────────────────────────
   CHANGELOG
+  v3.3.15 (2026-07-18)
+    - [FIX] 발주서 중복 판정 기준 통일. 업로드 미리보기(analyzer.js)에서
+      서류번호·거래처발주번호가 둘 다 없을 때 "선명+날짜 일치"를 예비
+      기준으로 쓰던 걸 제거 — 이제 어디서든 서류번호(docNo) 또는
+      거래처발주번호(poNo) 일치만을 기준으로 함, 선명은 판정에서 완전히
+      제외. 저장된 목록의 "중복만 보기" 필터(helpers.js)는 원래도 선명을
+      쓰지 않았어서 이번 수정으로 두 기준이 동일해짐.
+    - [CLEANUP] 같은 중복판정 조건식이 analyzer.js 안에 두 군데(카드별
+      뱃지용 / 상단 건수 집계용) 따로 박혀 있던 것을 helpers.js의
+      _isDupOfSaved() 공용 함수 하나로 통합 — 앞으로 기준을 바꿀 때
+      한 곳만 고치면 됨.
+
   v3.3.14 (2026-07-18)
     - [FIX] 발주 수정 모달의 품목 단위(unit) select에 box/pcs/doz/pkt 4개
       옵션만 있어서, analyzer.js AI가 반환하는 ctn·kg·l·btl(및 구버전 cs)
@@ -351,7 +363,7 @@
   // 막기 위해, 버전은 여기 한 곳에서만 관리하고 나머지는 이 값을 참조한다.
   // ⚠️ sw.js의 CACHE_NAME과 manifest.json의 description은 별도 실행 컨텍스트라
   //    이 값을 직접 참조할 수 없음 — 릴리즈 시 그 두 곳만 수동으로 맞춰줄 것.
-  const APP_VERSION = 'v3.3.14';
+  const APP_VERSION = 'v3.3.15';
   document.title = '이른아침 · 발주관리 ' + APP_VERSION;
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
