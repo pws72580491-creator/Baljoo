@@ -58,7 +58,7 @@ function openModal(id) {
       ` : ''}
       ${isReturned ? `
         <div class="db-row"><span class="db-label">발주금액</span><span class="db-val">${fmt(o.total)}</span></div>
-        <div class="db-row"><span class="db-label">반품금액</span><span class="db-val minus">-${fmt(o.returnAmount || o.total)}</span></div>
+        <div class="db-row"><span class="db-label">반품금액</span><span class="db-val minus">-${fmt(o.returnAmount ?? o.total)}</span></div>
         <div class="db-divider"></div>
         <div class="db-row"><span class="db-label">실 납품금액</span><span class="db-val net">${fmt(netAmt)}</span></div>
       ` : ''}

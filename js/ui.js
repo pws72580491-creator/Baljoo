@@ -122,7 +122,7 @@ function renderAll() {
 
   const deliveredAmt = delivered.reduce((s, o) => s + (o.total || 0), 0);
   // 반품서(isReturn): total이 이미 음수이므로 Math.abs 사용; 수동반품: returnAmount는 양수
-  const returnedAmt  = returned.reduce((s, o) => s + (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount || Math.abs(o.total) || 0)), 0);
+  const returnedAmt  = returned.reduce((s, o) => s + (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount ?? Math.abs(o.total) ?? 0)), 0);
   const pendingAllAmt = pendingAll.reduce((s, o) => s + (o.total || 0), 0);
   const netAmt       = deliveredAmt - returnedAmt;
 
@@ -415,7 +415,7 @@ function renderStats() {
       const mDel    = mOrders.filter(o => o.deliveryStatus === 'delivered');
       const mRet    = mOrders.filter(o => o.deliveryStatus === 'returned');
       const mDelAmt = mDel.reduce((s,o) => s+(o.total||0), 0);
-      const mRetAmt = mRet.reduce((s,o) => s+(o.isReturn ? Math.abs(o.total||0) : (o.returnAmount||Math.abs(o.total)||0)), 0);
+      const mRetAmt = mRet.reduce((s,o) => s+(o.isReturn ? Math.abs(o.total||0) : (o.returnAmount??Math.abs(o.total)??0)), 0);
       const mNet    = mDelAmt - mRetAmt;
       const mBoxes  = mDel.reduce((s,o) => s + calcOrderBoxes(o), 0);
       const mCruise = mOrders.filter(o => o.category === 'cruise');
@@ -514,7 +514,7 @@ function renderStats() {
   const cancelled = scopeOrders.filter(o => o.deliveryStatus === 'cancelled'); // 집계 제외, 건수만 참고
 
   const deliveredAmt = delivered.reduce((s, o) => s + (o.total || 0), 0);
-  const returnedAmt  = returned.reduce((s, o) => s + (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount || Math.abs(o.total) || 0)), 0);
+  const returnedAmt  = returned.reduce((s, o) => s + (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount ?? Math.abs(o.total) ?? 0)), 0);
   const netAmt       = deliveredAmt - returnedAmt;
 
   // 총 박스 수 (발주취소 제외)
@@ -555,7 +555,7 @@ function renderStats() {
     // 오히려 더해져 선박별 박스 수가 부풀려지던 문제 수정
     byShip[o.ship].boxes   += calcOrderBoxes(o) * _boxSign(o);
     if (o.deliveryStatus === 'returned')
-      byShip[o.ship].returned += (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount || Math.abs(o.total) || 0));
+      byShip[o.ship].returned += (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount ?? Math.abs(o.total) ?? 0));
   });
   const ships = Object.values(byShip).sort((a, b) => b.net - a.net);
 
@@ -650,7 +650,7 @@ function renderStats() {
     <div class="sdiv">반품 내역 (${returned.length}건)</div>
     ${returned.map(o => `
       <div class="order-card status-returned" onclick="openModal('${o.id}')">
-        <div class="oc-top"><div class="oc-ship">${escapeHtml(o.ship)}</div><div class="oc-amount" style="color:var(--danger);">-${fmt(o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount || Math.abs(o.total) || 0))}</div></div>
+        <div class="oc-top"><div class="oc-ship">${escapeHtml(o.ship)}</div><div class="oc-amount" style="color:var(--danger);">-${fmt(o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount ?? Math.abs(o.total) ?? 0))}</div></div>
         <div class="oc-meta"><span class="oc-doc">${escapeHtml(o.docNo)}</span>${o.isReturn ? '<span class="badge b-returned">↩️ 반품서</span>' : statusBadge('returned')}</div>
         <div class="oc-bottom"><div class="oc-item">${escapeHtml(o.deliveryNote) || '-'}</div><div class="oc-dates">${escapeHtml(o.date)}</div></div>
       </div>
@@ -1031,13 +1031,14 @@ function renderDeliveryStatus() {
               </td>
               <td style="padding:10px;text-align:right;font-size:11px;font-weight:700;color:${isAnyReturn?'#dc2626':'#1a3a6e'};white-space:nowrap;vertical-align:top;">
                 ${(o.items||[]).map(item => {
-                  const bc = calcItemBoxCount(item) * (isManualReturn ? -1 : 1);
+                  const _sign = _boxSign(o);
+                  const bc = calcItemBoxCount(item) * _sign;
                   const rawDesc = item.desc || '';
                   const isBrineItem = _isQuailBrine(item);
                   const isRawQItem  = _isQuailEgg(item);
                   const label = isBrineItem ? '깐메추리' : isRawQItem ? '🥚메추리' : '🥚계란';
                   if (_isPktUnit(item.unit)) {
-                    const q = (Number(item.qty) || 0) * (isManualReturn ? -1 : 1);
+                    const q = (Number(item.qty) || 0) * _sign;
                     if (!q) return '';
                     return `<div style="margin-bottom:2px;">🛍️봉지<br><span style="font-size:12px;">${formatPktCount(q)}</span></div>`;
                   }
@@ -1382,7 +1383,7 @@ function renderDashByDate() {
           const statusText  = isReturnDoc ? '↩️ 반품서' : isReturn ? '반품' : '납품완료';
           const statusCol   = isReturn ? '#dc2626' : '#16a34a';
           const amtCol      = isReturnDoc ? '#dc2626' : statusCol;
-          const rowBoxes    = calcOrderBoxes(o) * (isManualReturn ? -1 : 1);
+          const rowBoxes    = calcOrderBoxes(o) * _boxSign(o);
           return `
           <div style="padding:10px 14px;border-top:1px solid var(--border);background:${statusColor};border-left:${borderLeft};cursor:pointer;"
                onclick="openModal('${o.id}')">

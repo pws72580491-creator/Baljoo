@@ -122,14 +122,22 @@ function calcItemBoxCount(item) {
   }
 
   // 일반 품목: desc에서 "NNN PCS/BOX" 또는 "NNN DOZ/BOX" 패턴 파싱
+  // ⚠️ 반드시 품목의 실제 단위(unit)와 패턴이 가리키는 단위가 일치할 때만 적용.
+  // 예) unit=doz(다스)인데 desc에 "360EA/BOX"라고 적혀있어도, 이는 낱개(EA) 기준
+  // 정보라서 다스 수량(qty)을 그대로 나누면 12배 축소된 잘못된 값이 나옴
+  // (2,100doz ÷ 360 = 5.8박스 — 잘못됨. 실제로는 30doz=360EA=1박스이므로 70박스가 맞음).
   if (!isBoxUnit && item.desc) {
+    const isEaLikeUnit  = unitNorm === 'cs' || unitNorm.startsWith('pc') || unitNorm === 'pcs'
+                        || unitNorm === 'ea' || unitNorm === 'each' || unitNorm === 'piece' || unitNorm === 'pieces';
+    const isDozLikeUnit = unitNorm.startsWith('doz') || unitNorm === 'dozen';
+
     const mPcs = String(item.desc).match(/(\d+)\s*(?:PCS|EA)[\s\/]*(?:BOX|CTN|CS|CASE)/i);
-    if (mPcs) {
+    if (mPcs && isEaLikeUnit) {
       const perBox = Number(mPcs[1]);
       if (perBox > 0 && item.qty) return Number(item.qty) / perBox;
     }
     const mDoz = String(item.desc).match(/(\d+)\s*(?:DOZ|DOZEN)[\s\/]*(?:BOX|CTN|CS|CASE)/i);
-    if (mDoz) {
+    if (mDoz && isDozLikeUnit) {
       const perBox = Number(mDoz[1]);
       if (perBox > 0 && item.qty) return Number(item.qty) / perBox;
     }
@@ -150,8 +158,12 @@ function _boxRatioWarning(item) {
   const isBoxUnit = unitNorm === 'box' || unitNorm === 'ctn' || unitNorm === 'case' || unitNorm === 'carton' || unitNorm === 'ct';
   if (isBoxUnit) return null;
 
-  const mPcs = String(item.desc).match(/(\d+)\s*(?:PCS|EA)[\s\/]*(?:BOX|CTN|CS|CASE)/i);
-  const mDoz = String(item.desc).match(/(\d+)\s*(?:DOZ|DOZEN)[\s\/]*(?:BOX|CTN|CS|CASE)/i);
+  const isEaLikeUnit  = unitNorm === 'cs' || unitNorm.startsWith('pc') || unitNorm === 'pcs'
+                      || unitNorm === 'ea' || unitNorm === 'each' || unitNorm === 'piece' || unitNorm === 'pieces';
+  const isDozLikeUnit = unitNorm.startsWith('doz') || unitNorm === 'dozen';
+
+  const mPcs = isEaLikeUnit  ? String(item.desc).match(/(\d+)\s*(?:PCS|EA)[\s\/]*(?:BOX|CTN|CS|CASE)/i)   : null;
+  const mDoz = isDozLikeUnit ? String(item.desc).match(/(\d+)\s*(?:DOZ|DOZEN)[\s\/]*(?:BOX|CTN|CS|CASE)/i) : null;
   const m = mPcs || mDoz;
   if (!m) return null;
 
@@ -243,7 +255,7 @@ function calcNetDelivery(order) {
     // 업로드된 반품서(isReturn=true): total이 이미 음수
     if (order.isReturn) return total;
     // 수동 반품 처리: returnAmount는 양수, 음수로 반환
-    return -(order.returnAmount || Math.abs(total));
+    return -(order.returnAmount ?? Math.abs(total));
   }
   // 발주취소(cancelled) 건은 항상 0 — 모든 집계에서 제외
   return 0;

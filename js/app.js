@@ -127,7 +127,7 @@ function exportExcel() {
     { 항목: '납품완료건수',  값: delivered.length },
     { 항목: '납품완료금액',  값: delivered.reduce((s, o) => s + (o.total || 0), 0) },
     { 항목: '반품건수',     값: returned.length },
-    { 항목: '반품금액',     값: returned.reduce((s, o) => s + (o.returnAmount || o.total || 0), 0) },
+    { 항목: '반품금액',     값: returned.reduce((s, o) => s + (o.returnAmount ?? o.total ?? 0), 0) },
     { 항목: '발주취소건수',  값: cancelled.length },
     { 항목: '미납품건수',   값: pending.length },
     { 항목: '실납품금액합계', 값: orders.reduce((s, o) => s + calcNetDelivery(o), 0) },
@@ -151,7 +151,7 @@ function exportExcel() {
       const mCancel   = mOrders.filter(o => o.deliveryStatus === 'cancelled');
       const mPend     = mOrders.filter(o => !o.deliveryStatus || o.deliveryStatus === 'pending');
       const mDelAmt   = mDel.reduce((s,o) => s+(o.total||0), 0);
-      const mRetAmt   = mRet.reduce((s,o) => s+(o.isReturn ? Math.abs(o.total||0) : (o.returnAmount||Math.abs(o.total)||0)), 0);
+      const mRetAmt   = mRet.reduce((s,o) => s+(o.isReturn ? Math.abs(o.total||0) : (o.returnAmount??Math.abs(o.total)??0)), 0);
       const mNet      = mDelAmt - mRetAmt;
       // 박스수도 금액(mNet)과 동일하게 반품분을 차감 (부호 보정, phantom 반품은 0 처리)
       const mBoxes    = mDel.reduce((s,o) => s+calcOrderBoxes(o), 0)
