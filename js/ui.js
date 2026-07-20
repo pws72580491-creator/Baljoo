@@ -230,11 +230,20 @@ function orderCard(o, showDel, dupIdSet) {
        </label>`
     : '';
 
+  // 선명 옆 상태 처리일 (납품완료/반품/발주취소 각각의 처리 날짜)
+  const statusDateStr = (o.deliveryStatus === 'delivered' && o.deliveredDate)
+    ? `<span class="oc-status-date sd-delivered">완료 ${escapeHtml(o.deliveredDate)}</span>`
+    : (o.deliveryStatus === 'returned' && o.returnedDate)
+    ? `<span class="oc-status-date sd-returned">반품 ${escapeHtml(o.returnedDate)}</span>`
+    : (o.deliveryStatus === 'cancelled' && o.cancelledDate)
+    ? `<span class="oc-status-date sd-cancelled">취소 ${escapeHtml(o.cancelledDate)}</span>`
+    : '';
+
   return `
   <div id="ordercard-${o.id}" class="order-card ${statusClass}${isReturnDoc ? ' is-return-doc' : ''}${o.archived ? ' archived-card' : ''}${bulkClass}"${isReturnChecked ? ' style="opacity:.55;"' : ''} ${clickHandler}>
     ${bulkChk}
     <div class="oc-top">
-      <div class="oc-ship">${escapeHtml(o.ship)}</div>
+      <div class="oc-ship">${escapeHtml(o.ship)}${statusDateStr}</div>
       <div class="oc-amount" style="${amtStyle}">${fmt(o.total)}</div>
     </div>
     <div class="oc-meta">

@@ -149,6 +149,8 @@ function toggleDelivered(id) {
       o.deliveryNote   = note.trim();
       o.deliveryStatus = 'delivered';
       o.deliveredDate  = todayStr();
+      o.returnedDate   = '';
+      o.cancelledDate  = '';
       save();
       closeModalBtn();
       renderAll();
@@ -171,6 +173,7 @@ function setDelivery(id, status) {
       if (o.deliveryStatus === 'cancelled') {
         o.deliveryStatus = 'pending';
         o.deliveryNote   = '';
+        o.cancelledDate  = '';
         save();
         closeModalBtn();
         renderAll();
@@ -183,6 +186,8 @@ function setDelivery(id, status) {
       o.returnAmount  = 0;
       o.partialAmount = 0;
       o.deliveredDate = '';
+      o.returnedDate  = '';
+      o.cancelledDate = todayStr();
       o.deliveryStatus = 'cancelled';
       save();
       closeModalBtn();
@@ -201,6 +206,7 @@ function setDelivery(id, status) {
       o.returnAmount = isNaN(amt) ? (o.total || 0) : amt;
       const note = prompt('비고 (선택사항)', o.deliveryNote || '');
       if (note !== null) o.deliveryNote = note.trim();
+      o.cancelledDate = ''; // 취소 상태였다가 바로 반품 처리하는 경우 대비
     } else if (status === 'delivered') {
       const note = prompt('납품 비고 (선택사항)', o.deliveryNote || '');
       if (note !== null) o.deliveryNote = note.trim();
@@ -208,10 +214,13 @@ function setDelivery(id, status) {
       o.deliveryNote  = '';
       o.returnAmount  = 0;
       o.partialAmount = 0;
+      o.returnedDate  = '';
+      o.cancelledDate = '';
     }
 
-    if (status === 'delivered') o.deliveredDate = todayStr();
-    if (status === 'pending') o.deliveredDate = '';
+    if (status === 'delivered') { o.deliveredDate = todayStr(); o.returnedDate = ''; o.cancelledDate = ''; }
+    if (status === 'pending')   o.deliveredDate = '';
+    if (status === 'returned')  o.returnedDate  = todayStr();
 
     o.deliveryStatus = status;
     save();

@@ -141,6 +141,7 @@ unit 선택 기준(중요):
         if ((i.amount || 0) > 0) i.amount = -Math.abs(i.amount);
       });
       parsed.returnAmount = Math.abs(parsed.total);
+      parsed.returnedDate = parsed.date || '';
     } else {
       // v3.3.17: id를 서류번호만으로 만들면, 거래처가 서류번호를 재사용해 만든
       // "완전히 다른 날짜의 새 발주"가 기존 발주와 같은 id를 갖게 되어 저장 시
@@ -158,6 +159,8 @@ unit 선택 기준(중요):
     parsed.fileName      = file.name;
     parsed.category      = parsed.category || 'cargo';
     parsed.deliveredDate = '';
+    parsed.returnedDate  = parsed.returnedDate || '';
+    parsed.cancelledDate = '';
     parsed.updatedAt     = Date.now();
     // 선명 누락 플래그
     parsed._shipMissing  = !parsed.ship || !parsed.ship.trim();
@@ -373,6 +376,8 @@ function saveAll() {
         returnAmount:   prev.returnAmount,
         partialAmount:  prev.partialAmount,
         deliveredDate:  prev.deliveredDate,   // 재분석으로 납품일자가 초기화되는 것 방지
+        returnedDate:   prev.returnedDate,    // 반품일자도 동일하게 보존
+        cancelledDate:  prev.cancelledDate,   // 발주취소일자도 동일하게 보존
         archived:       prev.archived,        // 재분석으로 보관 상태가 풀리는 것 방지
         updatedAt:      Date.now()
       };

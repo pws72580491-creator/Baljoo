@@ -60,6 +60,13 @@ function load() {
         if (o.deliveredDate === undefined) {
           o.deliveredDate = (o.deliveryStatus === 'delivered') ? (o.date || '') : '';
         }
+        // 반품일·취소일 필드 없는 구버전 데이터 보정 (납품일과 동일한 방식 — 발주일로 대체)
+        if (o.returnedDate === undefined) {
+          o.returnedDate = (o.deliveryStatus === 'returned') ? (o.date || '') : '';
+        }
+        if (o.cancelledDate === undefined) {
+          o.cancelledDate = (o.deliveryStatus === 'cancelled') ? (o.date || '') : '';
+        }
         // unit=cs 인데 실제 단위가 doz인 경우 자동 보정
         (o.items || []).forEach(item => {
           if (item.unit === 'cs') {

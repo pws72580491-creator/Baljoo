@@ -326,6 +326,8 @@ function bulkDeliver() {
     if (!o) return;
     o.deliveryStatus = 'delivered';
     o.deliveredDate  = date;
+    o.returnedDate   = '';
+    o.cancelledDate  = '';
     o.deliveryNote   = note.trim();
     count++;
   });
