@@ -297,7 +297,7 @@ function openEditModal(id) {
         inputmode="numeric" enterkeyhint="next"
         onfocus="this.value=this.value.replace(/,/g,'')"
         onblur="formatPriceField(this,${idx})"
-        oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+        oninput="_formatPriceLive(this,${idx})">
       <span id="ei-amt-${idx}" style="font-size:11px;color:var(--muted);white-space:nowrap;align-self:center;">${amountDisplay ? '₩'+amountDisplay : ''}</span>
       <button class="edit-del-btn" onclick="removeEditItem(${idx})">×</button>
     </div>`;
@@ -450,7 +450,7 @@ function addEditItem() {
         inputmode="numeric" enterkeyhint="next"
         onfocus="this.value=this.value.replace(/,/g,'')"
         onblur="formatPriceField(this,${idx})"
-        oninput="this.value=this.value.replace(/[^0-9]/g,'')">
+        oninput="_formatPriceLive(this,${idx})">
       <span id="ei-amt-${idx}" style="font-size:11px;color:var(--muted);white-space:nowrap;align-self:center;"></span>
       <button class="edit-del-btn" onclick="removeEditItem(${idx})">×</button>
     </div>`;
@@ -472,6 +472,26 @@ function _updateItemEnterHints() {
     const priceEl = row.querySelector(`input[id^="ei-price-"]`);
     if (priceEl) priceEl.setAttribute('enterkeyhint', isLast ? 'done' : 'next');
   });
+}
+
+// v3.3.22: 단가 입력 중(oninput)에도 1,000 단위 콤마를 실시간으로 넣어준다.
+// 기존엔 blur(포커스 아웃) 시에만 콤마가 붙어서, 타이핑 중엔 "3800"처럼 숫자만
+// 보이다가 다른 칸으로 넘어가야 "3,800"으로 바뀌었음 — 타이핑 중에도 바로 보이도록 개선.
+// 커서 위치는 "커서 앞에 있던 숫자 개수"를 기준으로 다시 찾아 이동시켜, 콤마가
+// 추가/삭제되며 글자 수가 바뀌어도 커서가 엉뚱한 자리로 튀지 않도록 함.
+function _formatPriceLive(el, idx) {
+  const cursorPos = el.selectionStart;
+  const digitsBeforeCursor = el.value.slice(0, cursorPos).replace(/[^0-9]/g, '').length;
+  const raw = el.value.replace(/[^0-9]/g, '');
+  const num = raw ? parseInt(raw, 10) : 0;
+  el.value = raw ? num.toLocaleString() : '';
+  let pos = 0, seen = 0;
+  while (pos < el.value.length && seen < digitsBeforeCursor) {
+    if (/[0-9]/.test(el.value[pos])) seen++;
+    pos++;
+  }
+  el.setSelectionRange(pos, pos);
+  recalcEditItem(idx); // 타이핑 중에도 금액이 바로 반영되도록 함께 재계산
 }
 
 // 단가 입력란 포맷: blur 시 숫자에 , 추가 + 금액 재계산
