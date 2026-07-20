@@ -791,7 +791,9 @@ function renderDeliveryStatus() {
   // 단, "입고"를 한 번도 입력한 적 없는 과거 날짜까지 소급해서 재고부족으로 잡으면
   // 이번 업데이트 이전 데이터가 전부 마이너스로 보이게 되므로, 최초로 입고를 입력한 날짜부터만 이월을 시작한다.
   // 계란/메추리/깐메추리 모두 같은 방식(입고량)으로 취급하며, 품목별로 추적 시작일을 독립적으로 판정한다.
+  // v3.3.21: 파손(회수) 수량을 재고 계산에 반영 — 재고 = 전일재고 + 오늘입고 - 오늘납품 - 오늘파손
   function _stockByDateFor(goalField, itemFilterFn) {
+    const dmgField = goalField + 'Dmg'; // 파손(회수) 수량 필드 — 예: 'egg' → 'eggDmg'
     const stockByDate = {};
     const byDateAll = {};
     allDone.forEach(o => {
@@ -822,6 +824,17 @@ function renderDeliveryStatus() {
     Object.keys(byDateAll)
       .filter(d => d >= firstTrackedDate) // 추적 시작일 이전 납품 실적은 이월 계산에서 제외
       .forEach(d => stockDates.add(d));
+    // 파손만 입력되고 해당 날짜에 입고·납품 실적이 없는 경우도(추적 시작일 이후라면)
+    // 누락 없이 이월 계산에 포함되도록 delivGoal_ 전체를 훑어 파손 입력 날짜를 추가 수집
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k || !k.startsWith('delivGoal_')) continue;
+      const d = k.slice('delivGoal_'.length);
+      if (d < firstTrackedDate) continue;
+      let g = null;
+      try { g = JSON.parse(localStorage.getItem(k) || 'null'); } catch(e) {}
+      if (g && Number(g[dmgField]) > 0) stockDates.add(d);
+    }
 
     const ascDates = [...stockDates].sort((a, b) => a.localeCompare(b));
     let carry = 0;
@@ -829,10 +842,11 @@ function renderDeliveryStatus() {
       let g = null;
       try { g = JSON.parse(localStorage.getItem('delivGoal_' + d) || 'null'); } catch(e) {}
       const stockIn   = g ? (g[goalField] || 0) : 0;
+      const damaged   = g ? (g[dmgField] || 0) : 0;
       const opening   = carry;
       const delivered = byDateAll[d] || 0;
-      const closing   = opening + stockIn - delivered;
-      stockByDate[d] = { stockIn, opening, delivered, closing };
+      const closing   = opening + stockIn - delivered - damaged;
+      stockByDate[d] = { stockIn, damaged, opening, delivered, closing };
       carry = closing;
     });
     return stockByDate;
@@ -926,21 +940,22 @@ function renderDeliveryStatus() {
       const quailStock = quailStockByDate[day.date] || { stockIn: 0, opening: 0, delivered: 0, closing: 0 };
       const brineStock = brineStockByDate[day.date] || { stockIn: 0, opening: 0, delivered: 0, closing: 0 };
 
-      const hasEggFlow   = !!(goal && goal.egg)   || eggStock.opening   !== 0 || eggStock.closing   !== 0;
-      const hasQuailFlow = !!(goal && goal.quail) || quailStock.opening !== 0 || quailStock.closing !== 0;
-      const hasBrineFlow = !!(goal && goal.brine) || brineStock.opening !== 0 || brineStock.closing !== 0;
+      const hasEggFlow   = !!(goal && (goal.egg   || goal.eggDmg))   || eggStock.opening   !== 0 || eggStock.closing   !== 0;
+      const hasQuailFlow = !!(goal && (goal.quail || goal.quailDmg)) || quailStock.opening !== 0 || quailStock.closing !== 0;
+      const hasBrineFlow = !!(goal && (goal.brine || goal.brineDmg)) || brineStock.opening !== 0 || brineStock.closing !== 0;
 
-      // 입고/재고 배지 텍스트 (계란·메추리·깐메추리 동일한 방식으로 표시)
+      // 입고/파손/재고 배지 텍스트 (계란·메추리·깐메추리 동일한 방식으로 표시)
       const goalBadgeHtml = (() => {
         const blocks = [];
         const addStockBlock = (label, stock) => {
           const color = stock.closing < 0 ? '#dc2626' : stock.closing === 0 ? '#22c55e' : '#f59e0b';
           const openingText = stock.opening ? ` + 전일재고 ${formatBoxCount(stock.opening)}` : '';
+          const dmgText = stock.damaged ? ` - 파손 ${formatBoxCount(stock.damaged)}` : '';
           const stockText = stock.closing < 0
             ? `⚠️ 재고부족 ${formatBoxCount(Math.abs(stock.closing))}`
             : `재고 ${label} ${formatBoxCount(stock.closing)}`;
           blocks.push(`
-          <div style="font-size:10px;opacity:.75;margin-top:${blocks.length ? '6' : '2'}px;">입고 ${label} ${formatBoxCount(stock.stockIn)}${openingText}</div>
+          <div style="font-size:10px;opacity:.75;margin-top:${blocks.length ? '6' : '2'}px;">입고 ${label} ${formatBoxCount(stock.stockIn)}${openingText}${dmgText}</div>
           <div style="font-size:11px;font-weight:700;color:${color};margin-top:3px;">${stockText}</div>`);
         };
 
@@ -1083,7 +1098,7 @@ function renderDeliveryStatus() {
 function openDelivGoal(dateStr) {
   let goal = null;
   try { goal = JSON.parse(localStorage.getItem('delivGoal_' + dateStr) || 'null'); } catch(e) {}
-  goal = goal || { egg: 0, quail: 0, brine: 0 };
+  goal = goal || { egg: 0, quail: 0, brine: 0, eggDmg: 0, quailDmg: 0, brineDmg: 0 };
 
   // 기존 모달이 있으면 제거
   const existing = document.getElementById('deliv-goal-modal');
@@ -1099,37 +1114,67 @@ function openDelivGoal(dateStr) {
                 box-sizing:border-box;box-shadow:0 -4px 24px rgba(0,0,0,.18);">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
         <div>
-          <div style="font-size:16px;font-weight:800;color:var(--navy);">🎯 입고 박스 입력</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:2px;">${dateStr} · 계란·메추리·깐메추리 모두 입고량으로 재고에 반영됩니다</div>
+          <div style="font-size:16px;font-weight:800;color:var(--navy);">🎯 입고 · 파손 박스 입력</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">${dateStr} · 입고는 더하고, 파손(회수)은 전일재고에서 차감되어 재고에 반영됩니다</div>
         </div>
         <button onclick="closeDelivGoal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);padding:4px 8px;">✕</button>
       </div>
 
-      <!-- 품목별 입력 -->
-      <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:22px;">
+      <!-- 품목별 입고 입력 -->
+      <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:18px;">
         ${[
           { id:'egg',   label:'🥚 계란(입고)' },
           { id:'quail', label:'🥚 메추리(입고)' },
           { id:'brine', label:'깐메추리(입고)' },
         ].map(({id, label}, i, arr) => {
-          const isLast = i === arr.length - 1;
-          const nextId = isLast ? '' : 'goal-' + arr[i + 1].id;
+          // egg→quail→brine 순으로 이동, 마지막(brine)은 파손 입력 그룹의 첫 칸(dmg-egg)으로 이동
+          const nextId = i === arr.length - 1 ? 'dmg-egg' : 'goal-' + arr[i + 1].id;
           return `
         <div style="display:flex;align-items:center;gap:8px;">
           <div style="width:96px;font-size:12px;font-weight:700;color:var(--navy);flex-shrink:0;white-space:nowrap;">${label}</div>
-          <button onclick="adjustGoalVal('${id}',-1)"
+          <button onclick="_adjustQty('goal-${id}',-1)"
                   style="width:36px;height:36px;flex-shrink:0;border-radius:50%;border:1px solid var(--border);
                          background:#f8fafc;font-size:20px;cursor:pointer;line-height:1;">−</button>
           <input id="goal-${id}" type="number" min="0" inputmode="numeric"
-                 enterkeyhint="${isLast ? 'done' : 'next'}"
+                 enterkeyhint="next"
                  value="${id==='egg'?goal.egg||0:id==='quail'?goal.quail||0:goal.brine||0}"
                  onkeydown="_goalInputKeydown(event,'${nextId}')"
                  onfocus="this.select()"
                  style="width:64px;flex-shrink:0;text-align:center;font-size:18px;font-weight:800;
                         border:2px solid var(--border);border-radius:10px;padding:5px 4px;color:var(--navy);">
-          <button onclick="adjustGoalVal('${id}',1)"
+          <button onclick="_adjustQty('goal-${id}',1)"
                   style="width:36px;height:36px;flex-shrink:0;border-radius:50%;border:1px solid var(--border);
                          background:#f8fafc;font-size:20px;cursor:pointer;line-height:1;">+</button>
+          <span style="font-size:12px;color:var(--muted);flex-shrink:0;">박스</span>
+        </div>`;}).join('')}
+      </div>
+
+      <!-- 품목별 파손(회수) 입력 -->
+      <div style="font-size:12px;font-weight:800;color:#dc2626;margin-bottom:8px;">🔧 파손 회수 (전일재고에서 차감)</div>
+      <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:22px;">
+        ${[
+          { id:'egg',   label:'🥚 계란(파손)' },
+          { id:'quail', label:'🥚 메추리(파손)' },
+          { id:'brine', label:'깐메추리(파손)' },
+        ].map(({id, label}, i, arr) => {
+          const isLast = i === arr.length - 1;
+          const nextId = isLast ? '' : 'dmg-' + arr[i + 1].id;
+          return `
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:96px;font-size:12px;font-weight:700;color:#dc2626;flex-shrink:0;white-space:nowrap;">${label}</div>
+          <button onclick="_adjustQty('dmg-${id}',-1)"
+                  style="width:36px;height:36px;flex-shrink:0;border-radius:50%;border:1px solid #fca5a5;
+                         background:#fff5f5;font-size:20px;cursor:pointer;line-height:1;color:#dc2626;">−</button>
+          <input id="dmg-${id}" type="number" min="0" inputmode="numeric"
+                 enterkeyhint="${isLast ? 'done' : 'next'}"
+                 value="${id==='egg'?goal.eggDmg||0:id==='quail'?goal.quailDmg||0:goal.brineDmg||0}"
+                 onkeydown="_goalInputKeydown(event,'${nextId}')"
+                 onfocus="this.select()"
+                 style="width:64px;flex-shrink:0;text-align:center;font-size:18px;font-weight:800;
+                        border:2px solid #fca5a5;border-radius:10px;padding:5px 4px;color:#dc2626;">
+          <button onclick="_adjustQty('dmg-${id}',1)"
+                  style="width:36px;height:36px;flex-shrink:0;border-radius:50%;border:1px solid #fca5a5;
+                         background:#fff5f5;font-size:20px;cursor:pointer;line-height:1;color:#dc2626;">+</button>
           <span style="font-size:12px;color:var(--muted);flex-shrink:0;">박스</span>
         </div>`;}).join('')}
       </div>
@@ -1139,7 +1184,7 @@ function openDelivGoal(dateStr) {
         <button onclick="clearDelivGoal('${dateStr}')"
                 style="flex:1;padding:13px;border-radius:12px;border:1px solid #fca5a5;
                        background:#fff;color:#dc2626;font-size:14px;font-weight:700;cursor:pointer;">
-          입고 삭제
+          입고·파손 삭제
         </button>
         <button onclick="saveDelivGoal('${dateStr}')"
                 style="flex:2;padding:13px;border-radius:12px;border:none;
@@ -1172,8 +1217,9 @@ function _goalInputKeydown(e, nextId) {
   }
 }
 
-function adjustGoalVal(field, delta) {
-  const input = document.getElementById('goal-' + field);
+// 입고(goal-*)·파손(dmg-*) 입력칸 공용 +/- 처리 (전달받은 id로 직접 조작)
+function _adjustQty(inputId, delta) {
+  const input = document.getElementById(inputId);
   if (!input) return;
   const newVal = Math.max(0, (parseInt(input.value) || 0) + delta);
   input.value = newVal;
@@ -1184,8 +1230,13 @@ function saveDelivGoal(dateStr) {
     egg:   Math.max(0, parseInt(document.getElementById('goal-egg')?.value)   || 0),
     quail: Math.max(0, parseInt(document.getElementById('goal-quail')?.value) || 0),
     brine: Math.max(0, parseInt(document.getElementById('goal-brine')?.value) || 0),
+    eggDmg:   Math.max(0, parseInt(document.getElementById('dmg-egg')?.value)   || 0),
+    quailDmg: Math.max(0, parseInt(document.getElementById('dmg-quail')?.value) || 0),
+    brineDmg: Math.max(0, parseInt(document.getElementById('dmg-brine')?.value) || 0),
   };
-  if (goal.egg === 0 && goal.quail === 0 && goal.brine === 0) {
+  const allZero = goal.egg === 0 && goal.quail === 0 && goal.brine === 0
+               && goal.eggDmg === 0 && goal.quailDmg === 0 && goal.brineDmg === 0;
+  if (allZero) {
     localStorage.removeItem('delivGoal_' + dateStr);
   } else {
     localStorage.setItem('delivGoal_' + dateStr, JSON.stringify(goal));
@@ -1193,14 +1244,14 @@ function saveDelivGoal(dateStr) {
   closeDelivGoal();
   // 현재 열려있는 날짜 인덱스 기억 후 재렌더
   _reRenderDelivKeepOpen();
-  toast('🎯 입고가 저장되었습니다.');
+  toast('🎯 입고·파손이 저장되었습니다.');
 }
 
 function clearDelivGoal(dateStr) {
   localStorage.removeItem('delivGoal_' + dateStr);
   closeDelivGoal();
   _reRenderDelivKeepOpen();
-  toast('입고가 삭제되었습니다.');
+  toast('입고·파손이 삭제되었습니다.');
 }
 
 // 현재 열려있는 날짜 인덱스를 보존하며 납품현황 재렌더
