@@ -60,9 +60,7 @@ function renderAll() {
   // 대시보드 본문은 선택된 월(_dashMonth) 데이터만 사용
   _renderDashMonthNav();
   const monthOrders = _filterByMonth(orders, _dashMonth);
-  // v3.3.24: 통계 탭(byShip)과 동일하게 정규화된 키로 세어, 괄호 부가정보
-  // 유무로 같은 선박이 서로 다르게 집계되지 않도록 통일
-  const ships = new Set(monthOrders.map(o => _normShipKey(o.ship) || o.ship || '미상')).size;
+  const ships = new Set(monthOrders.map(o => o.ship)).size;
 
   // 납품 기준 통계 (해당 월) — 발주취소 건은 제외
   const deliveredOrders = monthOrders.filter(o => o.deliveryStatus === 'delivered');
@@ -695,6 +693,19 @@ function fmtDate(dateStr) {
 // ══════════════════════════════════════════════════════
 let _delivMonth = _currentYM(); // 'all' | 'YYYY-MM' — 기본값: 이번달
 
+// v3.3.24: 품목 금액 합계 vs 발주총액(o.total) 차이를 "할인"으로 감지.
+// 업로드 시 AI가 서류를 그대로 읽어오다 보니, 품목 단가×수량으로 계산된
+// 금액(정가 합계)과 서류 하단 TOTAL(할인 등이 반영된 실제 청구액)이 다른
+// 경우가 있음 — 그 차액만큼을 할인으로 보고 납품현황 카드에 표시한다.
+// 반환: { amount, pct } — 할인이 없으면(1원 이하 오차 포함) amount는 0.
+function _calcOrderDiscount(o) {
+  const itemsSum = (o.items || []).reduce((s, it) => s + (Number(it.amount) || 0), 0);
+  const total = Number(o.total) || 0;
+  const diff = Math.abs(itemsSum) - Math.abs(total);
+  if (diff <= 1 || Math.abs(itemsSum) < 1) return { amount: 0, pct: 0 };
+  return { amount: diff, pct: Math.round((diff / Math.abs(itemsSum)) * 1000) / 10 };
+}
+
 function selectDelivMonth(m) {
   _delivMonth = m;
   renderDeliveryStatus();
@@ -1084,6 +1095,12 @@ function renderDeliveryStatus() {
               </td>
               <td style="padding:10px 14px;text-align:right;white-space:nowrap;">
                 <div style="font-size:13px;font-weight:700;color:${amtCol};">${fmt(calcNetDelivery(o))}</div>
+                ${(() => {
+                  const disc = _calcOrderDiscount(o);
+                  return disc.amount > 0
+                    ? `<div style="font-size:9px;font-weight:700;color:#d97706;margin-top:2px;">🏷️ 할인 -${fmt(disc.amount)}${disc.pct ? ` (${disc.pct}%)` : ''}</div>`
+                    : '';
+                })()}
                 <div style="font-size:10px;margin-top:2px;">${isReturnDoc ? '<span class="badge b-returned">↩️ 반품서</span>' : statusBadge(o.deliveryStatus)}</div>
               </td>
             </tr>`;

@@ -153,7 +153,7 @@ unit 선택 기준(중요):
         : ('UP-' + Date.now());
       parsed.isReturn       = false;
       parsed.deliveryStatus = 'pending';
-      parsed.returnAmount   = null;
+      parsed.returnAmount   = 0;
     }
     parsed.source        = 'upload';
     parsed.fileName      = file.name;
