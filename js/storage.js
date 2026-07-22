@@ -39,7 +39,7 @@ function load() {
       // 기존 데이터 필드 초기화 (하위 호환)
       orders.forEach(o => {
         if (!o.deliveryStatus)          o.deliveryStatus = 'pending';
-        if (o.returnAmount === undefined) o.returnAmount  = 0;
+        if (o.returnAmount === undefined) o.returnAmount  = null;
         if (!o.deliveryNote)            o.deliveryNote   = '';
         // 반품(카테고리='return' 또는 업로드 반품서 isReturn=true) 건은
         // 이 발주를 최초로 만나는 딱 1번만 미처리(pending) 상태를 'returned'로 보정한다.

@@ -135,7 +135,7 @@ function toggleDelivered(id) {
       if (!confirm(`[${o.ship}]\n납품완료를 취소하고 미납품으로 되돌릴까요?`)) return;
       o.deliveryStatus = 'pending';
       o.deliveryNote   = '';
-      o.returnAmount   = 0;
+      o.returnAmount   = null;
       o.partialAmount  = 0;
       o.deliveredDate  = '';
       save();
@@ -183,7 +183,7 @@ function setDelivery(id, status) {
       if (!confirm(`[${o.ship}]\n이 발주를 취소 처리할까요?\n(모든 금액·박스 집계에서 제외됩니다)`)) return;
       const note = prompt('취소 사유 (선택사항)', o.deliveryNote || '');
       if (note !== null) o.deliveryNote = note.trim();
-      o.returnAmount  = 0;
+      o.returnAmount  = null;
       o.partialAmount = 0;
       o.deliveredDate = '';
       o.returnedDate  = '';
@@ -199,7 +199,7 @@ function setDelivery(id, status) {
     if (status === 'returned') {
       const input = prompt(
         `반품 금액을 입력하세요\n(전액 반품이면 비워두세요, 발주금액 ${fmt(o.total)} 적용)`,
-        o.returnAmount || ''
+        o.returnAmount ?? ''
       );
       if (input === null) return;
       const amt = input.trim() === '' ? (o.total || 0) : parseFloat(input.replace(/[^0-9.]/g, ''));
@@ -212,7 +212,7 @@ function setDelivery(id, status) {
       if (note !== null) o.deliveryNote = note.trim();
     } else {
       o.deliveryNote  = '';
-      o.returnAmount  = 0;
+      o.returnAmount  = null;
       o.partialAmount = 0;
       o.returnedDate  = '';
       o.cancelledDate = '';

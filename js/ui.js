@@ -60,7 +60,9 @@ function renderAll() {
   // 대시보드 본문은 선택된 월(_dashMonth) 데이터만 사용
   _renderDashMonthNav();
   const monthOrders = _filterByMonth(orders, _dashMonth);
-  const ships = new Set(monthOrders.map(o => o.ship)).size;
+  // v3.3.24: 통계 탭(byShip)과 동일하게 정규화된 키로 세어, 괄호 부가정보
+  // 유무로 같은 선박이 서로 다르게 집계되지 않도록 통일
+  const ships = new Set(monthOrders.map(o => _normShipKey(o.ship) || o.ship || '미상')).size;
 
   // 납품 기준 통계 (해당 월) — 발주취소 건은 제외
   const deliveredOrders = monthOrders.filter(o => o.deliveryStatus === 'delivered');
