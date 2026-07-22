@@ -339,24 +339,38 @@ function selectStatMonth(m) {
 }
 
 // ── 선명별 납품 주기 계산 (전체 orders 기준, 발주취소 제외) ──
-// 반환: { [선명]: { count, avgDays, lastDate } }
+// 반환: { [정규화된 선명]: { count, avgDays, lastDate } }
 //   count    : 서로 다른 납품일 수
 //   avgDays  : 납품일 간 평균 간격(일) — 납품일이 2개 미만이면 null
 //   lastDate : 가장 최근 납품일
+//
+// v3.3.23: 통계 집계 전용 선명 정규화. 발주목록·상세 등 원본 데이터는 그대로
+// 두고, "선명별 매출·납품주기" 통계에서 그룹핑할 때만 괄호(와 그 안의 내용)·
+// 중복 공백을 무시해서 같은 선박으로 합산한다.
+// 예) "MSC BELLISSIMA (2019-02, CHANTIERS...)" 와 "MSC BELLISSIMA"는
+//     서류상 부가정보 유무만 다를 뿐 같은 배이므로 통계에서는 하나로 묶는다.
+function _normShipKey(ship) {
+  return (ship || '')
+    .replace(/\([^)]*\)/g, '')  // 괄호와 그 안의 내용 제거
+    .replace(/\s+/g, ' ')       // 연속 공백 → 하나로
+    .trim();
+}
+
 function _computeShipCycles() {
   const byShipDates = {};
   orders.forEach(o => {
     if (o.deliveryStatus !== 'delivered') return;
     const d = o.deliveredDate || o.date;
     if (!d || d === '미상') return;
-    if (!byShipDates[o.ship]) byShipDates[o.ship] = new Set();
-    byShipDates[o.ship].add(d);
+    const key = _normShipKey(o.ship) || o.ship || '미상';
+    if (!byShipDates[key]) byShipDates[key] = new Set();
+    byShipDates[key].add(d);
   });
   const result = {};
-  Object.entries(byShipDates).forEach(([ship, dateSet]) => {
+  Object.entries(byShipDates).forEach(([key, dateSet]) => {
     const dates = Array.from(dateSet).sort();
     if (dates.length < 2) {
-      result[ship] = { count: dates.length, avgDays: null, lastDate: dates[dates.length - 1] || null };
+      result[key] = { count: dates.length, avgDays: null, lastDate: dates[dates.length - 1] || null };
       return;
     }
     const diffs = [];
@@ -366,7 +380,7 @@ function _computeShipCycles() {
       diffs.push(Math.round((d2 - d1) / 86400000));
     }
     const avgDays = Math.round(diffs.reduce((a, b) => a + b, 0) / diffs.length);
-    result[ship] = { count: dates.length, avgDays, lastDate: dates[dates.length - 1] };
+    result[key] = { count: dates.length, avgDays, lastDate: dates[dates.length - 1] };
   });
   return result;
 }
@@ -545,17 +559,22 @@ function renderStats() {
 
   // ── 선명별 집계 (납품완료·반품 건만 — 미납품/발주취소 제외, 선택된 월 기준) ──
   // 미납품 건은 실제 납품이 이뤄진 시점(deliveredDate)에 자동으로 통계에 반영됨
+  // v3.3.23: _normShipKey()로 정규화한 키로 그룹핑해 괄호 부가정보 유무로
+  // 같은 선박이 따로 집계되는 문제를 방지. 표시 이름은 그룹 내에서 가장 짧은
+  // (=부가정보 없는) 원본 선명을 대표값으로 사용.
   const byShip = {};
   scopeOrders.filter(o => o.deliveryStatus === 'delivered' || o.deliveryStatus === 'returned').forEach(o => {
-    if (!byShip[o.ship]) byShip[o.ship] = { ship: o.ship, cnt: 0, total: 0, net: 0, returned: 0, boxes: 0 };
-    byShip[o.ship].cnt++;
-    byShip[o.ship].total   += (o.total || 0);
-    byShip[o.ship].net     += calcNetDelivery(o);
+    const key = _normShipKey(o.ship) || o.ship || '미상';
+    if (!byShip[key]) byShip[key] = { ship: o.ship, key, cnt: 0, total: 0, net: 0, returned: 0, boxes: 0 };
+    if ((o.ship || '').length < (byShip[key].ship || '').length) byShip[key].ship = o.ship;
+    byShip[key].cnt++;
+    byShip[key].total   += (o.total || 0);
+    byShip[key].net     += calcNetDelivery(o);
     // 반품(수동)은 boxes도 차감되어야 함 — 그동안 부호 보정이 없어 반품 박스가
     // 오히려 더해져 선박별 박스 수가 부풀려지던 문제 수정
-    byShip[o.ship].boxes   += calcOrderBoxes(o) * _boxSign(o);
+    byShip[key].boxes   += calcOrderBoxes(o) * _boxSign(o);
     if (o.deliveryStatus === 'returned')
-      byShip[o.ship].returned += (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount ?? Math.abs(o.total) ?? 0));
+      byShip[key].returned += (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount ?? Math.abs(o.total) ?? 0));
   });
   const ships = Object.values(byShip).sort((a, b) => b.net - a.net);
 
@@ -614,7 +633,7 @@ function renderStats() {
       <span style="font-size:10px;color:var(--muted);font-weight:400;">${ships.length}척</span>
     </div>
     ${ships.map((s, idx) => {
-      const cyc = shipCycles[s.ship] || {};
+      const cyc = shipCycles[s.key] || {};
       const pct = Math.max((s.net / maxShipNet) * 100, 3);
       const rankIcon = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '';
       const cycleText = cyc.avgDays
