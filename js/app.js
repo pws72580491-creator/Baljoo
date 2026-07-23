@@ -1,0 +1,655 @@
+// ══════════════════════════════════════════════════════
+// app.js  —  앱 초기화 · 스와이프 네비게이션 · 엑셀 내보내기
+// ══════════════════════════════════════════════════════
+
+// PDF.js worker 설정
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+// ── 스와이프 상태 ──
+let curView      = 0;
+const TOTAL      = 5;
+let touchStartX  = 0, touchStartY = 0, touchStartTime = 0;
+let isDragging   = false, dragX = 0;
+
+// ── 탭 이동 ──
+function goTo(idx, animate = true) {
+  idx     = Math.max(0, Math.min(TOTAL - 1, idx));
+  curView = idx;
+
+  const track = document.getElementById('swipeTrack');
+  if (!animate) track.classList.add('no-transition');
+  const W = root.offsetWidth;
+  track.style.transform = `translateX(-${idx * W}px)`;
+  if (!animate) requestAnimationFrame(() => { track.classList.remove('no-transition'); });
+
+  document.querySelectorAll('.tab').forEach((t, i) => t.classList.toggle('active', i === idx));
+  document.getElementById('tabInk').style.left = (idx * 20) + '%';
+
+  if (idx === 0 || idx === 1) renderAll();
+  if (idx === 3) renderDeliveryStatus();
+  if (idx === 4) renderStats();
+  if (idx === 2 && !pendingOrders.length) {
+    setStatus('');
+    document.getElementById('progWrap').style.display = 'none';
+  }
+  if (idx === 2) {
+    document.getElementById('delProgWrap').style.display = 'none';
+    if (typeof setDelStatus === 'function') setDelStatus('');
+  }
+}
+
+// ── 스와이프 이벤트 ──
+const root = document.getElementById('swipeRoot');
+
+root.addEventListener('touchstart', e => {
+  if (document.getElementById('modalOv').classList.contains('open')) return;
+  touchStartX    = e.touches[0].clientX;
+  touchStartY    = e.touches[0].clientY;
+  touchStartTime = Date.now();
+  isDragging     = false;
+  dragX          = 0;
+}, { passive: true });
+
+root.addEventListener('touchmove', e => {
+  if (document.getElementById('modalOv').classList.contains('open')) return;
+  const dx = e.touches[0].clientX - touchStartX;
+  const dy = e.touches[0].clientY - touchStartY;
+  if (!isDragging && Math.abs(dy) > Math.abs(dx)) return;
+  if (!isDragging && Math.abs(dx) > 12) { isDragging = true; }
+  if (!isDragging) return;
+  dragX = dx;
+  const W     = root.offsetWidth;
+  const offset = -curView * W + dx;
+  const track  = document.getElementById('swipeTrack');
+  track.classList.add('no-transition');
+  track.style.transform = `translateX(${offset}px)`;
+}, { passive: true });
+
+root.addEventListener('touchend', e => {
+  if (!isDragging) { isDragging = false; return; }
+  isDragging = false;
+  const track     = document.getElementById('swipeTrack');
+  track.classList.remove('no-transition');
+  const dt        = Date.now() - touchStartTime;
+  const velocity  = Math.abs(dragX) / dt;
+  const threshold = root.offsetWidth * 0.4;
+  if      (dragX < -threshold || (velocity > 0.6 && dragX < -50)) goTo(curView + 1);
+  else if (dragX >  threshold || (velocity > 0.6 && dragX >  50)) goTo(curView - 1);
+  else goTo(curView);
+}, { passive: true });
+
+// ── 엑셀 내보내기 ──
+function exportExcel() {
+  if (!orders.length)  { toast('⚠️ 내보낼 데이터가 없습니다'); return; }
+  if (!window.XLSX)    { toast('⚠️ 엑셀 라이브러리 로드 중...'); return; }
+
+  const rows = [];
+  orders.forEach(o => {
+    (o.items || [{ desc: '-', qty: 0, unit: '', price: 0, amount: 0 }]).forEach((item, idx) => {
+      rows.push({
+        '발주일자':       o.date,
+        '납기일자':       o.delivery || '',
+        '선명':          o.ship,
+        '서류번호':       o.docNo || '',
+        '거래처발주번호':  o.poNo || '',
+        '구분':          o.category === 'cruise' ? '크루즈' : o.category === 'cargo' ? '카고' : o.category === 'return' ? '반품' : '직접입력',
+        '납품상태':       o.deliveryStatus === 'delivered' ? '납품완료' : o.deliveryStatus === 'returned' ? '반품' : o.deliveryStatus === 'cancelled' ? '발주취소' : '미납품',
+        '품목':          item.desc   || '',
+        '코드':          item.code   || '',
+        '수량':          item.qty    || 0,
+        '단위':          item.unit   || '',
+        '박스':          calcItemBoxCount(item) || 0,
+        '단가':          item.price  || 0,
+        '품목금액':       item.amount || 0,
+        '발주총액':       idx === 0 ? (o.total        || 0) : '',
+        '반품금액':       idx === 0 ? (o.returnAmount  || 0) : '',
+        '실납품금액':     idx === 0 ? calcNetDelivery(o)    : '',
+        '비고':          idx === 0 ? (o.deliveryNote  || '') : ''
+      });
+    });
+  });
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '발주목록');
+
+  const delivered = orders.filter(o => o.deliveryStatus === 'delivered');
+  const returned  = orders.filter(o => o.deliveryStatus === 'returned');
+  const cancelled = orders.filter(o => o.deliveryStatus === 'cancelled');
+  const pending   = orders.filter(o => !o.deliveryStatus || o.deliveryStatus === 'pending');
+  const activeOrders = orders.filter(o => o.deliveryStatus !== 'cancelled'); // 발주취소 건 제외
+  const statsRows = [
+    { 항목: '총 발주건수',   값: activeOrders.length },
+    { 항목: '총 발주금액',   값: activeOrders.reduce((s, o) => s + (o.total || 0), 0) },
+    { 항목: '납품완료건수',  값: delivered.length },
+    { 항목: '납품완료금액',  값: delivered.reduce((s, o) => s + (o.total || 0), 0) },
+    { 항목: '반품건수',     값: returned.length },
+    { 항목: '반품금액',     값: returned.reduce((s, o) => s + (o.returnAmount ?? o.total ?? 0), 0) },
+    { 항목: '발주취소건수',  값: cancelled.length },
+    { 항목: '미납품건수',   값: pending.length },
+    { 항목: '실납품금액합계', 값: orders.reduce((s, o) => s + calcNetDelivery(o), 0) },
+  ];
+  const ws2 = XLSX.utils.json_to_sheet(statsRows);
+  XLSX.utils.book_append_sheet(wb, ws2, '납품통계');
+
+  // ── 월별 결산 시트 ──
+  const monthSet = new Set();
+  orders.forEach(o => {
+    const d = o.deliveredDate || o.date || '';
+    if (d && d.length >= 7) monthSet.add(d.slice(0, 7));
+  });
+  const months = Array.from(monthSet).sort();
+  if (months.length > 0) {
+    const monthlyRows = months.map(m => {
+      const [y, mo] = m.split('-');
+      const mOrders   = orders.filter(o => (o.deliveredDate || o.date || '').slice(0,7) === m);
+      const mDel      = mOrders.filter(o => o.deliveryStatus === 'delivered');
+      const mRet      = mOrders.filter(o => o.deliveryStatus === 'returned');
+      const mCancel   = mOrders.filter(o => o.deliveryStatus === 'cancelled');
+      const mPend     = mOrders.filter(o => !o.deliveryStatus || o.deliveryStatus === 'pending');
+      const mDelAmt   = mDel.reduce((s,o) => s+(o.total||0), 0);
+      const mRetAmt   = mRet.reduce((s,o) => s+(o.isReturn ? Math.abs(o.total||0) : (o.returnAmount??Math.abs(o.total)??0)), 0);
+      const mNet      = mDelAmt - mRetAmt;
+      // 박스수도 금액(mNet)과 동일하게 반품분을 차감 (부호 보정, phantom 반품은 0 처리)
+      const mBoxes    = mDel.reduce((s,o) => s+calcOrderBoxes(o), 0)
+                      + mRet.reduce((s,o) => s+calcOrderBoxes(o) * _boxSign(o), 0);
+      return {
+        '년월':       `${y}년 ${Number(mo)}월`,
+        '납품완료건': mDel.length,
+        '납품완료금액': mDelAmt,
+        '반품건':     mRet.length,
+        '반품금액':   mRetAmt,
+        '발주취소건': mCancel.length,
+        '미납품건':   mPend.length,
+        '실납품금액': mNet,
+        '납품박스':   Math.round(mBoxes * 10) / 10,
+      };
+    });
+    const ws3 = XLSX.utils.json_to_sheet(monthlyRows);
+    XLSX.utils.book_append_sheet(wb, ws3, '월별결산');
+  }
+
+  XLSX.writeFile(wb, `발주관리_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  toast('📥 엑셀 파일 다운로드 완료');
+}
+
+// ── 앱 초기화 ──
+function init() {
+  migrateOldKey();
+  load();
+  loadGeminiKeys();
+  goTo(0, false);
+  renderAll();
+  document.getElementById('tabInk').style.left = '0%';
+
+  // 대시보드 상단 버전 배지를 APP_VERSION 단일 소스에서 채움 (하드코딩된 값이 릴리즈마다 밀리는 것 방지)
+  const verBadge = document.getElementById('app-version-badge');
+  if (verBadge && typeof APP_VERSION !== 'undefined') verBadge.textContent = '발주관리 ' + APP_VERSION;
+
+  // ── 더블탭/더블클릭 → 텍스트·비밀번호 input 전체선택 ──
+  // 정적 input (index.html에 이미 존재하는 것)
+  document.querySelectorAll('input[type="text"], input[type="password"], input:not([type])')
+    .forEach(el => attachSelectAll(el));
+
+  // 동적으로 추가되는 input (모달 등) — document 전체에 위임
+  document.addEventListener('dblclick', e => {
+    const el = e.target;
+    if (el.tagName === 'INPUT' &&
+        (el.type === 'text' || el.type === 'password' || el.type === '')) {
+      el.select();
+    }
+  });
+  // 모바일 더블탭 (touchend 2회 300ms 이내)
+  let _lastTap = 0, _lastEl = null;
+  document.addEventListener('touchend', e => {
+    const el = e.target;
+    if (el.tagName !== 'INPUT') return;
+    if (el.type !== 'text' && el.type !== 'password' && el.type !== '') return;
+    const now = Date.now();
+    if (_lastEl === el && now - _lastTap < 300) {
+      e.preventDefault();
+      el.select();
+      _lastTap = 0; _lastEl = null;
+    } else {
+      _lastTap = now; _lastEl = el;
+    }
+  }, { passive: false });
+}
+
+function attachSelectAll(el) {
+  el.addEventListener('dblclick', () => el.select());
+}
+
+// ══════════════════════════════════════════════
+// 일괄납품 / 일괄보관 (Bulk Deliver / Archive)
+// ══════════════════════════════════════════════
+function toggleBulkMode(mode) {
+  // 같은 모드 버튼을 다시 누르면 종료, 다른 모드면 전환
+  const entering = isBulkMode !== mode;
+  isBulkMode = entering ? mode : false;
+  bulkSelected.clear();
+
+  const delivBtn = document.getElementById('bulkDelivBtn');
+  const archBtn  = document.getElementById('bulkArchBtn');
+  const bar      = document.getElementById('bulkBar');
+  const list     = document.getElementById('orders-list');
+  const delivRow = document.getElementById('bulkDeliverRow');
+  const archRow  = document.getElementById('bulkArchiveRow');
+
+  if (isBulkMode === 'deliver') {
+    delivBtn.textContent = '✕ 취소';
+    delivBtn.classList.add('active');
+    archBtn.textContent  = '📦 일괄보관';
+    archBtn.classList.remove('active');
+    bar.style.display    = 'flex';
+    list.classList.add('bulk-mode');
+    delivRow.style.display = 'flex';
+    archRow.style.display  = 'none';
+    document.getElementById('bulkDate').value = todayStr();
+  } else if (isBulkMode === 'archive') {
+    archBtn.textContent  = '✕ 취소';
+    archBtn.classList.add('active');
+    delivBtn.textContent = '☑️ 일괄납품';
+    delivBtn.classList.remove('active');
+    bar.style.display    = 'flex';
+    list.classList.add('bulk-mode');
+    archRow.style.display  = 'flex';
+    delivRow.style.display = 'none';
+  } else {
+    // 모드 종료
+    delivBtn.textContent = '☑️ 일괄납품';
+    delivBtn.classList.remove('active');
+    archBtn.textContent  = '📦 일괄보관';
+    archBtn.classList.remove('active');
+    bar.style.display    = 'none';
+    list.classList.remove('bulk-mode');
+    delivRow.style.display = 'none';
+    archRow.style.display  = 'none';
+  }
+  renderAll();
+}
+
+function toggleBulkSelect(id) {
+  if (bulkSelected.has(id)) {
+    bulkSelected.delete(id);
+  } else {
+    bulkSelected.add(id);
+  }
+  _updateBulkBar();
+  renderAll();
+}
+
+function bulkSelectAll() {
+  // 모드에 따라 선택 가능한 조건이 다름
+  filtered().forEach(o => {
+    if (isBulkMode === 'deliver') {
+      if (!o.isReturn && o.deliveryStatus !== 'delivered' && o.deliveryStatus !== 'returned' && !o.archived) {
+        bulkSelected.add(o.id);
+      }
+    } else if (isBulkMode === 'archive') {
+      // 보관 모드: 납품완료 또는 이미 보관중인 건 선택 가능
+      if (o.deliveryStatus === 'delivered' || !!o.archived) {
+        bulkSelected.add(o.id);
+      }
+    }
+  });
+  _updateBulkBar();
+  renderAll();
+}
+
+function bulkDeselectAll() {
+  bulkSelected.clear();
+  _updateBulkBar();
+  renderAll();
+}
+
+function _updateBulkBar() {
+  const cnt = bulkSelected.size;
+  document.getElementById('bulkCount').textContent = `${cnt}건 선택됨`;
+}
+
+function bulkDeliver() {
+  if (bulkSelected.size === 0) {
+    toast('⚠️ 선택된 발주가 없습니다.');
+    return;
+  }
+  const date = document.getElementById('bulkDate').value || todayStr();
+  const note = prompt(`납품 비고 (선택사항)\n선택 ${bulkSelected.size}건 전체에 적용됩니다`, '');
+  if (note === null) return; // 취소
+
+  let count = 0;
+  bulkSelected.forEach(id => {
+    const o = orders.find(x => x.id === id);
+    if (!o) return;
+    o.deliveryStatus = 'delivered';
+    o.deliveredDate  = date;
+    o.returnedDate   = '';
+    o.cancelledDate  = '';
+    o.deliveryNote   = note.trim();
+    count++;
+  });
+
+  save();
+  bulkSelected.clear();
+  toggleBulkMode('deliver'); // 모드 종료
+  toast(`✅ ${count}건 납품완료 처리되었습니다.`);
+}
+
+function bulkArchive() {
+  if (bulkSelected.size === 0) {
+    toast('⚠️ 선택된 발주가 없습니다.');
+    return;
+  }
+  const cnt = bulkSelected.size;
+  if (!confirm(`선택한 ${cnt}건을 보관함으로 이동하시겠습니까?`)) return;
+
+  bulkSelected.forEach(id => {
+    const o = orders.find(x => x.id === id);
+    if (o) o.archived = true;
+  });
+
+  save();
+  bulkSelected.clear();
+  toggleBulkMode('archive'); // 모드 종료
+  toast(`📦 ${cnt}건 보관 처리되었습니다.`);
+}
+
+function bulkUnarchive() {
+  if (bulkSelected.size === 0) {
+    toast('⚠️ 선택된 발주가 없습니다.');
+    return;
+  }
+  const cnt = bulkSelected.size;
+  if (!confirm(`선택한 ${cnt}건의 보관을 해제하시겠습니까?`)) return;
+
+  bulkSelected.forEach(id => {
+    const o = orders.find(x => x.id === id);
+    if (o) delete o.archived;
+  });
+
+  save();
+  bulkSelected.clear();
+  toggleBulkMode('archive'); // 모드 종료
+  toast(`📤 ${cnt}건 보관 해제되었습니다.`);
+}
+
+// ══════════════════════════════════════════════
+// 월별 납품내역 CSV 내보내기
+// ══════════════════════════════════════════════
+function exportMonthCSV(ym) {
+  const [y, mo] = ym.split('-');
+  const label   = `${y}년 ${Number(mo)}월`;
+
+  const scopeOrders = orders.filter(o => {
+    const d = (o.deliveredDate || o.date || '');
+    return d.slice(0, 7) === ym;
+  }).sort((a, b) => (a.deliveredDate || a.date || '').localeCompare(b.deliveredDate || b.date || ''));
+
+  if (!scopeOrders.length) {
+    toast(`⚠️ ${label} 납품 데이터가 없습니다.`);
+    return;
+  }
+
+  // BOM + CSV 헤더
+  const rows = [
+    ['납품일', '선명', '구분', '서류번호', '발주번호', '품목', '수량', '단위', '박스수', '발주금액', '실납품금액', '납품상태', '비고']
+  ];
+
+  scopeOrders.forEach(o => {
+    const date    = o.deliveredDate || o.date || '';
+    const cat     = o.category === 'cruise' ? '크루즈' : o.category === 'cargo' ? '카고' : o.category === 'return' ? '반품' : '직접입력';
+    const status  = o.deliveryStatus === 'delivered' ? '납품완료'
+                  : o.deliveryStatus === 'returned'  ? '반품'
+                  : o.deliveryStatus === 'cancelled' ? '발주취소' : '미납품';
+    const net     = calcNetDelivery(o);
+    // 납품완료·반품 건만 방향(부호) 보정 적용 — 수동 반품은 원래 qty가 양수로 저장되어 있어
+    // 보정 없이는 반품인데도 박스수가 플러스로 찍혀 같은 행의 실납품금액(마이너스)과 앞뒤가
+    // 맞지 않았음. 미납품·발주취소는 보정 대상이 아니므로 그대로 둔다.
+    const sign    = (o.deliveryStatus === 'delivered' || o.deliveryStatus === 'returned') ? _boxSign(o) : 1;
+    const boxes   = calcOrderBoxes(o) * sign;
+    const items   = o.items || [];
+
+    if (items.length === 0) {
+      rows.push([date, o.ship, cat, o.docNo||'', o.poNo||'', '', '', '', boxes.toFixed(1),
+                 o.total||0, net, status, o.deliveryNote||'']);
+    } else {
+      items.forEach((item, idx) => {
+        const iBoxes = calcItemBoxCount(item) * sign;
+        rows.push([
+          date, o.ship, cat, o.docNo||'', o.poNo||'',
+          item.desc||'', item.qty||'', displayUnit(item.unit)||'', iBoxes.toFixed(1),
+          idx === 0 ? (o.total||0) : '',  // 첫 품목 행에만 총액 표시
+          idx === 0 ? net : '',
+          idx === 0 ? status : '',
+          idx === 0 ? (o.deliveryNote||'') : ''
+        ]);
+      });
+    }
+  });
+
+  // 합계 행 (박스수는 실제 재고 이동이 있는 납품완료·반품 건만 집계 — 미납품·발주취소는 제외,
+  //          반품은 부호 보정하여 차감)
+  const totalNet   = scopeOrders.reduce((s, o) => s + calcNetDelivery(o), 0);
+  const totalBoxes = scopeOrders
+    .filter(o => o.deliveryStatus === 'delivered' || o.deliveryStatus === 'returned')
+    .reduce((s, o) => s + calcOrderBoxes(o) * _boxSign(o), 0);
+  rows.push([]);
+  rows.push(['합계', '', '', '', '', '', '', '', totalBoxes.toFixed(1), '', totalNet, '', '']);
+
+  // CSV 문자열 생성
+  const csv = '\uFEFF' + rows.map(r =>
+    r.map(v => {
+      const s = String(v ?? '');
+      // 쉼표·줄바꿈·따옴표 포함 시 따옴표로 감쌈
+      return /[,"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }).join(',')
+  ).join('\r\n');
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `납품내역_${y}${mo}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast(`📥 ${label} 납품내역 CSV 다운로드 완료`);
+}
+
+init();
+
+// ── Service Worker 등록 (content:// 에선 SW 불가 — 건너뜀) ──
+if ('serviceWorker' in navigator && location.protocol !== 'content:') {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW 등록 실패:', e));
+  });
+} else if ('serviceWorker' in navigator && location.protocol === 'content:') {
+  // content:// 환경에서 이전에 등록된 SW가 있으면 모두 해제
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(r => r.unregister());
+  });
+}
+
+// ── Pull-to-Refresh ──
+(function() {
+  const PTR_THRESHOLD = 70;   // 이 거리(px) 이상 당기면 새로고침
+  const PTR_MAX      = 90;    // 인디케이터 최대 높이(px)
+  let ptrStartY = 0, ptrDeltaY = 0, ptrActive = false, ptrTriggered = false;
+
+  const indicator = document.getElementById('ptrIndicator');
+  const spinner   = document.getElementById('ptrSpinner');
+  const ptrText   = document.getElementById('ptrText');
+
+  function setPTRHeight(h) {
+    indicator.style.height = h + 'px';
+    // 화살표 회전: threshold 넘으면 180도
+    const ratio = Math.min(h / PTR_THRESHOLD, 1);
+    spinner.style.transform = `rotate(${ratio * 180}deg)`;
+    ptrText.textContent = h >= PTR_THRESHOLD ? '놓으면 새로고침' : '당겨서 새로고침';
+  }
+
+  document.addEventListener('touchstart', e => {
+    if (curView !== 0) return;  // 대시보드 탭에서만
+    const view0 = document.getElementById('v0');
+    if (view0.scrollTop > 0) return;  // 이미 스크롤된 상태면 무시
+    ptrStartY   = e.touches[0].clientY;
+    ptrDeltaY   = 0;
+    ptrActive   = true;
+    ptrTriggered = false;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', e => {
+    if (!ptrActive) return;
+    ptrDeltaY = e.touches[0].clientY - ptrStartY;
+    if (ptrDeltaY <= 0) { ptrActive = false; setPTRHeight(0); return; }
+    const h = Math.min(ptrDeltaY * 0.6, PTR_MAX);
+    setPTRHeight(h);
+    if (ptrDeltaY >= PTR_THRESHOLD) ptrTriggered = true;
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => {
+    if (!ptrActive) return;
+    ptrActive = false;
+    if (ptrTriggered) {
+      // content:// 환경에서 location.reload()가 동작 안 하므로 소프트 새로고침
+      spinner.style.transform = 'rotate(0deg)';
+      ptrText.textContent = '새로고침 중...';
+      indicator.style.height = '48px';
+      indicator.style.transition = 'none';
+      setTimeout(() => {
+        try {
+          load();       // localStorage 재로드
+          renderAll();  // 화면 갱신
+          toast('✅ 새로고침 완료');
+        } catch(e) {
+          // 마지막 수단으로 reload 시도
+          try { location.reload(); } catch(_) {}
+        }
+        indicator.style.transition = 'height 0.2s ease';
+        setPTRHeight(0);
+        ptrTriggered = false;
+      }, 400);
+    } else {
+      // 원위치
+      indicator.style.transition = 'height 0.2s ease';
+      setPTRHeight(0);
+    }
+  }, { passive: true });
+})();
+
+// ── 핀치줌 / 더블탭 확대 차단 (터치 전용) ──
+const isTouchOnly = window.matchMedia('(pointer:coarse) and (max-width:699px)').matches;
+if (isTouchOnly) {
+  document.addEventListener('touchstart', e => {
+    if (e.touches.length > 1) e.preventDefault();
+  }, { passive: false });
+
+  let lastTap = 0;
+  document.addEventListener('touchend', e => {
+    const now = Date.now();
+    const el = e.target;
+    const isInput = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA';
+    if (!isInput && now - lastTap < 300) e.preventDefault();
+    lastTap = now;
+  }, { passive: false });
+}
+
+// ── 안드로이드 뒤로가기 → 모달 닫기 ──
+window.addEventListener('popstate', e => {
+  // 편집 모달이 열려있으면 닫기
+  const editOv = document.getElementById('editModalOv');
+  if (editOv && editOv.classList.contains('open')) {
+    editOv.classList.remove('open');
+    if (typeof _editId !== 'undefined') window._editId = null;
+    return;
+  }
+  // 상세 모달이 열려있으면 닫기
+  const modalOv = document.getElementById('modalOv');
+  if (modalOv && modalOv.classList.contains('open')) {
+    modalOv.classList.remove('open');
+    return;
+  }
+});
+
+// ── Wake Lock / 백그라운드 처리 유지 ──
+// 발주서 업로드·납품리스트 등록 중 화면이 꺼지거나 백그라운드로 전환돼도
+// 처리가 중단되지 않도록 Wake Lock을 획득하고, 복귀 시 자동 재개한다.
+const BG = (() => {
+  let _lock = null;
+  let _processing = false;   // 현재 처리 중인지
+  let _resumeFn  = null;     // visibilitychange 복귀 시 호출할 콜백
+
+  // Wake Lock 획득
+  async function acquire() {
+    if (!('wakeLock' in navigator)) return;
+    try {
+      _lock = await navigator.wakeLock.request('screen');
+      _lock.addEventListener('release', () => { _lock = null; });
+    } catch (e) {
+      console.warn('[BG] wakeLock 획득 실패:', e.message);
+    }
+  }
+
+  // Wake Lock 해제
+  async function release() {
+    if (_lock) { try { await _lock.release(); } catch(_) {} _lock = null; }
+  }
+
+  // 처리 시작 알림 (analyzer/delivery에서 호출)
+  async function start(resumeFn) {
+    _processing = true;
+    _resumeFn   = resumeFn || null;
+    await acquire();
+  }
+
+  // 처리 완료 알림
+  async function end() {
+    _processing = false;
+    _resumeFn   = null;
+    await release();
+  }
+
+  // visibilitychange: 화면 복귀 시 Wake Lock 재획득 + 필요시 재개
+  document.addEventListener('visibilitychange', async () => {
+    if (document.visibilityState === 'visible' && _processing) {
+      await acquire();  // 백그라운드 전환으로 해제된 경우 재획득
+      if (typeof _resumeFn === 'function') {
+        try { await _resumeFn(); } catch(e) { console.warn('[BG] resume 실패:', e); }
+      }
+    }
+  });
+
+  return { start, end };
+})();
+
+// ══════════════════════════════════════════════
+// 전역 오류 수집 (디버깅용)
+// ══════════════════════════════════════════════
+window.onerror = function(msg, src, line, col, err) {
+  console.error('[GlobalError]', msg, src && `${src}:${line}:${col}`, err);
+};
+window.addEventListener('unhandledrejection', e => {
+  console.error('[UnhandledPromise]', e.reason);
+});
+
+// ══════════════════════════════════════════════
+// Service Worker — 새 버전 감지 시 갱신 안내
+// ══════════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.ready.then(reg => {
+    reg.addEventListener('updatefound', () => {
+      const newWorker = reg.installing;
+      newWorker.addEventListener('statechange', () => {
+        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+          if (typeof toast === 'function') {
+            toast('🔄 새 버전이 있습니다. 새로고침하면 적용됩니다.', 6000);
+          }
+        }
+      });
+    });
+  });
+}
