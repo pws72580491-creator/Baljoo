@@ -1282,6 +1282,9 @@ function saveDelivGoal(dateStr) {
   closeDelivGoal();
   // 현재 열려있는 날짜 인덱스 기억 후 재렌더
   _reRenderDelivKeepOpen();
+  // v3.3.25: 재고 이력도 Firebase에 자동 백업 (기존엔 이 기기 localStorage에만 남아
+  // 캐시 삭제 시 함께 사라졌음)
+  if (typeof scheduleAutoSync === 'function') scheduleAutoSync();
   toast('🎯 입고·파손이 저장되었습니다.');
 }
 
@@ -1289,6 +1292,7 @@ function clearDelivGoal(dateStr) {
   localStorage.removeItem('delivGoal_' + dateStr);
   closeDelivGoal();
   _reRenderDelivKeepOpen();
+  if (typeof scheduleAutoSync === 'function') scheduleAutoSync();
   toast('입고·파손이 삭제되었습니다.');
 }
 
