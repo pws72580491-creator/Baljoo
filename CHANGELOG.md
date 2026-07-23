@@ -2,6 +2,18 @@
 
 ---
 
+## v3.3.25 · 2026-07-20
+
+### 🐛 수정 — 재고 이력 Firebase 백업 누락
+
+- **문제**: 재고 이력(입고·파손 — localStorage의 `delivGoal_<날짜>`)이 그동안 Firebase에 전혀 백업되지 않고 이 기기의 localStorage에만 저장돼 있었음. 발주 데이터(orders)는 크롬 캐시/사이트 데이터를 지워도 Firebase에서 복원되지만, 재고 이력은 백업 자체가 없어 영구히 사라지는 구조였음 — 문의주신 그대로 "정상 동작"이었고, 이번에 보완함.
+- `firebase.js`: orders와 동일한 백업 노드(`baljoo/backup`)에 `stockGoals`로 재고 이력을 함께 저장하도록 확장. `_mergeOrdersTransaction` → `_mergeBackupTransaction`으로 이름을 바꾸고 orders·stockGoals를 한 트랜잭션에서 함께 병합 — 다른 기기가 모르는 사이 추가/삭제한 항목은 서로 보존하는 병합 방식(기존 orders 병합과 동일한 안전장치 적용).
+- `ui.js`: `saveDelivGoal()`/`clearDelivGoal()`에서도 발주 저장과 동일하게 `scheduleAutoSync()`를 호출해, 입고·파손을 입력/삭제할 때마다 3초 후 자동으로 Firebase에 백업되도록 함.
+- 복원(`fbRestore`) 시 발주뿐 아니라 재고 이력도 함께 복원되며, 완료 메시지에 복원된 재고 이력 일수도 함께 표시.
+- 세 가지 병합 시나리오(새 날짜 추가, 날짜 삭제, 다른 기기가 추가한 날짜 보존) 시뮬레이션으로 검증 완료.
+
+---
+
 ## v3.3.24 · 2026-07-20
 
 ### 🆕 신규 — 납품현황 할인 내역 표시
