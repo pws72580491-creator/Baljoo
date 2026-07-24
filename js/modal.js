@@ -258,6 +258,14 @@ function delOrder(id) {
 // 발주 수정 모달
 // ══════════════════════════════════════════════════════
 let _editId = null;
+// v3.3.26 fix: 품목 행의 다음 idx를 "현재 화면에 남은 행 개수"로 계산하면,
+// 마지막이 아닌 중간 품목을 삭제한 뒤 "+ 품목 추가"를 누를 때 이미 존재하는
+// idx와 충돌해서(예: 0,1,2 중 1을 지우면 남은 행이 2개 → 새 idx도 2로 배정,
+// 기존 idx=2 행과 중복) getElementById가 항상 먼저 나온(기존) 요소를 반환하게 됨.
+// 그 결과 새로 입력한 품목은 저장 시 조용히 버려지고, 기존 품목이 대신
+// 중복 저장되는 심각한 데이터 유실 버그가 있었음 — 절대 재사용되지 않는
+// 증가 전용 카운터로 교체.
+let _editItemNextIdx = 0;
 
 // v3.3.14 fix: 품목 단위 select 옵션 생성 헬퍼.
 // 기존엔 select 옵션이 box/pcs/doz/pkt 4개뿐이라, analyzer.js AI가 반환하는
@@ -278,6 +286,9 @@ function openEditModal(id) {
   const o = orders.find(x => x.id === id);
   if (!o) return;
   _editId = id;
+  // 최초 렌더되는 품목 행은 0..N-1을 그대로 쓰므로, 다음에 추가될 새 행은
+  // 그 뒤(N)부터 — 이후 몇 개를 지우든 절대 기존 idx와 겹치지 않음
+  _editItemNextIdx = (o.items || []).length;
   // 상세 모달 닫기 (history.back() 없이 직접 닫아야 popstate 충돌 방지)
   document.getElementById('modalOv').classList.remove('open');
 
@@ -436,7 +447,7 @@ function closeEditModalOv(e) {
 
 function addEditItem() {
   const list = document.getElementById('edit-items-list');
-  const idx  = list.querySelectorAll('.edit-item-row').length;
+  const idx  = _editItemNextIdx++; // v3.3.26: 항상 새 값 — 삭제된 idx를 재사용하지 않음
   const div  = document.createElement('div');
   div.innerHTML = `
     <div class="edit-item-row" id="eitem-${idx}">

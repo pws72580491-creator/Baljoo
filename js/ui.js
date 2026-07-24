@@ -351,9 +351,11 @@ function selectStatMonth(m) {
 //     서류상 부가정보 유무만 다를 뿐 같은 배이므로 통계에서는 하나로 묶는다.
 function _normShipKey(ship) {
   return (ship || '')
-    .replace(/\([^)]*\)/g, '')  // 괄호와 그 안의 내용 제거
+    .replace(/\([^)]*\)/g, '')  // 짝이 맞는 괄호와 그 안의 내용 제거
+    .replace(/\([^)]*$/, '')    // v3.3.26: 짝이 안 맞는 여는 괄호 이후 전부 제거(잘린 OCR 등 방어)
     .replace(/\s+/g, ' ')       // 연속 공백 → 하나로
-    .trim();
+    .trim()
+    .toUpperCase();             // v3.3.26: 대소문자 차이만으로 같은 배가 갈라지는 것도 함께 방지
 }
 
 function _computeShipCycles() {
@@ -702,7 +704,10 @@ function _calcOrderDiscount(o) {
   const itemsSum = (o.items || []).reduce((s, it) => s + (Number(it.amount) || 0), 0);
   const total = Number(o.total) || 0;
   const diff = Math.abs(itemsSum) - Math.abs(total);
-  if (diff <= 1 || Math.abs(itemsSum) < 1) return { amount: 0, pct: 0 };
+  // v3.3.26: 품목 수가 많고 단가에 소수점이 있는 발주서는 반올림 오차가 누적되어
+  // 1~수 원 차이가 나는 경우가 있어, 문턱값을 5원으로 올려 오탐 여지를 줄임
+  // (실제 할인은 보통 총액의 몇 % 단위라 5원보다 훨씬 크므로 놓칠 위험은 낮음)
+  if (diff <= 5 || Math.abs(itemsSum) < 1) return { amount: 0, pct: 0 };
   return { amount: diff, pct: Math.round((diff / Math.abs(itemsSum)) * 1000) / 10 };
 }
 
@@ -1505,4 +1510,63 @@ function renderDashByDate() {
       </div>
     </div>`;
   }).join('');
+}
+
+// ══════════════════════════════════════════════════════
+// v3.3.26: 품목 추가 idx 충돌 버그로 인한 과거 손상 데이터 자가 점검 도구
+// ══════════════════════════════════════════════════════
+// 이 버그는 "새로 입력한 품목이 사라지고, 그 자리에 기존 품목과 완전히
+// 동일한(품목명·CODE·수량·단위·단가 모두 같은) 항목이 대신 중복 저장"되는
+// 형태로 흔적을 남긴다. 실제로 같은 품목을 의도적으로 두 줄로 나눠 적는
+// 경우도 드물게 있을 수 있어 100% 확정 판정은 아니지만, 확인해볼 만한
+// 후보를 빠르게 찾아주는 참고용 도구.
+function checkDuplicateItems() {
+  const flagged = [];
+  orders.forEach(o => {
+    const items = o.items || [];
+    if (items.length < 2) return;
+    const seen = new Set();
+    const dupDescs = new Set();
+    items.forEach(it => {
+      const key = [it.desc, it.code, it.qty, it.unit, it.price].join('|');
+      if (seen.has(key)) dupDescs.add(it.desc || '(품목명 없음)');
+      seen.add(key);
+    });
+    if (dupDescs.size > 0) flagged.push({ order: o, dupDescs: [...dupDescs] });
+  });
+
+  if (!flagged.length) {
+    toast('✅ 중복 품목 의심 사례 없음 — 이상 없습니다');
+    return;
+  }
+
+  const rows = flagged.map(({ order: o, dupDescs }) => `
+    <div onclick="_closeDupCheckOv(); openModal('${o.id}');"
+         style="padding:12px 14px;border-bottom:1px solid var(--border);cursor:pointer;">
+      <div style="font-weight:800;color:var(--navy);font-size:14px;">${escapeHtml(o.ship || '(선명 없음)')}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px;">${escapeHtml(o.docNo || '')} · ${escapeHtml(o.date || '')}</div>
+      <div style="font-size:12px;color:#dc2626;margin-top:4px;">⚠️ 중복 의심 품목: ${dupDescs.map(escapeHtml).join(', ')}</div>
+    </div>`).join('');
+
+  const ov = document.createElement('div');
+  ov.id = 'dupCheckOv';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-end;';
+  ov.onclick = (e) => { if (e.target === ov) _closeDupCheckOv(); };
+  ov.innerHTML = `
+    <div style="background:#fff;width:100%;max-height:80vh;border-radius:16px 16px 0 0;display:flex;flex-direction:column;">
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:var(--navy);">⚠️ 중복 품목 의심 발주 — ${flagged.length}건</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;">v3.3.26에서 수정한 품목 추가 버그로 인한 손상 가능성이 있는 건이에요. 탭하면 상세 확인 후 필요시 수정해주세요.</div>
+        </div>
+        <button onclick="_closeDupCheckOv()" style="background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer;padding:4px 8px;flex-shrink:0;">✕</button>
+      </div>
+      <div style="overflow-y:auto;">${rows}</div>
+    </div>`;
+  document.body.appendChild(ov);
+}
+
+function _closeDupCheckOv() {
+  const ov = document.getElementById('dupCheckOv');
+  if (ov) ov.remove();
 }
