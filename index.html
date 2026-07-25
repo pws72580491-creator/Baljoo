@@ -2,10 +2,46 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.3.27
-  Released: 2026-07-20
+  Version : v3.3.29
+  Released: 2026-07-25
   ────────────────────────────────────────
   CHANGELOG
+  v3.3.29 (2026-07-25)
+    - [개선] 발주서 업로드 AI 분석 프롬프트에 서류번호(docNo)·거래처발주번호
+      (poNo) 추출 규칙을 명확히 추가: 두 필드의 한국어 의미와 문서 상
+      일반적인 위치를 구체적으로 안내하고, 두 값을 서로 혼동하지 않도록
+      명시. 가장 중요하게는 — 라벨이 명확히 보이지 않을 때 다른 번호로
+      대체하거나 추측하지 말고 반드시 빈 문자열로 두도록 지시(잘못된
+      값을 채워 넣는 것을 방지).
+    - [신규] 업로드 미리보기 화면에 서류번호·발주번호를 입력창으로 표시해
+      바로 확인·수정 가능하도록 개선(기존엔 서류번호는 읽기 전용 텍스트,
+      발주번호는 미리보기에 아예 표시되지 않았음 — 선명 입력창과 동일한
+      방식으로 통일). 값이 비어있으면 주황색으로 강조 표시.
+    - 두 값을 수정하면 중복 판정(⚠️ 중복 배지)도 즉시 다시 계산됨.
+  v3.3.28 (2026-07-24) — 부분납품(partial delivery) 기능 신규 추가
+    - [신규] 발주 1건 안에서 품목별로 "지금까지 배송된 박스 수"를 추적하는
+      부분납품 기능 추가. 발주 건수는 그대로 유지되고, 상태만 '부분납품'
+      (🚚)으로 표시됨. 모든 품목이 전체 박스를 채우면 자동으로
+      '납품완료'로 전환됨.
+    - 상세 모달에 "🚚 부분납품 처리" 버튼 + 품목별 배송 박스 수 입력
+      팝업(openPartialModal) 추가.
+    - 핵심 계산: item.deliveredBoxes(품목별 누적 배송 박스 수),
+      calcPartialDeliveredAmount()(배송분 비례 금액), calcOrderImpactBoxes/
+      _itemImpactBoxes(재고·통계 집계용 "실제 반영될 박스 수" — 부분납품은
+      배송분만, 미납품/발주취소는 항상 0으로 방어 처리).
+    - 재고 이월 계산(_stockByDateFor), 납품현황 탭 일별 집계, 대시보드
+      박스·금액 합계, 통계 탭 선명별 매출·주기, 월별 결산, CSV/엑셀
+      내보내기까지 전 영역에 부분납품 반영.
+    - 다른 상태(미납품/발주취소/반품/납품완료)로 전환할 때마다 품목별
+      진행 수량을 적절히 초기화(0)하거나 완료 처리(전체 박스)하도록
+      toggleDelivered·setDelivery·bulkDeliver·납품사진 자동확인 로직 보완.
+    - 발주목록 탭에 "부분납품" 필터 칩, 카드에 배송 진행률 표시 추가.
+    - 대시보드에 부분납품 건수 안내 배너 추가(탭하면 발주목록으로 이동
+      후 자동 필터링).
+    - [중요 발견 및 수정] storage.js에 예전 부분납품 개념을 폐지하며
+      'partial' 상태를 자동으로 '발주취소'로 변환하던 마이그레이션
+      코드가 남아있어, 새 부분납품 기능이 매 로드마다 무력화되는
+      문제를 발견하고 제거함.
   v3.3.27 (2026-07-20)
     - [신규] 대시보드에 "🔍 중복 품목 점검" 버튼 추가. v3.3.26에서 수정한
       품목 추가 idx 충돌 버그로 인해 과거에 저장됐을 수 있는 손상 데이터
@@ -524,7 +560,7 @@
   // 막기 위해, 버전은 여기 한 곳에서만 관리하고 나머지는 이 값을 참조한다.
   // ⚠️ sw.js의 CACHE_NAME과 manifest.json의 description은 별도 실행 컨텍스트라
   //    이 값을 직접 참조할 수 없음 — 릴리즈 시 그 두 곳만 수동으로 맞춰줄 것.
-  const APP_VERSION = 'v3.3.27';
+  const APP_VERSION = 'v3.3.29';
   document.title = '이른아침 · 발주관리 ' + APP_VERSION;
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -541,7 +577,7 @@
   --border:#dde3ef;--text:#1a2540;--muted:#6b7a99;
   --danger:#ef4444;--success:#22c55e;
   --warn:#f59e0b;
-  --delivered:#0ea5e9;--returned:#ef4444;--pending:#6b7a99;--cancelled:#7c3aed;
+  --delivered:#0ea5e9;--returned:#ef4444;--pending:#6b7a99;--cancelled:#7c3aed;--partial:#f59e0b;
   --r:12px;--sh:0 2px 12px rgba(15,31,61,.08);
   --nav-h:56px;--top-h:56px;
 }
@@ -665,6 +701,7 @@ body{
   background:var(--border);border-radius:3px 0 0 3px;
 }
 .order-card.status-delivered::before{background:var(--delivered);}
+.order-card.status-partial::before{background:var(--partial);}
 .order-card.status-returned::before{background:var(--returned);}
 .order-card.status-cancelled::before{background:var(--cancelled);}
 .order-card.is-return-doc{background:#fff5f5;border-color:#fca5a5;}
@@ -693,6 +730,7 @@ body{
 .oc-ship{font-size:14px;font-weight:700;line-height:1.3;flex:1;padding-right:8px;}
 .oc-status-date{font-size:11px;font-weight:500;margin-left:6px;white-space:nowrap;}
 .oc-status-date.sd-delivered{color:var(--delivered);}
+.oc-status-date.sd-partial{color:var(--partial);}
 .oc-status-date.sd-returned{color:var(--returned);}
 .oc-status-date.sd-cancelled{color:var(--cancelled);}
 .oc-amount{font-size:15px;font-weight:700;color:var(--navy);white-space:nowrap;}
@@ -712,6 +750,7 @@ body{
 .b-cargo{background:#fff3e0;color:#b35e00;}
 .b-manual{background:#f3e8ff;color:#7c3aed;}
 .b-delivered{background:#e0f7ff;color:#0369a1;}
+.b-partial{background:#fef3c7;color:#b45309;}
 .b-returned{background:#fee2e2;color:#b91c1c;}
 .b-cancelled{background:#ede9fe;color:#6d28d9;text-decoration:line-through;}
 .b-pending{background:#f1f5f9;color:#64748b;}
@@ -751,6 +790,7 @@ body{
 }
 .chip.active{background:var(--accent);border-color:var(--accent);color:#fff;}
 .chip.c-delivered.active{background:var(--delivered);border-color:var(--delivered);}
+.chip.c-partial.active{background:var(--partial);border-color:var(--partial);}
 .chip.c-returned.active{background:var(--returned);border-color:var(--returned);}
 .chip.c-cancelled.active{background:var(--cancelled);border-color:var(--cancelled);}
 .chip.c-dup{color:#92400e;border-color:#f3d38a;}
@@ -1039,6 +1079,7 @@ body{
             <div class="ds-amount" id="ds-pending-amt">₩0</div>
           </div>
         </div>
+        <div id="ds-partial-note" style="display:none;font-size:12px;font-weight:700;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-top:10px;text-align:center;cursor:pointer;" onclick="goToPartialList()"></div>
         <div class="ds-net">
           <div class="ds-net-lbl">실 납품금액 (납품 - 반품)</div>
           <div class="ds-net-val" id="ds-net-amt">₩0</div>
@@ -1130,6 +1171,7 @@ body{
       <div class="chips chips-equal" id="status-chips">
         <button class="chip active" onclick="filterStatus('all',this)">전체</button>
         <button class="chip c-delivered" onclick="filterStatus('delivered',this)">납품완료</button>
+        <button class="chip c-partial" onclick="filterStatus('partial',this)">🚚 부분납품</button>
         <button class="chip c-returned" onclick="filterStatus('returned',this)">반품</button>
         <button class="chip" onclick="filterStatus('pending',this)">미납품</button>
         <button class="chip c-cancelled" onclick="filterStatus('cancelled',this)">🚫취소</button>
@@ -1291,6 +1333,18 @@ body{
       <div class="modal-title">✏️ 발주 수정</div>
     </div>
     <div class="modal-body" id="edit-body"></div>
+  </div>
+</div>
+
+<!-- PARTIAL DELIVERY MODAL (v3.3.28) -->
+<div class="modal-ov" id="partialModalOv" onclick="closePartialModalOv(event)">
+  <div class="modal" id="partialModal" style="max-height:92vh;">
+    <div class="modal-handle"></div>
+    <div class="modal-head">
+      <div class="modal-title">🚚 부분납품 처리</div>
+      <div class="modal-doc" id="partial-docid">-</div>
+    </div>
+    <div class="modal-body" id="partial-body"></div>
   </div>
 </div>
 
