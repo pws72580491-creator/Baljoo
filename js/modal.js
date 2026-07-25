@@ -15,6 +15,7 @@ function openModal(id) {
     const boxes       = calcOrderBoxes(o);
     const netAmt      = calcNetDelivery(o);
     const isDelivered = o.deliveryStatus === 'delivered';
+    const isPartial   = o.deliveryStatus === 'partial';
     const isReturned  = o.deliveryStatus === 'returned';
     const isCancelled = o.deliveryStatus === 'cancelled';
     const isArchived  = !!o.archived;
@@ -35,10 +36,14 @@ function openModal(id) {
       <tbody>
         ${(o.items || []).map(i => {
           const boxWarn = _boxRatioWarning(i);
+          const total   = calcItemBoxCount(i);
+          const done    = calcItemDeliveredBoxes(i);
+          const progressStr = (isPartial && done > 0)
+            ? `<div style="font-size:10px;color:#b45309;font-weight:700;margin-top:2px;">🚚 ${formatBoxCount(done)} / ${formatBoxCount(total)} 배송</div>` : '';
           return `<tr>
           <td>${escapeHtml(i.desc)}</td>
           <td style="font-family:monospace;">${fmtQ(i)}</td>
-          <td style="font-family:monospace;${boxWarn ? 'color:#c2410c;font-weight:700;background:#fff7ed;' : ''}"${boxWarn ? ` title="${escapeHtml(boxWarn)}"` : ''}>${formatBoxCount(calcItemBoxCount(i))}${boxWarn ? ' ⚠️' : ''}</td>
+          <td style="font-family:monospace;${boxWarn ? 'color:#c2410c;font-weight:700;background:#fff7ed;' : ''}"${boxWarn ? ` title="${escapeHtml(boxWarn)}"` : ''}>${formatBoxCount(total)}${boxWarn ? ' ⚠️' : ''}${progressStr}</td>
           <td style="font-family:monospace;">${i.price ? '₩' + Number(i.price).toLocaleString() : '-'}</td>
           <td style="font-family:monospace;font-weight:700;">${i.amount ? '₩' + Number(i.amount).toLocaleString() : '-'}</td>
         </tr>${boxWarn ? `<tr><td colspan="5" style="font-size:10px;color:#9a3412;background:#ffedd5;padding:5px 8px;">${escapeHtml(boxWarn)}</td></tr>` : ''}`;
@@ -50,11 +55,17 @@ function openModal(id) {
       </tbody>
     </table>
 
-    ${(isDelivered || isReturned || isCancelled) ? `
+    ${(isDelivered || isPartial || isReturned || isCancelled) ? `
     <div class="delivery-block">
       <div class="db-title">납품 금액 현황</div>
       ${isDelivered ? `
         <div class="db-row"><span class="db-label">납품금액</span><span class="db-val plus">${fmt(o.total)}</span></div>
+      ` : ''}
+      ${isPartial ? `
+        <div class="db-row"><span class="db-label">발주금액</span><span class="db-val">${fmt(o.total)}</span></div>
+        <div class="db-row"><span class="db-label">배송 진행</span><span class="db-val" style="color:#b45309;">${formatBoxCount(calcOrderDeliveredBoxes(o))} / ${formatBoxCount(boxes)}</span></div>
+        <div class="db-divider"></div>
+        <div class="db-row"><span class="db-label">배송분 금액</span><span class="db-val net">${fmt(netAmt)}</span></div>
       ` : ''}
       ${isReturned ? `
         <div class="db-row"><span class="db-label">발주금액</span><span class="db-val">${fmt(o.total)}</span></div>
@@ -75,6 +86,9 @@ function openModal(id) {
       <button class="btn ${isDelivered ? 'btn-success' : 'btn-g'}"
         onclick="toggleDelivered('${o.id}')">
         ${isDelivered ? '✅ 납품완료 · 터치하면 취소' : '📦 납품완료 처리'}
+      </button>
+      <button class="btn ${isPartial ? 'btn-success' : 'btn-g'}" onclick="openPartialModal('${o.id}')">
+        ${isPartial ? '🚚 부분납품 수정' : '🚚 부분납품 처리'}
       </button>
       <button class="btn btn-warn ${isReturned ? '' : 'btn-g'}" onclick="setDelivery('${o.id}','returned')">
         ${isReturned ? '↩️ 반품처리됨' : '↩️ 반품 처리'}
@@ -124,6 +138,121 @@ function closeModalBtn() {
   if (history.state && history.state.modal === 'detail') history.back();
 }
 
+// ══════════════════════════════════════════════════════
+// v3.3.28: 부분납품(partial delivery) — 품목별 배송 진행 처리
+// ══════════════════════════════════════════════════════
+function openPartialModal(id) {
+  const o = orders.find(x => x.id === id);
+  if (!o) return;
+  const items = o.items || [];
+  if (!items.length) { toast('⚠️ 품목이 없는 발주입니다.'); return; }
+
+  // 상세 모달 닫기 (openEditModal과 동일한 방식 — history.back() 없이 직접 닫아야 popstate 충돌 방지)
+  document.getElementById('modalOv').classList.remove('open');
+
+  document.getElementById('partial-docid').textContent = (o.docNo || '') + (o.poNo ? ' · ' + o.poNo : '');
+  document.getElementById('partial-body').innerHTML = `
+    <div style="font-size:12px;color:var(--muted);margin-bottom:16px;">
+      품목별로 <b>지금까지 배송된 박스 수</b>를 입력해주세요. 모든 품목이 전체 박스를 채우면 자동으로 '납품완료'로 처리돼요.
+    </div>
+    ${items.map((item, idx) => {
+      const total = calcItemBoxCount(item);
+      const done  = calcItemDeliveredBoxes(item);
+      return `
+      <div style="margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border);">
+        <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:2px;">${escapeHtml(item.desc) || '(품목명 없음)'}</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">전체 ${formatBoxCount(total)}</div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <button onclick="_adjustPartialBox(${idx},-1)"
+                  style="width:36px;height:36px;flex-shrink:0;border-radius:50%;border:1px solid var(--border);
+                         background:#f8fafc;font-size:20px;cursor:pointer;line-height:1;">−</button>
+          <input id="partial-box-${idx}" type="number" min="0" max="${total}" step="0.1" inputmode="decimal"
+                 value="${done}" onfocus="this.select()"
+                 style="width:72px;flex-shrink:0;text-align:center;font-size:18px;font-weight:800;
+                        border:2px solid var(--border);border-radius:10px;padding:5px 4px;color:var(--navy);">
+          <button onclick="_adjustPartialBox(${idx},1)"
+                  style="width:36px;height:36px;flex-shrink:0;border-radius:50%;border:1px solid var(--border);
+                         background:#f8fafc;font-size:20px;cursor:pointer;line-height:1;">+</button>
+          <span style="font-size:12px;color:var(--muted);">/ ${formatBoxCount(total)}</span>
+          <button onclick="document.getElementById('partial-box-${idx}').value=${total};"
+                  style="margin-left:auto;font-size:11px;color:var(--accent);background:none;border:none;cursor:pointer;text-decoration:underline;">전체완료</button>
+        </div>
+      </div>`;
+    }).join('')}
+    <div style="display:flex;gap:8px;margin-top:20px;padding-bottom:8px;">
+      <button class="btn btn-g" style="flex:1;" onclick="closePartialModal()">취소</button>
+      <button class="btn btn-success" style="flex:1;" onclick="savePartialDelivery('${o.id}')">💾 저장</button>
+    </div>
+  `;
+
+  setTimeout(() => {
+    document.getElementById('partialModalOv').classList.add('open');
+    history.pushState({ modal: 'partial' }, '');
+  }, 50);
+
+  // 스와이프 닫기 (리스너 누적 방지: clone으로 기존 리스너 제거)
+  const pmOld = document.getElementById('partialModal');
+  const pm = pmOld.cloneNode(true);
+  pmOld.parentNode.replaceChild(pm, pmOld);
+  let _psy = 0;
+  pm.addEventListener('touchstart', e => { _psy = e.touches[0].clientY; }, { passive: true });
+  pm.addEventListener('touchmove', e => {
+    if (pm.scrollTop > 0) return;
+    if (e.touches[0].clientY - _psy > 60) closePartialModal();
+  }, { passive: true });
+}
+
+function closePartialModal() {
+  document.getElementById('partialModalOv').classList.remove('open');
+  if (history.state && history.state.modal === 'partial') history.back();
+}
+
+function closePartialModalOv(e) {
+  if (e.target === document.getElementById('partialModalOv')) closePartialModal();
+}
+
+function _adjustPartialBox(idx, delta) {
+  const input = document.getElementById(`partial-box-${idx}`);
+  if (!input) return;
+  const max = Number(input.max) || 0;
+  const newVal = Math.max(0, Math.min(max, (parseFloat(input.value) || 0) + delta));
+  input.value = (newVal % 1 === 0) ? newVal : Math.round(newVal * 10) / 10;
+}
+
+function savePartialDelivery(id) {
+  try {
+    const o = orders.find(x => x.id === id);
+    if (!o) return;
+    const items = o.items || [];
+    items.forEach((item, idx) => {
+      const input = document.getElementById(`partial-box-${idx}`);
+      const total = calcItemBoxCount(item);
+      const val = input ? Math.max(0, Math.min(total, parseFloat(input.value) || 0)) : 0;
+      item.deliveredBoxes = val;
+    });
+    const newStatus = _deriveDeliveryStatusFromItems(o);
+    o.deliveryStatus = newStatus;
+    o.partialAmount  = calcPartialDeliveredAmount(o); // 참고용 캐시 — 기존에 있던 필드를 재활용
+    if (newStatus === 'delivered') {
+      o.deliveryStatus = 'delivered';
+      o.deliveredDate  = todayStr();
+      o.returnedDate   = '';
+      o.cancelledDate  = '';
+    } else if (newStatus === 'partial') {
+      o.deliveredDate  = todayStr(); // 이번에 박스가 움직인(부분납품이 반영된) 날짜
+    } else {
+      o.deliveredDate  = '';
+    }
+    save();
+    closePartialModal();
+    renderAll();
+    toast(newStatus === 'delivered' ? '✅ 전량 납품완료로 처리되었습니다.' : '🚚 부분납품이 저장되었습니다.');
+  } catch (err) {
+    console.error('[savePartialDelivery] 오류:', err);
+    toast('⚠️ 부분납품 처리 중 오류가 발생했습니다.');
+  }
+}
+
 // ── 납품완료 토글 (완료 → 취소 / 미납품 → 완료) ──
 function toggleDelivered(id) {
   try {
@@ -138,6 +267,7 @@ function toggleDelivered(id) {
       o.returnAmount   = 0;
       o.partialAmount  = 0;
       o.deliveredDate  = '';
+      (o.items || []).forEach(i => { i.deliveredBoxes = 0; }); // v3.3.28: 부분납품 진행분도 함께 초기화
       save();
       closeModalBtn();
       renderAll();
@@ -151,6 +281,8 @@ function toggleDelivered(id) {
       o.deliveredDate  = todayStr();
       o.returnedDate   = '';
       o.cancelledDate  = '';
+      // v3.3.28: 부분납품 중이었더라도 전량 완료로 처리하면 모든 품목을 완료 처리
+      (o.items || []).forEach(i => { i.deliveredBoxes = calcItemBoxCount(i); });
       save();
       closeModalBtn();
       renderAll();
@@ -189,6 +321,7 @@ function setDelivery(id, status) {
       o.returnedDate  = '';
       o.cancelledDate = todayStr();
       o.deliveryStatus = 'cancelled';
+      (o.items || []).forEach(i => { i.deliveredBoxes = 0; }); // v3.3.28
       save();
       closeModalBtn();
       renderAll();
@@ -207,15 +340,18 @@ function setDelivery(id, status) {
       const note = prompt('비고 (선택사항)', o.deliveryNote || '');
       if (note !== null) o.deliveryNote = note.trim();
       o.cancelledDate = ''; // 취소 상태였다가 바로 반품 처리하는 경우 대비
+      (o.items || []).forEach(i => { i.deliveredBoxes = 0; }); // v3.3.28: 부분납품 진행분은 반품 처리로 정리
     } else if (status === 'delivered') {
       const note = prompt('납품 비고 (선택사항)', o.deliveryNote || '');
       if (note !== null) o.deliveryNote = note.trim();
+      (o.items || []).forEach(i => { i.deliveredBoxes = calcItemBoxCount(i); }); // v3.3.28
     } else {
       o.deliveryNote  = '';
       o.returnAmount  = 0;
       o.partialAmount = 0;
       o.returnedDate  = '';
       o.cancelledDate = '';
+      (o.items || []).forEach(i => { i.deliveredBoxes = 0; }); // v3.3.28: 미납품으로 되돌리면 진행분도 초기화
     }
 
     if (status === 'delivered') { o.deliveredDate = todayStr(); o.returnedDate = ''; o.cancelledDate = ''; }

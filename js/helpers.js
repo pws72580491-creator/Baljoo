@@ -55,6 +55,7 @@ const badge = c => {
 
 const statusBadge = s => {
   if (s === 'delivered') return '<span class="badge b-delivered">납품완료</span>';
+  if (s === 'partial')   return '<span class="badge b-partial">🚚 부분납품</span>';
   if (s === 'returned')  return '<span class="badge b-returned">반품</span>';
   if (s === 'cancelled') return '<span class="badge b-cancelled">🚫 발주취소</span>';
   return '<span class="badge b-pending">미납품</span>';
@@ -228,6 +229,45 @@ function calcOrderBoxes(order) {
   return (order.items || []).reduce((s, i) => s + calcItemBoxCount(i), 0);
 }
 
+// ══════════════════════════════════════════════════════
+// v3.3.28: 부분납품(partial delivery) — 품목별 진행 상황 추적
+// ══════════════════════════════════════════════════════
+// item.deliveredBoxes: 이 품목에서 지금까지 실제로 배송된 박스 수(누적).
+// undefined/0 = 아직 없음, calcItemBoxCount(item)와 같거나 크면 완료.
+// 항상 0 ~ 해당 품목 전체 박스 수 사이로 clamp해서 사용한다.
+function calcItemDeliveredBoxes(item) {
+  const total = calcItemBoxCount(item);
+  const d = Number(item.deliveredBoxes) || 0;
+  return Math.max(0, Math.min(d, total));
+}
+
+function calcOrderDeliveredBoxes(order) {
+  return (order.items || []).reduce((s, i) => s + calcItemDeliveredBoxes(i), 0);
+}
+
+// 발주총액 중 "지금까지 배송된 박스 비율만큼"의 금액 — 품목별로 계산해 합산
+// (품목마다 단가가 다를 수 있어 전체 박스 비율이 아니라 품목별 비율로 계산해야 정확함)
+function calcPartialDeliveredAmount(order) {
+  return (order.items || []).reduce((s, i) => {
+    const total = calcItemBoxCount(i);
+    if (total <= 0) return s;
+    const done = calcItemDeliveredBoxes(i);
+    return s + (Number(i.amount) || 0) * (done / total);
+  }, 0);
+}
+
+// 품목별 deliveredBoxes 값들을 보고 발주 전체 상태를 판정한다.
+// 반환: 'pending'(전혀 없음) | 'partial'(일부만) | 'delivered'(전부 완료)
+function _deriveDeliveryStatusFromItems(order) {
+  const items = order.items || [];
+  if (!items.length) return 'pending';
+  const totalBoxes = items.reduce((s, i) => s + calcItemBoxCount(i), 0);
+  const doneBoxes  = calcOrderDeliveredBoxes(order);
+  if (totalBoxes <= 0 || doneBoxes <= 0) return 'pending';
+  if (doneBoxes >= totalBoxes) return 'delivered';
+  return 'partial';
+}
+
 // ── 반품건 재고 처리 보정 ──
 // "수동 반품처리"(isReturn=false, deliveryStatus='returned')는 원래 "납품완료 → 반품"
 // 흐름을 전제로, 이미 나간 재고가 되돌아온 것으로 보고 박스 수를 마이너스로 잡는다.
@@ -247,10 +287,29 @@ function _boxSign(o) {
   return (o.deliveryStatus === 'returned' && !o.isReturn) ? -1 : 1;
 }
 
+// 발주 전체가 실제로 재고/집계에 기여하는 박스 수(부호 포함) — '부분납품'은
+// 지금까지 배송된 만큼만, 그 외(납품완료/반품)는 기존 규칙(calcOrderBoxes * _boxSign) 그대로.
+// 미납품/발주취소는 항상 0(실제 박스 이동이 없으므로) — 호출부에서 미리 걸러주지
+// 않아도 안전하도록 방어적으로 처리.
+function calcOrderImpactBoxes(order) {
+  if (!['delivered', 'partial', 'returned'].includes(order.deliveryStatus)) return 0;
+  const bc = (order.deliveryStatus === 'partial') ? calcOrderDeliveredBoxes(order) : calcOrderBoxes(order);
+  return bc * _boxSign(order);
+}
+
+// 품목 하나가 실제로 재고/집계에 기여하는 박스 수(부호 포함) — order를 함께 받아
+// 'partial'이면 그 품목의 배송분만, 아니면 전체 박스 수를 사용. 미납품/발주취소는 0.
+function _itemImpactBoxes(item, order) {
+  if (!['delivered', 'partial', 'returned'].includes(order.deliveryStatus)) return 0;
+  const bc = (order.deliveryStatus === 'partial') ? calcItemDeliveredBoxes(item) : calcItemBoxCount(item);
+  return bc * _boxSign(order);
+}
+
 // ── 실납품금액 계산 ──
 function calcNetDelivery(order) {
   const total = order.total || 0;
   if (order.deliveryStatus === 'delivered') return total;
+  if (order.deliveryStatus === 'partial') return calcPartialDeliveredAmount(order);
   if (order.deliveryStatus === 'returned') {
     // 업로드된 반품서(isReturn=true): total이 이미 음수
     if (order.isReturn) return total;

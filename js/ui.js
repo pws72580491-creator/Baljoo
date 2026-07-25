@@ -63,18 +63,23 @@ function renderAll() {
   const ships = new Set(monthOrders.map(o => o.ship)).size;
 
   // 납품 기준 통계 (해당 월) — 발주취소 건은 제외
+  // v3.3.28: 박스 합계는 부분납품 건의 "지금까지 배송된 만큼"도 포함하되,
+  // 건수(deliveredCnt)는 완전히 끝난 건만 카운트(부분납품은 별도로 세야 함)
   const deliveredOrders = monthOrders.filter(o => o.deliveryStatus === 'delivered');
-  const deliveredBoxes  = deliveredOrders.reduce((s, o) => s + calcOrderBoxes(o), 0);
+  const partialOrders   = monthOrders.filter(o => o.deliveryStatus === 'partial');
+  const deliveredBoxes  = deliveredOrders.reduce((s, o) => s + calcOrderBoxes(o), 0)
+                         + partialOrders.reduce((s, o) => s + calcOrderDeliveredBoxes(o), 0);
   const netTotal        = monthOrders.reduce((s, o) => s + calcNetDelivery(o), 0);
   const deliveredCnt    = deliveredOrders.length;
 
   // 납품 박스 품목별 집계: 계란 / 생메추리 / 깐메추리
+  // v3.3.28: 부분납품 건은 "지금까지 배송된 만큼"만 포함 (deliveredBoxes 합계와 기준을 맞춤)
   let dashEggBoxes = 0, dashQuailRawBoxes = 0, dashQuailBrineBoxes = 0, dashQuailBrinePkts = 0;
-  deliveredOrders.forEach(o => {
+  [...deliveredOrders, ...partialOrders].forEach(o => {
     (o.items || []).forEach(item => {
-      const bc = calcItemBoxCount(item);
+      const bc = _itemImpactBoxes(item, o);
       if (_isQuailBrine(item)) {
-        if (_isPktUnit(item.unit)) dashQuailBrinePkts  += (Number(item.qty) || 0);
+        if (_isPktUnit(item.unit)) dashQuailBrinePkts  += (o.deliveryStatus === 'partial' ? 0 : (Number(item.qty) || 0)); // 봉지 단위 부분납품은 박스 진행률로만 표시(봉지 단위 부분 추적은 미지원)
         else                       dashQuailBrineBoxes += bc;
       } else if (_isQuailEgg(item)) {
         dashQuailRawBoxes += bc;
@@ -119,6 +124,9 @@ function renderAll() {
   const returned    = monthOrders.filter(o => o.deliveryStatus === 'returned');
   // 미납품(pending)은 발주월과 무관하게 항상 "지금 처리 안 된 전체 건"을 보여줌 (예외: 월 필터 미적용)
   const pendingAll  = orders.filter(o => !o.archived && (!o.deliveryStatus || o.deliveryStatus === 'pending'));
+  // v3.3.28: 부분납품도 미납품과 같은 방식(월 무관, 전체 기준)으로 별도 집계 —
+  // "아직 처리 중"이라는 점에서 미납품과 같은 성격이라 같은 방식으로 보여줌
+  const partialAll  = orders.filter(o => !o.archived && o.deliveryStatus === 'partial');
 
   const deliveredAmt = delivered.reduce((s, o) => s + (o.total || 0), 0);
   // 반품서(isReturn): total이 이미 음수이므로 Math.abs 사용; 수동반품: returnAmount는 양수
@@ -134,11 +142,18 @@ function renderAll() {
   document.getElementById('ds-returned-amt').style.color = returned.length ? '#f87171' : '';
   document.getElementById('ds-pending-amt').textContent   = fmt(pendingAllAmt);
   document.getElementById('ds-net-amt').textContent       = fmt(netAmt);
+  const partialNoteEl = document.getElementById('ds-partial-note');
+  if (partialNoteEl) {
+    partialNoteEl.innerHTML = partialAll.length
+      ? `🚚 부분납품 진행 중 <b>${partialAll.length}건</b> — <span style="text-decoration:underline;">발주목록에서 확인</span>`
+      : '';
+    partialNoteEl.style.display = partialAll.length ? '' : 'none';
+  }
 
-  // 대시보드 최근 목록 — 납품완료 + 반품 + 발주취소 표시 (보관건 제외, 해당 월)
+  // 대시보드 최근 목록 — 납품완료 + 부분납품 + 반품 + 발주취소 표시 (보관건 제외, 해당 월)
   const dupIdSet = _computeDupOrderIdSet(); // 서류번호·발주번호 중복 (양쪽 목록에서 공용)
   const recent = [...monthOrders]
-    .filter(o => !o.archived && (o.deliveryStatus === 'delivered' || o.deliveryStatus === 'cancelled' || o.deliveryStatus === 'returned'))
+    .filter(o => !o.archived && (o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial' || o.deliveryStatus === 'cancelled' || o.deliveryStatus === 'returned'))
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 10);
   document.getElementById('dash-list').innerHTML = recent.length
@@ -174,12 +189,16 @@ function orderCard(o, showDel, dupIdSet) {
     : '';
   const net       = calcNetDelivery(o);
   const isCancelledCard = o.deliveryStatus === 'cancelled';
+  const isPartialCard   = o.deliveryStatus === 'partial';
   const netStr    = isCancelledCard
     ? `<span class="oc-net" style="color:#6d28d9;">🚫 발주취소 (집계 제외)</span>`
-    : (o.deliveryStatus && o.deliveryStatus !== 'pending'
-        ? `<span class="oc-net">실납품: <b>${net < 0 ? '-' + fmt(-net) : fmt(net)}</b></span>`
-        : '');
+    : isPartialCard
+      ? `<span class="oc-net" style="color:#b45309;">🚚 배송 진행: <b>${formatBoxCount(calcOrderDeliveredBoxes(o))} / ${formatBoxCount(calcOrderBoxes(o))}</b> (${fmt(net)})</span>`
+      : (o.deliveryStatus && o.deliveryStatus !== 'pending'
+          ? `<span class="oc-net">실납품: <b>${net < 0 ? '-' + fmt(-net) : fmt(net)}</b></span>`
+          : '');
   const statusClass = o.deliveryStatus === 'delivered' ? 'status-delivered'
+    : o.deliveryStatus === 'partial'   ? 'status-partial'
     : o.deliveryStatus === 'returned'  ? 'status-returned'
     : o.deliveryStatus === 'cancelled' ? 'status-cancelled'
     : '';
@@ -230,9 +249,11 @@ function orderCard(o, showDel, dupIdSet) {
        </label>`
     : '';
 
-  // 선명 옆 상태 처리일 (납품완료/반품/발주취소 각각의 처리 날짜)
+  // 선명 옆 상태 처리일 (납품완료/부분납품/반품/발주취소 각각의 처리 날짜)
   const statusDateStr = (o.deliveryStatus === 'delivered' && o.deliveredDate)
     ? `<span class="oc-status-date sd-delivered">완료 ${escapeHtml(o.deliveredDate)}</span>`
+    : (o.deliveryStatus === 'partial' && o.deliveredDate)
+    ? `<span class="oc-status-date sd-partial">부분 ${escapeHtml(o.deliveredDate)}</span>`
     : (o.deliveryStatus === 'returned' && o.returnedDate)
     ? `<span class="oc-status-date sd-returned">반품 ${escapeHtml(o.returnedDate)}</span>`
     : (o.deliveryStatus === 'cancelled' && o.cancelledDate)
@@ -278,6 +299,17 @@ function filterStatus(m, btn) {
   statusMode = m;
   document.querySelectorAll('#status-chips .chip').forEach(c => c.classList.remove('active'));
   btn.classList.add('active');
+  renderAll();
+}
+
+// v3.3.28: 대시보드의 "부분납품 N건" 배너를 탭했을 때 — 발주목록 탭으로 이동 후
+// '부분납품' 필터를 적용하고 해당 칩을 활성화 표시
+function goToPartialList() {
+  if (typeof goTo === 'function') goTo(1); // 발주목록 탭
+  statusMode = 'partial';
+  document.querySelectorAll('#status-chips .chip').forEach(c => c.classList.remove('active'));
+  const chip = [...document.querySelectorAll('#status-chips .chip')].find(c => c.textContent.includes('부분납품'));
+  if (chip) chip.classList.add('active');
   renderAll();
 }
 
@@ -361,7 +393,7 @@ function _normShipKey(ship) {
 function _computeShipCycles() {
   const byShipDates = {};
   orders.forEach(o => {
-    if (o.deliveryStatus !== 'delivered') return;
+    if (o.deliveryStatus !== 'delivered' && o.deliveryStatus !== 'partial') return; // v3.3.28: 부분납품도 "그 배가 그날 다녀간" 기록으로 포함
     const d = o.deliveredDate || o.date;
     if (!d || d === '미상') return;
     const key = _normShipKey(o.ship) || o.ship || '미상';
@@ -428,12 +460,15 @@ function renderStats() {
     const monthData = availableMonths.map(m => {
       const [y, mo] = m.split('-');
       const mOrders = orders.filter(o => (o.deliveredDate || o.date || '').slice(0,7) === m);
-      const mDel    = mOrders.filter(o => o.deliveryStatus === 'delivered');
-      const mRet    = mOrders.filter(o => o.deliveryStatus === 'returned');
-      const mDelAmt = mDel.reduce((s,o) => s+(o.total||0), 0);
-      const mRetAmt = mRet.reduce((s,o) => s+(o.isReturn ? Math.abs(o.total||0) : (o.returnAmount??Math.abs(o.total)??0)), 0);
-      const mNet    = mDelAmt - mRetAmt;
-      const mBoxes  = mDel.reduce((s,o) => s + calcOrderBoxes(o), 0);
+      const mDel     = mOrders.filter(o => o.deliveryStatus === 'delivered');
+      const mPartial = mOrders.filter(o => o.deliveryStatus === 'partial'); // v3.3.28
+      const mRet     = mOrders.filter(o => o.deliveryStatus === 'returned');
+      const mDelAmt  = mDel.reduce((s,o) => s+(o.total||0), 0)
+                      + mPartial.reduce((s,o) => s+calcPartialDeliveredAmount(o), 0);
+      const mRetAmt  = mRet.reduce((s,o) => s+(o.isReturn ? Math.abs(o.total||0) : (o.returnAmount??Math.abs(o.total)??0)), 0);
+      const mNet     = mDelAmt - mRetAmt;
+      const mBoxes   = mDel.reduce((s,o) => s + calcOrderBoxes(o), 0)
+                      + mPartial.reduce((s,o) => s + calcOrderDeliveredBoxes(o), 0);
       const mCruise = mOrders.filter(o => o.category === 'cruise');
       const mCargo  = mOrders.filter(o => o.category === 'cargo' || !o.category);
       const mCruiseNet = mCruise.reduce((s,o) => s + calcNetDelivery(o), 0);
@@ -526,6 +561,7 @@ function renderStats() {
   const scopeOrders = _filterByMonth(orders, _statMonth);
 
   const delivered = scopeOrders.filter(o => o.deliveryStatus === 'delivered');
+  const partial   = scopeOrders.filter(o => o.deliveryStatus === 'partial'); // v3.3.28
   const returned  = scopeOrders.filter(o => o.deliveryStatus === 'returned');
   const cancelled = scopeOrders.filter(o => o.deliveryStatus === 'cancelled'); // 집계 제외, 건수만 참고
 
@@ -533,17 +569,18 @@ function renderStats() {
   const returnedAmt  = returned.reduce((s, o) => s + (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount ?? Math.abs(o.total) ?? 0)), 0);
   const netAmt       = deliveredAmt - returnedAmt;
 
-  // 총 박스 수 (발주취소 제외)
-  const totalBoxes = delivered.reduce((s,o) => s + calcOrderBoxes(o), 0);
+  // 총 박스 수 (발주취소 제외, 부분납품은 배송된 만큼만)
+  const totalBoxes = delivered.reduce((s,o) => s + calcOrderBoxes(o), 0)
+                    + partial.reduce((s,o) => s + calcOrderDeliveredBoxes(o), 0);
 
-  // ── 크루즈 / 카고 구분 집계 (발주취소 제외) ──
-  const doneOrders = delivered;
+  // ── 크루즈 / 카고 구분 집계 (발주취소 제외, 부분납품은 배송된 만큼 포함) ──
+  const doneOrders = [...delivered, ...partial];
   const cruiseOrders = doneOrders.filter(o => o.category === 'cruise');
   const cargoOrders  = doneOrders.filter(o => o.category === 'cargo' || !o.category);
   const cruiseAmt = cruiseOrders.reduce((s,o) => s + calcNetDelivery(o), 0);
   const cargoAmt  = cargoOrders.reduce((s,o) => s + calcNetDelivery(o), 0);
-  const cruiseBoxes = cruiseOrders.reduce((s,o) => s + calcOrderBoxes(o), 0);
-  const cargoBoxes  = cargoOrders.reduce((s,o) => s + calcOrderBoxes(o), 0);
+  const cruiseBoxes = cruiseOrders.reduce((s,o) => s + calcOrderImpactBoxes(o), 0);
+  const cargoBoxes  = cargoOrders.reduce((s,o) => s + calcOrderImpactBoxes(o), 0);
 
   const categoryHtml = (cruiseAmt || cargoAmt) ? `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;">
@@ -559,13 +596,14 @@ function renderStats() {
       </div>
     </div>` : '';
 
-  // ── 선명별 집계 (납품완료·반품 건만 — 미납품/발주취소 제외, 선택된 월 기준) ──
+  // ── 선명별 집계 (납품완료·부분납품·반품 건만 — 미납품/발주취소 제외, 선택된 월 기준) ──
   // 미납품 건은 실제 납품이 이뤄진 시점(deliveredDate)에 자동으로 통계에 반영됨
   // v3.3.23: _normShipKey()로 정규화한 키로 그룹핑해 괄호 부가정보 유무로
   // 같은 선박이 따로 집계되는 문제를 방지. 표시 이름은 그룹 내에서 가장 짧은
   // (=부가정보 없는) 원본 선명을 대표값으로 사용.
+  // v3.3.28: 부분납품은 배송된 만큼만 boxes·net에 반영(calcNetDelivery·calcOrderImpactBoxes가 자동 처리)
   const byShip = {};
-  scopeOrders.filter(o => o.deliveryStatus === 'delivered' || o.deliveryStatus === 'returned').forEach(o => {
+  scopeOrders.filter(o => o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial' || o.deliveryStatus === 'returned').forEach(o => {
     const key = _normShipKey(o.ship) || o.ship || '미상';
     if (!byShip[key]) byShip[key] = { ship: o.ship, key, cnt: 0, total: 0, net: 0, returned: 0, boxes: 0 };
     if ((o.ship || '').length < (byShip[key].ship || '').length) byShip[key].ship = o.ship;
@@ -574,7 +612,7 @@ function renderStats() {
     byShip[key].net     += calcNetDelivery(o);
     // 반품(수동)은 boxes도 차감되어야 함 — 그동안 부호 보정이 없어 반품 박스가
     // 오히려 더해져 선박별 박스 수가 부풀려지던 문제 수정
-    byShip[key].boxes   += calcOrderBoxes(o) * _boxSign(o);
+    byShip[key].boxes   += calcOrderImpactBoxes(o);
     if (o.deliveryStatus === 'returned')
       byShip[key].returned += (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount ?? Math.abs(o.total) ?? 0));
   });
@@ -757,11 +795,14 @@ function renderDeliveryStatus() {
   `;
 
   // ── 월 필터 적용 ──
-  // 납품완료 + 반품(업로드 반품서 isReturn 및 상세모달 수동 반품처리 모두 포함)
+  // 납품완료 + 부분납품 + 반품(업로드 반품서 isReturn 및 상세모달 수동 반품처리 모두 포함)
   // → 납품현황에서 반품 차감 표시 (발주취소는 납품이 아니므로 제외)
   // 금액·박스 집계는 보관건 포함, 카드 목록에서만 보관건 제외
+  // v3.3.28: 부분납품(partial)도 실제 박스가 움직인 기록이므로 포함 — 박스 수는
+  // calcItemDeliveredBoxes 등으로 "지금까지 배송된 만큼"만 반영됨
   const allDone = orders.filter(o =>
     o.deliveryStatus === 'delivered' ||
+    o.deliveryStatus === 'partial' ||
     o.deliveryStatus === 'returned'
   );
   const done = _delivMonth === 'all'
@@ -800,18 +841,18 @@ function renderDeliveryStatus() {
     // 납품완료 이력 없이 곧바로 반품 처리된 건(phantom return)은 0 처리 (재고 영향 없음)
     const sign = _boxSign(o);
     (o.items||[]).forEach(item => {
-      const bc = calcItemBoxCount(item);
+      const bc = _itemImpactBoxes(item, o); // v3.3.28: 부분납품이면 배송된 만큼만(부호 포함), 아니면 기존과 동일
       const isBrine = _isQuailBrine(item);
       const isRawQ  = _isQuailEgg(item);
       if (isBrine) {
-        if (_isPktUnit(item.unit)) byDay[d].quailBrinePkts  += sign * (Number(item.qty)||0);
-        else                       byDay[d].quailBrineBoxes += sign * bc;
+        if (_isPktUnit(item.unit)) byDay[d].quailBrinePkts  += (o.deliveryStatus === 'partial' ? 0 : sign * (Number(item.qty)||0)); // 봉지 단위 부분납품 진행률은 미지원(박스 합계에는 반영됨)
+        else                       byDay[d].quailBrineBoxes += bc;
       } else if (isRawQ) {
-        byDay[d].quailRawBoxes += sign * bc;
+        byDay[d].quailRawBoxes += bc;
       } else {
-        byDay[d].eggBoxes += sign * bc;
+        byDay[d].eggBoxes += bc;
       }
-      byDay[d].totalBoxes += sign * bc;
+      byDay[d].totalBoxes += bc;
     });
   });
 
@@ -829,17 +870,16 @@ function renderDeliveryStatus() {
   // 이번 업데이트 이전 데이터가 전부 마이너스로 보이게 되므로, 최초로 입고를 입력한 날짜부터만 이월을 시작한다.
   // 계란/메추리/깐메추리 모두 같은 방식(입고량)으로 취급하며, 품목별로 추적 시작일을 독립적으로 판정한다.
   // v3.3.21: 파손(회수) 수량을 재고 계산에 반영 — 재고 = 전일재고 + 오늘입고 - 오늘납품 - 오늘파손
+  // v3.3.28: '오늘납품'에는 부분납품 건의 "지금까지 배송된 만큼"도 포함(_itemImpactBoxes가 자동 처리)
   function _stockByDateFor(goalField, itemFilterFn) {
     const dmgField = goalField + 'Dmg'; // 파손(회수) 수량 필드 — 예: 'egg' → 'eggDmg'
     const stockByDate = {};
     const byDateAll = {};
     allDone.forEach(o => {
       const d = o.deliveredDate || o.date || '미상';
-      const sign = _boxSign(o);
       (o.items || []).forEach(item => {
         if (!itemFilterFn(item)) return;
-        const bc = calcItemBoxCount(item);
-        byDateAll[d] = (byDateAll[d] || 0) + sign * bc;
+        byDateAll[d] = (byDateAll[d] || 0) + _itemImpactBoxes(item, o);
       });
     });
 
@@ -898,11 +938,9 @@ function renderDeliveryStatus() {
   const delivDone  = done.filter(o => o.deliveryStatus !== 'returned');
   const returnDone = done.filter(o => o.deliveryStatus === 'returned');
   const grandAmt   = done.reduce((s, o) => s + calcNetDelivery(o), 0);
-  // 업로드 반품서(isReturn)는 calcOrderBoxes가 이미 음수를 반환하므로 그대로 더하고,
-  // 수동 반품처리(qty가 원래 양수)는 부호를 뒤집어서 더한다. 납품완료 이력 없이 곧바로
-  // 반품 처리된 건(phantom return)은 실제 재고 이동이 없으므로 0 처리한다.
-  const grandBoxes = delivDone.reduce((s, o) => s + calcOrderBoxes(o), 0)
-                   + returnDone.reduce((s, o) => s + _boxSign(o) * calcOrderBoxes(o), 0);
+  // v3.3.28: calcOrderImpactBoxes가 납품완료(전체)/부분납품(배송분만)/반품(부호 포함)을
+  // 한 번에 올바르게 처리하므로 done 전체를 한 번에 합산하면 됨.
+  const grandBoxes = done.reduce((s, o) => s + calcOrderImpactBoxes(o), 0);
   const returnAmt   = returnDone.reduce((s, o) => s + Math.abs(calcNetDelivery(o)), 0);
   const returnCount = returnDone.length;
 
@@ -914,9 +952,9 @@ function renderDeliveryStatus() {
     const sign = _boxSign(o);
     if (!sign) return; // phantom return(납품 이력 없이 바로 반품 처리)은 재고 영향 없음
     (o.items||[]).forEach(item => {
-      const bc = calcItemBoxCount(item) * sign;
+      const bc = _itemImpactBoxes(item, o); // v3.3.28: 부분납품이면 배송된 만큼만(부호 포함)
       if (_isQuailBrine(item)) {
-        if (_isPktUnit(item.unit)) grandQuailBrinePkts  += sign * (Number(item.qty)||0);
+        if (_isPktUnit(item.unit)) grandQuailBrinePkts  += (o.deliveryStatus === 'partial' ? 0 : sign * (Number(item.qty)||0));
         else                       grandQuailBrineBoxes += bc;
       } else if (_isQuailEgg(item)) {
         grandQuailRawBoxes += bc;
@@ -1053,7 +1091,7 @@ function renderDeliveryStatus() {
               const isAnyReturn = isReturnDoc || isManualReturn;
               const rowBg  = isAnyReturn ? '#fff0f0' : '#fff';
               const rowBdl = isAnyReturn ? 'border-left:3px solid #dc2626;' : '';
-              const amtCol = isAnyReturn ? '#dc2626' : 'var(--success)';
+              const amtCol = isAnyReturn ? '#dc2626' : (o.deliveryStatus === 'partial' ? '#b45309' : 'var(--success)');
               const isChecked = _dblSet.has(o.id);
               return `
             <tr id="dblrow-${o.id}" style="border-top:1px solid var(--border);cursor:pointer;background:${rowBg};${rowBdl}opacity:${isChecked ? '.55' : '1'};"
@@ -1427,10 +1465,11 @@ function renderDashByDate() {
   const el = document.getElementById('dash-bydate');
   if (!el) return;
 
-  // 날짜별 그룹핑 (선택된 월의 납품완료 + 반품 전체, 발주취소는 제외)
+  // 날짜별 그룹핑 (선택된 월의 납품완료 + 부분납품 + 반품 전체, 발주취소는 제외)
   const monthOrders = _filterByMonth(orders, _dashMonth);
   const target = monthOrders.filter(o =>
     o.deliveryStatus === 'delivered' ||
+    o.deliveryStatus === 'partial' ||
     o.deliveryStatus === 'returned'
   );
 
@@ -1440,10 +1479,8 @@ function renderDashByDate() {
     if (!byDay[d]) byDay[d] = { date: d, orders: [], amt: 0, boxes: 0 };
     byDay[d].orders.push(o);
     byDay[d].amt   += calcNetDelivery(o);
-    // 업로드 반품서는 qty가 이미 음수라 그대로, 수동 반품처리는 qty가 양수 그대로라 부호를 뒤집어야 함.
-    // 납품완료 이력 없이 곧바로 반품 처리된 건(phantom return)은 0 처리 (재고 영향 없음)
-    const daySign = _boxSign(o);
-    byDay[d].boxes += daySign * calcOrderBoxes(o);
+    // v3.3.28: calcOrderImpactBoxes가 납품완료/부분납품(배송분만)/반품(부호 포함)을 모두 처리
+    byDay[d].boxes += calcOrderImpactBoxes(o);
   });
 
   // 각 날짜 내 선명은 기본적으로 알파벳(가나다) 순 정렬
@@ -1475,13 +1512,14 @@ function renderDashByDate() {
           const isReturnDoc = !!o.isReturn;
           const isReturn    = o.deliveryStatus === 'returned';
           const isManualReturn = isReturn && !isReturnDoc;
-          // 반품서(업로드) → 빨간 배경+테두리 / 수동반품 → 연분홍 / 납품완료 → 연초록
-          const statusColor = isReturnDoc ? '#fff0f0' : isReturn ? '#fef2f2' : '#f0fdf4';
+          const isPartialRow = o.deliveryStatus === 'partial';
+          // 반품서(업로드) → 빨간 배경+테두리 / 수동반품 → 연분홍 / 부분납품 → 연노랑 / 납품완료 → 연초록
+          const statusColor = isReturnDoc ? '#fff0f0' : isReturn ? '#fef2f2' : isPartialRow ? '#fffbeb' : '#f0fdf4';
           const borderLeft  = isReturnDoc ? '3px solid #dc2626' : 'none';
-          const statusText  = isReturnDoc ? '↩️ 반품서' : isReturn ? '반품' : '납품완료';
-          const statusCol   = isReturn ? '#dc2626' : '#16a34a';
+          const statusText  = isReturnDoc ? '↩️ 반품서' : isReturn ? '반품' : isPartialRow ? '🚚 부분납품' : '납품완료';
+          const statusCol   = isReturn ? '#dc2626' : isPartialRow ? '#b45309' : '#16a34a';
           const amtCol      = isReturnDoc ? '#dc2626' : statusCol;
-          const rowBoxes    = calcOrderBoxes(o) * _boxSign(o);
+          const rowBoxes    = calcOrderImpactBoxes(o); // v3.3.28: 부분납품이면 배송분만(부호 포함)
           return `
           <div style="padding:10px 14px;border-top:1px solid var(--border);background:${statusColor};border-left:${borderLeft};cursor:pointer;"
                onclick="openModal('${o.id}')">

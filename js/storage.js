@@ -49,16 +49,15 @@ function load() {
           if (o.deliveryStatus === 'pending') o.deliveryStatus = 'returned';
           o._retMig = true;
         }
-        // 구버전 "부분납품(partial)" 개념 폐지 → "발주취소(cancelled)"로 마이그레이션
-        // (부분납품은 더 이상 지원하지 않으며, 발주취소는 모든 집계에서 제외됨)
-        if (o.deliveryStatus === 'partial') {
-          o.deliveryStatus = 'cancelled';
-          o.deliveredDate  = '';
-          o.partialAmount  = 0;
-        }
-        // 실 납품일 필드 없는 구버전 데이터 보정: 이미 납품 상태면 발주일로 대체
+        // v3.3.28: 예전에 있었다가 폐지됐던 "부분납품(partial)" 개념을 '발주취소'로
+        // 자동 변환하던 마이그레이션 코드가 여기 있었음 — 부분납품 기능을 새로
+        // (품목별 진행 추적 방식으로) 다시 도입하면서 제거함. 과거에 이미 이
+        // 마이그레이션을 거쳐 'cancelled'로 바뀐 건은 이미 저장된 데이터라
+        // 영향 없음(그대로 발주취소로 남음) — 앞으로 새로 저장되는 'partial'
+        // 값만 더 이상 강제 변환되지 않도록 하는 것이 이 수정의 목적.
+        // 실 납품일 필드 없는 구버전 데이터 보정: 이미 납품/부분납품 상태면 발주일로 대체
         if (o.deliveredDate === undefined) {
-          o.deliveredDate = (o.deliveryStatus === 'delivered') ? (o.date || '') : '';
+          o.deliveredDate = (o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial') ? (o.date || '') : '';
         }
         // 반품일·취소일 필드 없는 구버전 데이터 보정 (납품일과 동일한 방식 — 발주일로 대체)
         if (o.returnedDate === undefined) {

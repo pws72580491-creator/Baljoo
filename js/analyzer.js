@@ -77,6 +77,16 @@ async function analyzeFile(file) {
 - date/delivery=YYYY-MM-DD, category=cruise또는cargo
 - isReturn: 문서가 반품서(RETURN, CREDIT NOTE, 반품, 수량/금액이 음수)이면 true, 일반 발주서이면 false
 - 반품서인 경우 qty와 amount, total은 반드시 음수(-)로 표기
+docNo·poNo 추출 규칙(중요 — 이 두 값은 발주 식별에 반드시 필요하니 문서 전체를 꼼꼼히 살펴볼 것):
+- docNo(서류번호): 문서에 "서류번호"·"Document No."·"문서번호"로 표시된, 이 문서 자체의 고유
+  식별 번호. 보통 문서 상단(제목 근처 또는 우측 상단)에 위치.
+- poNo(거래처발주번호): 거래처(선사/발주처)가 자체적으로 부여한 주문번호. "거래처발주번호"·
+  "발주번호"·"P/O No."·"PO NO"·"Order No."·"주문번호" 등으로 표시됨. 문서 상단 또는 선명 근처에
+  위치하는 경우가 많으며, 슬래시(/)나 하이픈(-)이 섞인 영숫자 조합인 경우가 많음.
+- docNo와 poNo는 서로 다른 값이니 절대 혼동하거나 같은 값을 넣지 말 것.
+- 문서에 이 라벨들이 명확하게 보이지 않으면, 절대로 다른 번호(예: 전화번호·팩스번호·페이지
+  번호·품목 코드 등)로 대체하거나 추측해서 채우지 말고 반드시 빈 문자열("")로 둘 것.
+  빈 값이 실제로 없는 것보다, 잘못 추측한 값이 훨씬 더 문제가 됨.
 unit 선택 기준(중요):
 - 수량 단위가 DOZ·DOZEN·다스 → unit="doz" (절대 cs/ctn으로 쓰지 말것)
 - 수량 단위가 CS·CTN·BOX·CASE·박스 → unit="ctn"
@@ -276,6 +286,29 @@ function renderPreview() {
              color:${shipMissing ? '#f97316' : 'inherit'};
              font-family:inherit;
              font-style:${shipMissing ? 'italic' : 'normal'};">`;
+    // v3.3.29: 서류번호·거래처발주번호도 AI가 놓치거나 잘못 읽는 경우가 있어,
+    // 선명과 동일하게 이 자리에서 바로 확인·수정할 수 있도록 입력창으로 변경
+    // (거래처발주번호는 기존엔 미리보기에 아예 표시되지 않았음)
+    const docNoMissing = !(o.docNo || '').trim();
+    const poNoMissing  = !(o.poNo  || '').trim();
+    const docNoInputHtml = `<input type="text" class="prev-docno" id="pdocno-${idx}"
+      value="${escapeHtml(o.docNo || '')}" placeholder="서류번호 없음 — 확인 필요" enterkeyhint="done"
+      onchange="updatePendingDocNo(${idx}, this.value)"
+      style="border:${docNoMissing ? '1.5px solid #f97316' : '1px solid transparent'};
+             border-radius:4px;padding:1px 4px;margin:-1px -4px;width:100%;box-sizing:border-box;
+             background:${docNoMissing ? '#fff7ed' : 'transparent'};
+             color:${docNoMissing ? '#f97316' : 'inherit'};
+             font-family:inherit;font-size:inherit;
+             font-style:${docNoMissing ? 'italic' : 'normal'};">`;
+    const poNoInputHtml = `<input type="text" class="prev-pono" id="ppono-${idx}"
+      value="${escapeHtml(o.poNo || '')}" placeholder="발주번호 없음 — 확인 필요" enterkeyhint="done"
+      onchange="updatePendingPoNo(${idx}, this.value)"
+      style="border:${poNoMissing ? '1.5px solid #f97316' : '1px solid transparent'};
+             border-radius:4px;padding:1px 4px;margin:-1px -4px;width:100%;box-sizing:border-box;
+             background:${poNoMissing ? '#fff7ed' : 'transparent'};
+             color:${poNoMissing ? '#f97316' : 'inherit'};
+             font-family:inherit;font-size:inherit;
+             font-style:${poNoMissing ? 'italic' : 'normal'};">`;
 
     return `
     <div class="prev-card" id="pcard-${idx}" style="${cardStyle}">
@@ -287,7 +320,8 @@ function renderPreview() {
         </div>
       </div>
       <div class="prev-meta">
-        <div><span class="pm-label">서류번호</span>${escapeHtml(o.docNo) || '-'}</div>
+        <div><span class="pm-label">서류번호</span>${docNoInputHtml}</div>
+        <div><span class="pm-label">발주번호</span>${poNoInputHtml}</div>
         <div><span class="pm-label">발주일자</span>${escapeHtml(o.date) || '-'}</div>
         <div><span class="pm-label">납기일자</span>${escapeHtml(o.delivery) || '-'}</div>
         <div><span class="pm-label">총액</span><strong style="${totalStyle}">${fmt(o.total)}</strong></div>
@@ -336,6 +370,20 @@ function updatePendingShip(idx, val) {
   const trimmed = String(val || '').trim();
   pendingOrders[idx].ship = trimmed;
   pendingOrders[idx]._shipMissing = !trimmed;
+  renderPreview();
+}
+
+// v3.3.29: 서류번호·발주번호도 미리보기에서 바로 수정 가능 — 중복 판정(_findDupMatch)이
+// 두 값 모두를 사용하므로, 값이 바뀌면 중복 배지도 다시 계산되도록 전체 재렌더링
+function updatePendingDocNo(idx, val) {
+  if (!pendingOrders[idx]) return;
+  pendingOrders[idx].docNo = String(val || '').trim();
+  renderPreview();
+}
+
+function updatePendingPoNo(idx, val) {
+  if (!pendingOrders[idx]) return;
+  pendingOrders[idx].poNo = String(val || '').trim();
   renderPreview();
 }
 

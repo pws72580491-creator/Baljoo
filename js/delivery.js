@@ -175,6 +175,7 @@ function renderDeliveryResult(result) {
                 <span style="font-size:13px;font-weight:800;color:var(--navy);">${escapeHtml(m.order.ship)}</span>
                 <span style="font-size:10px;font-weight:700;color:#15803d;background:#dcfce7;border-radius:4px;padding:1px 6px;">
                   ${m.order.deliveryStatus === 'delivered' ? '이미 납품완료'
+                    : m.order.deliveryStatus === 'partial'   ? '🚚 부분납품 중'
                     : m.order.deliveryStatus === 'cancelled' ? '🚫 발주취소됨'
                     : m.order.deliveryStatus === 'returned'  ? '↩️ 반품처리됨'
                     : '미납품'}
@@ -241,6 +242,7 @@ function confirmSelectedDelivery() {
     o.deliveryStatus = 'delivered';
     o.deliveredDate  = dateVal;
     o.deliveryNote   = (o.deliveryNote ? o.deliveryNote + ' ' : '') + '[납품사진 자동확인]';
+    (o.items || []).forEach(i => { i.deliveredBoxes = calcItemBoxCount(i); }); // v3.3.28: 부분납품 중이었어도 전량 완료로 처리
     cnt++;
   });
 
