@@ -91,12 +91,11 @@ function openModal(id) {
         ${isPartial ? '🚚 부분납품 수정' : '🚚 부분납품 처리'}
       </button>
       <button class="btn btn-warn ${isReturned ? '' : 'btn-g'}" onclick="setDelivery('${o.id}','returned')">
-        ${isReturned ? '↩️ 반품처리됨' : '↩️ 반품 처리'}
+        ${isReturned ? '↩️ 반품처리됨 · 터치하면 취소' : '↩️ 반품 처리'}
       </button>
       <button class="btn ${isCancelled ? 'btn-cancel' : 'btn-g'}" onclick="setDelivery('${o.id}','cancelled')">
         ${isCancelled ? '🚫 발주취소됨 · 터치하면 취소' : '🚫 발주취소'}
       </button>
-      <button class="btn btn-g" onclick="setDelivery('${o.id}','pending')">⏳ 미납품으로</button>
     </div>
 
     <div style="margin-top:12px;">
@@ -330,6 +329,22 @@ function setDelivery(id, status) {
     }
 
     if (status === 'returned') {
+      // 이미 반품 상태면 터치 시 미납품으로 되돌림 (토글) — 발주취소/납품완료 버튼과 동일한 패턴
+      if (o.deliveryStatus === 'returned') {
+        o.deliveryStatus = 'pending';
+        o.deliveryNote   = '';
+        o.returnAmount   = 0;
+        o.partialAmount  = 0;
+        o.returnedDate   = '';
+        o.cancelledDate  = '';
+        o.deliveredDate  = '';
+        (o.items || []).forEach(i => { i.deliveredBoxes = 0; });
+        save();
+        closeModalBtn();
+        renderAll();
+        toast('⏪ 반품 처리가 취소되고 미납품으로 되돌아갔습니다.');
+        return;
+      }
       const input = prompt(
         `반품 금액을 입력하세요\n(전액 반품이면 비워두세요, 발주금액 ${fmt(o.total)} 적용)`,
         o.returnAmount || ''
@@ -345,17 +360,9 @@ function setDelivery(id, status) {
       const note = prompt('납품 비고 (선택사항)', o.deliveryNote || '');
       if (note !== null) o.deliveryNote = note.trim();
       (o.items || []).forEach(i => { i.deliveredBoxes = calcItemBoxCount(i); }); // v3.3.28
-    } else {
-      o.deliveryNote  = '';
-      o.returnAmount  = 0;
-      o.partialAmount = 0;
-      o.returnedDate  = '';
-      o.cancelledDate = '';
-      (o.items || []).forEach(i => { i.deliveredBoxes = 0; }); // v3.3.28: 미납품으로 되돌리면 진행분도 초기화
     }
 
     if (status === 'delivered') { o.deliveredDate = todayStr(); o.returnedDate = ''; o.cancelledDate = ''; }
-    if (status === 'pending')   o.deliveredDate = '';
     if (status === 'returned')  o.returnedDate  = todayStr();
 
     o.deliveryStatus = status;
@@ -365,8 +372,7 @@ function setDelivery(id, status) {
 
     const msgs = {
       delivered: '✅ 납품완료로 변경되었습니다.',
-      returned:  '↩️ 반품 처리되었습니다.',
-      pending:   '⏳ 미납품으로 변경되었습니다.'
+      returned:  '↩️ 반품 처리되었습니다.'
     };
     toast(msgs[status] || '변경되었습니다.');
   } catch (err) {
