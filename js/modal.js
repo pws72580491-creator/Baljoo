@@ -178,7 +178,15 @@ function openPartialModal(id) {
         </div>
       </div>`;
     }).join('')}
-    <div style="display:flex;gap:8px;margin-top:20px;padding-bottom:8px;">
+    <div style="margin-top:6px;padding:14px;background:#f8fafc;border-radius:12px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:13px;font-weight:700;color:var(--navy);white-space:nowrap;">📅 납품 날짜</span>
+        <input id="partial-delivery-date" type="date" value="${o.deliveredDate || todayStr()}"
+               style="flex:1;font-size:14px;font-weight:700;border:2px solid var(--border);
+                      border-radius:8px;padding:6px 10px;color:var(--navy);background:#fff;">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;padding-bottom:8px;">
       <button class="btn btn-g" style="flex:1;" onclick="closePartialModal()">취소</button>
       <button class="btn btn-success" style="flex:1;" onclick="savePartialDelivery('${o.id}')">💾 저장</button>
     </div>
@@ -222,6 +230,8 @@ function savePartialDelivery(id) {
   try {
     const o = orders.find(x => x.id === id);
     if (!o) return;
+    const dateVal = document.getElementById('partial-delivery-date')?.value;
+    if (!dateVal) { toast('⚠️ 납품 날짜를 선택해주세요'); return; }
     const items = o.items || [];
     items.forEach((item, idx) => {
       const input = document.getElementById(`partial-box-${idx}`);
@@ -234,11 +244,11 @@ function savePartialDelivery(id) {
     o.partialAmount  = calcPartialDeliveredAmount(o); // 참고용 캐시 — 기존에 있던 필드를 재활용
     if (newStatus === 'delivered') {
       o.deliveryStatus = 'delivered';
-      o.deliveredDate  = todayStr();
+      o.deliveredDate  = dateVal;
       o.returnedDate   = '';
       o.cancelledDate  = '';
     } else if (newStatus === 'partial') {
-      o.deliveredDate  = todayStr(); // 이번에 박스가 움직인(부분납품이 반영된) 날짜
+      o.deliveredDate  = dateVal; // 이번에 박스가 움직인(부분납품이 반영된) 날짜 — 사용자가 선택
     } else {
       o.deliveredDate  = '';
     }
