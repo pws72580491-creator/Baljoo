@@ -2,10 +2,19 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.3.31
-  Released: 2026-07-26
+  Version : v3.3.32
+  Released: 2026-07-27
   ────────────────────────────────────────
   CHANGELOG
+  v3.3.32 (2026-07-27) — 전수 점검 버그 6건 수정
+    - [수정] 발주 수정(saveEditOrder)·재분석(saveAll 병합) 시 부분납품
+      진행량(item.deliveredBoxes)이 소실되던 문제. 이제 기존 값을 이어받고
+      필요 시 배송 상태를 재계산.
+    - [수정] 일괄납품 대상에서 발주취소 건 제외 누락(bulkSelectAll/canBulk).
+    - [수정] 납품현황 더블체크 상세표의 품목별 박스 표시가 부분납품을
+      반영하지 않던 문제(_itemImpactBoxes로 통일).
+    - [수정] 통계 탭 실 납품금액 합계·크루즈/카고 소계·대시보드 총 박스 수가
+      부분납품 배송분 또는 반품 차감을 서로 다른 기준으로 계산하던 문제.
   v3.3.31 (2026-07-26)
     - [추가] "🚚 부분납품 처리" 모달에 "📅 납품 날짜" 선택 필드 추가.
       기존엔 저장 시 항상 오늘 날짜(todayStr())로 deliveredDate가
@@ -573,7 +582,7 @@
   // 막기 위해, 버전은 여기 한 곳에서만 관리하고 나머지는 이 값을 참조한다.
   // ⚠️ sw.js의 CACHE_NAME과 manifest.json의 description은 별도 실행 컨텍스트라
   //    이 값을 직접 참조할 수 없음 — 릴리즈 시 그 두 곳만 수동으로 맞춰줄 것.
-  const APP_VERSION = 'v3.3.31';
+  const APP_VERSION = 'v3.3.32';
   document.title = '이른아침 · 발주관리 ' + APP_VERSION;
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
