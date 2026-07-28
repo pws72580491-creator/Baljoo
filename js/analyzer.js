@@ -416,6 +416,19 @@ function saveAll() {
     if (match) {
       const idx  = orders.indexOf(match.order);
       const prev = orders[idx];
+      // v3.3.32: 재분석 시 newOrder.items가 통째로 새 배열이라 기존 품목의 부분납품
+      // 진행량(deliveredBoxes)이 사라지던 문제 수정. 품목 개수가 그대로면 같은 순서로
+      // 대응된다고 보고 진행량을 이어받는다(개수가 바뀌면 안전하게 매칭할 기준이 없어
+      // 이어받지 않되, 아래에서 deliveryStatus를 재계산해 모순을 방지).
+      // v3.3.33: 같은 조건으로 날짜별 배송 이력(deliveryEvents)도 함께 이어받는다.
+      if (prev.items && newOrder.items && prev.items.length === newOrder.items.length) {
+        newOrder.items.forEach((it, i) => {
+          if (prev.items[i] && prev.items[i].deliveredBoxes) it.deliveredBoxes = prev.items[i].deliveredBoxes;
+        });
+        if (Array.isArray(prev.deliveryEvents) && prev.deliveryEvents.length) {
+          newOrder.deliveryEvents = prev.deliveryEvents.map(ev => ({ date: ev.date, perItem: { ...ev.perItem } }));
+        }
+      }
       orders[idx] = {
         ...newOrder,
         id:             prev.id,              // 병합해도 원래 발주의 id는 유지(재분석해도 안 바뀌게)
@@ -429,6 +442,16 @@ function saveAll() {
         archived:       prev.archived,        // 재분석으로 보관 상태가 풀리는 것 방지
         updatedAt:      Date.now()
       };
+      // v3.3.32: 부분납품 상태였다면 재분석된 품목 기준으로 상태 재확인
+      // (품목 개수가 바뀌어 진행량을 이어받지 못한 경우 등 → 미납품으로 파생될 수 있음)
+      if (orders[idx].deliveryStatus === 'partial') {
+        const derivedStatus = _deriveDeliveryStatusFromItems(orders[idx]);
+        orders[idx].deliveryStatus = derivedStatus;
+        if (derivedStatus === 'pending') {
+          orders[idx].deliveredDate = '';
+          _clearDeliveryEvents(orders[idx]); // v3.3.33
+        }
+      }
       updated++; return;
     }
     if (!orders.find(x => x.id === newOrder.id)) { orders.push({ ...newOrder, updatedAt: Date.now() }); added++; }

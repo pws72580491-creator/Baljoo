@@ -239,10 +239,14 @@ function confirmSelectedDelivery() {
   checked.forEach(cb => {
     const o = orders.find(x => x.id === cb.dataset.delId);
     if (!o || ['delivered', 'cancelled', 'returned'].includes(o.deliveryStatus)) return;
+    // v3.3.33: 부분납품 중이었다면 "이번에 새로 채워진 만큼"을 선택한 날짜로 이력 기록
+    const prevBoxes = (o.items || []).map(i => calcItemDeliveredBoxes(i));
+    const nextBoxes = (o.items || []).map(i => calcItemBoxCount(i));
     o.deliveryStatus = 'delivered';
     o.deliveredDate  = dateVal;
     o.deliveryNote   = (o.deliveryNote ? o.deliveryNote + ' ' : '') + '[납품사진 자동확인]';
-    (o.items || []).forEach(i => { i.deliveredBoxes = calcItemBoxCount(i); }); // v3.3.28: 부분납품 중이었어도 전량 완료로 처리
+    (o.items || []).forEach((i, idx) => { i.deliveredBoxes = nextBoxes[idx]; }); // v3.3.28: 부분납품 중이었어도 전량 완료로 처리
+    _recordDeliveryDelta(o, dateVal, prevBoxes, nextBoxes);
     cnt++;
   });
 

@@ -293,7 +293,9 @@ function bulkSelectAll() {
   // 모드에 따라 선택 가능한 조건이 다름
   filtered().forEach(o => {
     if (isBulkMode === 'deliver') {
-      if (!o.isReturn && o.deliveryStatus !== 'delivered' && o.deliveryStatus !== 'returned' && !o.archived) {
+      // v3.3.32: 발주취소(cancelled) 건은 다른 납품 처리 로직과 동일하게 제외
+      if (!o.isReturn && o.deliveryStatus !== 'delivered' && o.deliveryStatus !== 'returned'
+          && o.deliveryStatus !== 'cancelled' && !o.archived) {
         bulkSelected.add(o.id);
       }
     } else if (isBulkMode === 'archive') {
@@ -331,12 +333,16 @@ function bulkDeliver() {
   bulkSelected.forEach(id => {
     const o = orders.find(x => x.id === id);
     if (!o) return;
+    // v3.3.33: 부분납품 중이었다면 "이번에 새로 채워진 만큼"을 선택한 날짜로 이력 기록
+    const prevBoxes = (o.items || []).map(i => calcItemDeliveredBoxes(i));
+    const nextBoxes = (o.items || []).map(i => calcItemBoxCount(i));
     o.deliveryStatus = 'delivered';
     o.deliveredDate  = date;
     o.returnedDate   = '';
     o.cancelledDate  = '';
     o.deliveryNote   = note.trim();
-    (o.items || []).forEach(i => { i.deliveredBoxes = calcItemBoxCount(i); }); // v3.3.28
+    (o.items || []).forEach((i, idx) => { i.deliveredBoxes = nextBoxes[idx]; }); // v3.3.28
+    _recordDeliveryDelta(o, date, prevBoxes, nextBoxes);
     count++;
   });
 

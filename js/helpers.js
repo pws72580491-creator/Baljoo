@@ -320,6 +320,82 @@ function calcNetDelivery(order) {
   return 0;
 }
 
+// ══════════════════════════════════════════════════════
+// v3.3.33: 부분납품 배송 이력(deliveryEvents) — 여러 날짜에 걸친 부분납품을
+// 날짜별로 정확히 재고/납품현황에 반영하기 위한 이력 기록.
+// ══════════════════════════════════════════════════════
+// order.deliveryEvents: [{ date:'YYYY-MM-DD', perItem:{ '0':30, '2':10 } }, ...]
+// 각 이벤트는 "그 날짜에 추가로(증분) 배송된 박스 수"를 품목 배열 인덱스별로 기록한다
+// (누적값이 아님 — item.deliveredBoxes가 누적값이고, deliveryEvents는 그 누적이
+//  어느 날짜에 얼마씩 쌓였는지의 이력). 반품/발주취소/미납품으로 되돌아가면
+// 이력을 초기화한다(반품은 기존처럼 deliveredDate 하나로 처리되는 별도 흐름 유지).
+
+// 이전 배송량(prevBoxesArr, 품목 배열과 같은 순서) → 새 배송량(nextBoxesArr)의
+// 차이를 dateVal 날짜의 이벤트로 기록(같은 날짜에 여러 번 저장하면 그 날짜 이벤트에 합산).
+function _recordDeliveryDelta(order, dateVal, prevBoxesArr, nextBoxesArr) {
+  if (!dateVal) return;
+  const items = order.items || [];
+  const deltaByIdx = {};
+  let hasDelta = false;
+  items.forEach((it, i) => {
+    const prev = Number(prevBoxesArr[i]) || 0;
+    const next = Number(nextBoxesArr[i]) || 0;
+    const delta = next - prev;
+    if (delta) { deltaByIdx[i] = delta; hasDelta = true; }
+  });
+  if (!hasDelta) return;
+  if (!Array.isArray(order.deliveryEvents)) order.deliveryEvents = [];
+  let ev = order.deliveryEvents.find(e => e.date === dateVal);
+  if (!ev) { ev = { date: dateVal, perItem: {} }; order.deliveryEvents.push(ev); }
+  Object.keys(deltaByIdx).forEach(i => {
+    ev.perItem[i] = (Number(ev.perItem[i]) || 0) + deltaByIdx[i];
+  });
+  // 델타가 상쇄돼 0이 된 항목/이벤트는 정리
+  order.deliveryEvents = order.deliveryEvents
+    .map(e => ({ date: e.date, perItem: Object.fromEntries(Object.entries(e.perItem || {}).filter(([,v]) => v)) }))
+    .filter(e => Object.keys(e.perItem).length > 0);
+}
+
+function _clearDeliveryEvents(order) {
+  order.deliveryEvents = [];
+}
+
+// 발주 1건을 "날짜별 배송 기록(record)"으로 펼친다.
+// - deliveryEvents 이력이 있으면(납품완료/부분납품만 해당) 그 이력 기준으로 여러
+//   날짜에 걸친 레코드를 반환.
+// - 이력이 없으면(과거 데이터·반품·발주취소 등) 기존 방식대로 deliveredDate/date
+//   하나에 전량을 담은 레코드 1개를 반환(하위호환 — 반품 부호 포함).
+// 레코드: { order, date, perItemBoxes:{idx:박스수}, boxes(합계), amt(그 날짜분 금액) }
+function _deliveryRecordsFor(order) {
+  const items = order.items || [];
+  const useHistory = ['delivered', 'partial'].includes(order.deliveryStatus)
+                    && Array.isArray(order.deliveryEvents) && order.deliveryEvents.length > 0;
+
+  if (useHistory) {
+    return order.deliveryEvents.map(ev => {
+      const perItemBoxes = {};
+      let boxes = 0, amt = 0;
+      Object.keys(ev.perItem || {}).forEach(idx => {
+        const it = items[Number(idx)];
+        if (!it) return; // 수정으로 사라진 품목(방어적 처리)
+        const b = Number(ev.perItem[idx]) || 0;
+        if (!b) return;
+        perItemBoxes[idx] = b;
+        boxes += b;
+        const totalB = calcItemBoxCount(it);
+        if (totalB > 0) amt += (Number(it.amount) || 0) * (b / totalB);
+      });
+      return { order, date: ev.date, perItemBoxes, boxes, amt: Math.round(amt) };
+    }).filter(r => r.boxes);
+  }
+
+  if (!['delivered', 'partial', 'returned'].includes(order.deliveryStatus)) return [];
+  const d = order.deliveredDate || order.date || '미상';
+  const perItemBoxes = {};
+  items.forEach((it, i) => { perItemBoxes[i] = _itemImpactBoxes(it, order); });
+  return [{ order, date: d, perItemBoxes, boxes: calcOrderImpactBoxes(order), amt: calcNetDelivery(order) }];
+}
+
 // ── 발주서 중복 판정 (업로드 미리보기 등, 발주 1건 vs 저장된 전체 목록) ──
 // v3.3.15: 서류번호(docNo) 또는 거래처발주번호(poNo)가 저장된 발주와 하나라도
 // 같으면 중복으로 통일. 이전엔 docNo·poNo가 둘 다 없을 때 "선명+날짜 일치"를

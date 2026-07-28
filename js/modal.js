@@ -233,12 +233,17 @@ function savePartialDelivery(id) {
     const dateVal = document.getElementById('partial-delivery-date')?.value;
     if (!dateVal) { toast('⚠️ 납품 날짜를 선택해주세요'); return; }
     const items = o.items || [];
-    items.forEach((item, idx) => {
+    // v3.3.33: 이번 저장으로 늘거나 준 품목별 박스 수를 dateVal 날짜의 배송 이력
+    // (deliveryEvents)으로 기록 — 여러 날짜에 걸친 부분납품을 정확히 추적하기 위함
+    const prevBoxes = items.map(item => calcItemDeliveredBoxes(item));
+    const nextBoxes = items.map((item, idx) => {
       const input = document.getElementById(`partial-box-${idx}`);
       const total = calcItemBoxCount(item);
-      const val = input ? Math.max(0, Math.min(total, parseFloat(input.value) || 0)) : 0;
-      item.deliveredBoxes = val;
+      return input ? Math.max(0, Math.min(total, parseFloat(input.value) || 0)) : 0;
     });
+    items.forEach((item, idx) => { item.deliveredBoxes = nextBoxes[idx]; });
+    _recordDeliveryDelta(o, dateVal, prevBoxes, nextBoxes);
+
     const newStatus = _deriveDeliveryStatusFromItems(o);
     o.deliveryStatus = newStatus;
     o.partialAmount  = calcPartialDeliveredAmount(o); // 참고용 캐시 — 기존에 있던 필드를 재활용
@@ -251,6 +256,7 @@ function savePartialDelivery(id) {
       o.deliveredDate  = dateVal; // 이번에 박스가 움직인(부분납품이 반영된) 날짜 — 사용자가 선택
     } else {
       o.deliveredDate  = '';
+      _clearDeliveryEvents(o); // 미납품으로 되돌아가면 이력도 초기화
     }
     save();
     closePartialModal();
@@ -277,6 +283,7 @@ function toggleDelivered(id) {
       o.partialAmount  = 0;
       o.deliveredDate  = '';
       (o.items || []).forEach(i => { i.deliveredBoxes = 0; }); // v3.3.28: 부분납품 진행분도 함께 초기화
+      _clearDeliveryEvents(o); // v3.3.33: 배송 이력도 함께 초기화
       save();
       closeModalBtn();
       renderAll();
@@ -286,12 +293,17 @@ function toggleDelivered(id) {
       const note = prompt('납품 비고 (선택사항)', o.deliveryNote || '');
       if (note === null) return;
       o.deliveryNote   = note.trim();
+      const dateVal = todayStr();
+      // v3.3.33: 부분납품 중이었다면 "오늘 새로 채워진 만큼"을 이력에 기록
+      const prevBoxes = (o.items || []).map(i => calcItemDeliveredBoxes(i));
+      const nextBoxes = (o.items || []).map(i => calcItemBoxCount(i));
       o.deliveryStatus = 'delivered';
-      o.deliveredDate  = todayStr();
+      o.deliveredDate  = dateVal;
       o.returnedDate   = '';
       o.cancelledDate  = '';
       // v3.3.28: 부분납품 중이었더라도 전량 완료로 처리하면 모든 품목을 완료 처리
-      (o.items || []).forEach(i => { i.deliveredBoxes = calcItemBoxCount(i); });
+      (o.items || []).forEach((i, idx) => { i.deliveredBoxes = nextBoxes[idx]; });
+      _recordDeliveryDelta(o, dateVal, prevBoxes, nextBoxes);
       save();
       closeModalBtn();
       renderAll();
@@ -331,6 +343,7 @@ function setDelivery(id, status) {
       o.cancelledDate = todayStr();
       o.deliveryStatus = 'cancelled';
       (o.items || []).forEach(i => { i.deliveredBoxes = 0; }); // v3.3.28
+      _clearDeliveryEvents(o); // v3.3.33
       save();
       closeModalBtn();
       renderAll();
@@ -349,6 +362,7 @@ function setDelivery(id, status) {
         o.cancelledDate  = '';
         o.deliveredDate  = '';
         (o.items || []).forEach(i => { i.deliveredBoxes = 0; });
+        _clearDeliveryEvents(o); // v3.3.33
         save();
         closeModalBtn();
         renderAll();
@@ -366,10 +380,16 @@ function setDelivery(id, status) {
       if (note !== null) o.deliveryNote = note.trim();
       o.cancelledDate = ''; // 취소 상태였다가 바로 반품 처리하는 경우 대비
       (o.items || []).forEach(i => { i.deliveredBoxes = 0; }); // v3.3.28: 부분납품 진행분은 반품 처리로 정리
+      _clearDeliveryEvents(o); // v3.3.33
     } else if (status === 'delivered') {
       const note = prompt('납품 비고 (선택사항)', o.deliveryNote || '');
       if (note !== null) o.deliveryNote = note.trim();
-      (o.items || []).forEach(i => { i.deliveredBoxes = calcItemBoxCount(i); }); // v3.3.28
+      // v3.3.33: 부분납품 중이었다면 "오늘 새로 채워진 만큼"을 이력에 기록
+      const dateVal = todayStr();
+      const prevBoxes = (o.items || []).map(i => calcItemDeliveredBoxes(i));
+      const nextBoxes = (o.items || []).map(i => calcItemBoxCount(i));
+      (o.items || []).forEach((i, idx) => { i.deliveredBoxes = nextBoxes[idx]; }); // v3.3.28
+      _recordDeliveryDelta(o, dateVal, prevBoxes, nextBoxes);
     }
 
     if (status === 'delivered') { o.deliveredDate = todayStr(); o.returnedDate = ''; o.cancelledDate = ''; }
@@ -691,6 +711,13 @@ function saveEditOrder() {
   o.poNo     = document.getElementById('ef-pono').value.trim();
 
   // 품목 수집
+  // v3.3.32: row의 idx는 openEditModal에서 기존 품목의 원래 배열 위치를 그대로 쓰고
+  // (addEditItem으로 새로 추가되는 품목만 그 뒤 번호를 받음 — _editItemNextIdx),
+  // 이 idx가 oldItems 범위 안이면 같은 품목 행이 수정된 것이므로 부분납품 진행량
+  // (deliveredBoxes)을 이어받는다. 이걸 빠뜨리면 부분납품 중인 발주를 단순 오타
+  // 수정만 해도 진행량이 전부 0으로 사라지는 문제가 있었음.
+  const oldItems = o.items || [];
+  const oldToNewIdxMap = {}; // 원래 배열 idx → 수정 후 새 배열 idx (품목 삭제로 인한 위치 이동 대응)
   const rows = document.getElementById('edit-items-list').querySelectorAll('.edit-item-row');
   o.items = [];
   rows.forEach((row, i) => {
@@ -701,12 +728,44 @@ function saveEditOrder() {
     const unit  = document.getElementById(`ei-unit-${idx}`)?.value   || 'pcs';
     const price = parseFloat((document.getElementById(`ei-price-${idx}`)?.value || '0').replace(/,/g, '')) || 0;
     const amount = Math.round(qty * price * 100) / 100;
-    if (desc || qty) o.items.push({ desc, code, qty, unit, price, amount });
+    if (desc || qty) {
+      const newItem = { desc, code, qty, unit, price, amount };
+      const oldItem = oldItems[Number(idx)];
+      if (oldItem && oldItem.deliveredBoxes) newItem.deliveredBoxes = oldItem.deliveredBoxes;
+      oldToNewIdxMap[Number(idx)] = o.items.length;
+      o.items.push(newItem);
+    }
   });
+
+  // v3.3.33: 배송 이력(deliveryEvents)도 품목 위치 변경에 맞춰 재매핑 —
+  // 품목이 중간에서 삭제되면 뒤 품목들의 배열 idx가 당겨지므로 그대로 두면 엉뚱한
+  // 품목에 이력이 붙는다. 삭제된 품목의 이력분은 더 이상 대응하는 품목이 없으므로 버린다.
+  if (Array.isArray(o.deliveryEvents) && o.deliveryEvents.length) {
+    o.deliveryEvents = o.deliveryEvents.map(ev => {
+      const remapped = {};
+      Object.keys(ev.perItem || {}).forEach(oldIdx => {
+        const newIdx = oldToNewIdxMap[Number(oldIdx)];
+        if (newIdx != null) remapped[newIdx] = (Number(remapped[newIdx]) || 0) + (Number(ev.perItem[oldIdx]) || 0);
+      });
+      return { date: ev.date, perItem: remapped };
+    }).filter(ev => Object.keys(ev.perItem).length > 0);
+  }
 
   // 합계 재계산
   const oldTotal = o.total;
   o.total = o.items.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+
+  // v3.3.32: 부분납품 진행 중이던 발주는 품목 수정 후 진행 상태를 다시 계산
+  // (수량이 줄어 이미 전량 배송된 것으로 확인되거나, 품목이 삭제돼 진행량이
+  //  전부 없어지는 경우를 반영해 "부분납품인데 진행률 0%" 모순을 방지)
+  if (o.deliveryStatus === 'partial') {
+    const derivedStatus = _deriveDeliveryStatusFromItems(o);
+    o.deliveryStatus = derivedStatus;
+    if (derivedStatus === 'pending') {
+      o.deliveredDate = ''; // savePartialDelivery와 동일 규칙
+      _clearDeliveryEvents(o); // v3.3.33
+    }
+  }
 
   // 반품 건은 반품금액(returnAmount)도 함께 동기화
   if (o.isReturn) {

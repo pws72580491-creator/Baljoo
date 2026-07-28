@@ -67,19 +67,25 @@ function renderAll() {
   // 건수(deliveredCnt)는 완전히 끝난 건만 카운트(부분납품은 별도로 세야 함)
   const deliveredOrders = monthOrders.filter(o => o.deliveryStatus === 'delivered');
   const partialOrders   = monthOrders.filter(o => o.deliveryStatus === 'partial');
-  const deliveredBoxes  = deliveredOrders.reduce((s, o) => s + calcOrderBoxes(o), 0)
-                         + partialOrders.reduce((s, o) => s + calcOrderDeliveredBoxes(o), 0);
+  // v3.3.32: 반품(returned)도 포함해 calcOrderImpactBoxes 한 기준으로 집계 —
+  // 기존엔 반품이 빠져 있어서 선명별 집계·납품현황 총박스·엑셀 월별 시트(모두 반품 차감 포함)와
+  // 이 대시보드 카드의 "총 납품" 박스 수가 서로 다른 기준으로 계산되고 있었음.
+  const returnedBoxOrders = monthOrders.filter(o => o.deliveryStatus === 'returned');
+  const deliveredBoxes  = [...deliveredOrders, ...partialOrders, ...returnedBoxOrders]
+                          .reduce((s, o) => s + calcOrderImpactBoxes(o), 0);
   const netTotal        = monthOrders.reduce((s, o) => s + calcNetDelivery(o), 0);
   const deliveredCnt    = deliveredOrders.length;
 
   // 납품 박스 품목별 집계: 계란 / 생메추리 / 깐메추리
   // v3.3.28: 부분납품 건은 "지금까지 배송된 만큼"만 포함 (deliveredBoxes 합계와 기준을 맞춤)
+  // v3.3.32: 반품 건도 포함(위 deliveredBoxes와 기준 통일)
   let dashEggBoxes = 0, dashQuailRawBoxes = 0, dashQuailBrineBoxes = 0, dashQuailBrinePkts = 0;
-  [...deliveredOrders, ...partialOrders].forEach(o => {
+  [...deliveredOrders, ...partialOrders, ...returnedBoxOrders].forEach(o => {
+    const sign = _boxSign(o);
     (o.items || []).forEach(item => {
       const bc = _itemImpactBoxes(item, o);
       if (_isQuailBrine(item)) {
-        if (_isPktUnit(item.unit)) dashQuailBrinePkts  += (o.deliveryStatus === 'partial' ? 0 : (Number(item.qty) || 0)); // 봉지 단위 부분납품은 박스 진행률로만 표시(봉지 단위 부분 추적은 미지원)
+        if (_isPktUnit(item.unit)) dashQuailBrinePkts  += (o.deliveryStatus === 'partial' ? 0 : sign * (Number(item.qty) || 0)); // 봉지 단위 부분납품은 박스 진행률로만 표시(봉지 단위 부분 추적은 미지원)
         else                       dashQuailBrineBoxes += bc;
       } else if (_isQuailEgg(item)) {
         dashQuailRawBoxes += bc;
@@ -223,7 +229,9 @@ function orderCard(o, showDel, dupIdSet) {
   if (isBulkMode && showDel) {
     const isChecked = bulkSelected.has(o.id);
     if (isBulkMode === 'deliver') {
-      canBulk = !isReturnDoc && o.deliveryStatus !== 'delivered' && o.deliveryStatus !== 'returned' && !o.archived;
+      // v3.3.32: 발주취소(cancelled) 건은 다른 납품 처리 로직과 동일하게 제외
+      canBulk = !isReturnDoc && o.deliveryStatus !== 'delivered' && o.deliveryStatus !== 'returned'
+              && o.deliveryStatus !== 'cancelled' && !o.archived;
     } else {
       canBulk = o.deliveryStatus === 'delivered' || !!o.archived;
     }
@@ -567,14 +575,17 @@ function renderStats() {
 
   const deliveredAmt = delivered.reduce((s, o) => s + (o.total || 0), 0);
   const returnedAmt  = returned.reduce((s, o) => s + (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount ?? Math.abs(o.total) ?? 0)), 0);
-  const netAmt       = deliveredAmt - returnedAmt;
+  const partialDeliveredAmt = partial.reduce((s, o) => s + calcPartialDeliveredAmount(o), 0);
+  // v3.3.32: "납품완료+부분납품(배송분)+반품(차감)"을 calcNetDelivery 한 기준으로 합산.
+  // 기존엔 deliveredAmt - returnedAmt만 써서 부분납품 배송분이 실 납품금액에서 통째로
+  // 빠졌고, 바로 아래 총 박스 수(부분납품 포함)·크루즈/카고 소계와 기준이 달랐음.
+  const doneOrders  = [...delivered, ...partial, ...returned];
+  const netAmt       = doneOrders.reduce((s, o) => s + calcNetDelivery(o), 0);
 
-  // 총 박스 수 (발주취소 제외, 부분납품은 배송된 만큼만)
-  const totalBoxes = delivered.reduce((s,o) => s + calcOrderBoxes(o), 0)
-                    + partial.reduce((s,o) => s + calcOrderDeliveredBoxes(o), 0);
+  // 총 박스 수 (발주취소 제외, 부분납품은 배송된 만큼만, 반품은 차감)
+  const totalBoxes = doneOrders.reduce((s,o) => s + calcOrderImpactBoxes(o), 0);
 
-  // ── 크루즈 / 카고 구분 집계 (발주취소 제외, 부분납품은 배송된 만큼 포함) ──
-  const doneOrders = [...delivered, ...partial];
+  // ── 크루즈 / 카고 구분 집계 (발주취소 제외, 부분납품은 배송된 만큼·반품은 차감 포함) ──
   const cruiseOrders = doneOrders.filter(o => o.category === 'cruise');
   const cargoOrders  = doneOrders.filter(o => o.category === 'cargo' || !o.category);
   const cruiseAmt = cruiseOrders.reduce((s,o) => s + calcNetDelivery(o), 0);
@@ -657,6 +668,10 @@ function renderStats() {
         <div class="ds-net-lbl">실 납품금액 합계</div>
         <div class="ds-net-val">${fmt(netAmt)}</div>
       </div>
+      ${partial.length ? `
+      <div style="text-align:center;font-size:11px;color:#0891b2;padding:4px 0 0;">
+        🚚 부분납품 진행 중 ${partial.length}건의 배송분(${fmt(partialDeliveredAmt)}) 포함
+      </div>` : ''}
       <!-- 총 박스 수 -->
       <div style="text-align:center;font-size:12px;color:var(--muted);padding:6px 0 2px;">
         총 납품 <strong style="color:var(--navy);">${formatBoxCount(totalBoxes)}</strong>
@@ -830,35 +845,43 @@ function renderDeliveryStatus() {
   }
 
   // ── 날짜별 집계 ──
+  // v3.3.33: 부분납품이 여러 날짜에 걸쳐 이뤄진 경우(예: 토요일 50박스 + 월요일 50박스)
+  // 배송 이력(deliveryEvents)이 있으면 발주 1건을 날짜별 레코드(record)로 나눠서 반영한다.
+  // 이력이 없는(과거 데이터·반품·발주취소 등) 발주는 기존처럼 deliveredDate 하나로 전량 반영
+  // (_deliveryRecordsFor가 두 경우 모두 처리 — 레코드 1개짜리 배열을 반환).
   const byDay = {};
   done.forEach(o => {
-    const d = o.deliveredDate || o.date || '미상';
-    if (!byDay[d]) byDay[d] = { date: d, orders: [], totalAmt: 0, totalBoxes: 0, eggBoxes: 0, quailRawBoxes: 0, quailBrineBoxes: 0, quailBrinePkts: 0 };
-    byDay[d].orders.push(o);
-    byDay[d].totalAmt += calcNetDelivery(o);
-    // 업로드 반품서(isReturn)는 품목 qty가 이미 음수라 그대로 두면 되고,
-    // 상세모달의 수동 반품처리(qty는 원래 양수 그대로)만 부호를 뒤집어야 함.
-    // 납품완료 이력 없이 곧바로 반품 처리된 건(phantom return)은 0 처리 (재고 영향 없음)
     const sign = _boxSign(o);
-    (o.items||[]).forEach(item => {
-      const bc = _itemImpactBoxes(item, o); // v3.3.28: 부분납품이면 배송된 만큼만(부호 포함), 아니면 기존과 동일
-      const isBrine = _isQuailBrine(item);
-      const isRawQ  = _isQuailEgg(item);
-      if (isBrine) {
-        if (_isPktUnit(item.unit)) byDay[d].quailBrinePkts  += (o.deliveryStatus === 'partial' ? 0 : sign * (Number(item.qty)||0)); // 봉지 단위 부분납품 진행률은 미지원(박스 합계에는 반영됨)
-        else                       byDay[d].quailBrineBoxes += bc;
-      } else if (isRawQ) {
-        byDay[d].quailRawBoxes += bc;
-      } else {
-        byDay[d].eggBoxes += bc;
+    _deliveryRecordsFor(o).forEach(r => {
+      const d = r.date;
+      if (!byDay[d]) byDay[d] = { date: d, records: [], totalAmt: 0, totalBoxes: 0, eggBoxes: 0, quailRawBoxes: 0, quailBrineBoxes: 0, quailBrinePkts: 0 };
+      byDay[d].records.push(r);
+      byDay[d].totalAmt += r.amt;
+      (o.items || []).forEach((item, idx) => {
+        const bc = Number(r.perItemBoxes[idx]) || 0;
+        if (!bc) return;
+        const isBrine = _isQuailBrine(item);
+        const isRawQ  = _isQuailEgg(item);
+        if (isBrine)      byDay[d].quailBrineBoxes += bc;
+        else if (isRawQ)  byDay[d].quailRawBoxes   += bc;
+        else              byDay[d].eggBoxes        += bc;
+        byDay[d].totalBoxes += bc;
+      });
+      // 봉지(pkt) 원 수량은 부분납품 진행률을 날짜별로 추적하지 않으므로(기존과 동일 제약),
+      // 완료된 날(deliveredDate)의 레코드 1곳에만 전체 수량을 반영해 중복 집계를 막는다.
+      if (o.deliveryStatus !== 'partial' && r.date === (o.deliveredDate || o.date)) {
+        (o.items || []).forEach(item => {
+          if (_isQuailBrine(item) && _isPktUnit(item.unit)) {
+            byDay[d].quailBrinePkts += sign * (Number(item.qty) || 0);
+          }
+        });
       }
-      byDay[d].totalBoxes += bc;
     });
   });
 
   // 각 날짜 내 선명은 기본적으로 알파벳(가나다) 순 정렬
   Object.values(byDay).forEach(day => {
-    day.orders.sort((a, b) => (a.ship || '').localeCompare(b.ship || ''));
+    day.records.sort((a, b) => (a.order.ship || '').localeCompare(b.order.ship || ''));
   });
 
   const dayList = Object.values(byDay).sort((a, b) => b.date.localeCompare(a.date));
@@ -871,15 +894,21 @@ function renderDeliveryStatus() {
   // 계란/메추리/깐메추리 모두 같은 방식(입고량)으로 취급하며, 품목별로 추적 시작일을 독립적으로 판정한다.
   // v3.3.21: 파손(회수) 수량을 재고 계산에 반영 — 재고 = 전일재고 + 오늘입고 - 오늘납품 - 오늘파손
   // v3.3.28: '오늘납품'에는 부분납품 건의 "지금까지 배송된 만큼"도 포함(_itemImpactBoxes가 자동 처리)
+  // v3.3.33: 부분납품이 여러 날짜에 걸치면 배송 이력(deliveryEvents) 기준으로 그 날짜에
+  // 실제로 나간 만큼만 반영 — 예전엔 완료 시점 날짜 하나에 전량이 몰려서, 중간에 걸친
+  // 날짜의 재고가 실제보다 많게(납품 누락으로) 잡히는 문제가 있었음.
   function _stockByDateFor(goalField, itemFilterFn) {
     const dmgField = goalField + 'Dmg'; // 파손(회수) 수량 필드 — 예: 'egg' → 'eggDmg'
     const stockByDate = {};
     const byDateAll = {};
     allDone.forEach(o => {
-      const d = o.deliveredDate || o.date || '미상';
-      (o.items || []).forEach(item => {
-        if (!itemFilterFn(item)) return;
-        byDateAll[d] = (byDateAll[d] || 0) + _itemImpactBoxes(item, o);
+      _deliveryRecordsFor(o).forEach(r => {
+        let sum = 0;
+        (o.items || []).forEach((item, idx) => {
+          if (!itemFilterFn(item)) return;
+          sum += Number(r.perItemBoxes[idx]) || 0;
+        });
+        if (sum) byDateAll[r.date] = (byDateAll[r.date] || 0) + sum;
       });
     });
 
@@ -1051,7 +1080,7 @@ function renderDeliveryStatus() {
             <div style="display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;">
               <span id="${dayId}-arrow" style="font-size:11px;opacity:.7;transition:transform .2s;flex-shrink:0;">▼</span>
               <span style="font-size:13px;font-weight:700;white-space:nowrap;">📅 ${fmtDate(day.date)}</span>
-              <span style="font-size:11px;opacity:.65;white-space:nowrap;flex-shrink:0;">${day.orders.length}척</span>
+              <span style="font-size:11px;opacity:.65;white-space:nowrap;flex-shrink:0;">${day.records.length}척</span>
             </div>
             <!-- 목표 입력 버튼 (이벤트 전파 차단) -->
             <button onclick="event.stopPropagation();openDelivGoal('${day.date}')"
@@ -1085,7 +1114,8 @@ function renderDeliveryStatus() {
             </tr>
           </thead>
           <tbody>
-            ${day.orders.filter(o => !o.archived).map(o => {
+            ${day.records.filter(r => !r.order.archived).map(r => {
+              const o = r.order;
               const isReturnDoc = !!o.isReturn;
               const isManualReturn = o.deliveryStatus === 'returned' && !o.isReturn;
               const isAnyReturn = isReturnDoc || isManualReturn;
@@ -1093,18 +1123,22 @@ function renderDeliveryStatus() {
               const rowBdl = isAnyReturn ? 'border-left:3px solid #dc2626;' : '';
               const amtCol = isAnyReturn ? '#dc2626' : (o.deliveryStatus === 'partial' ? '#b45309' : 'var(--success)');
               const isChecked = _dblSet.has(o.id);
+              // v3.3.33: 부분납품이 여러 날짜에 걸쳐 있으면(이력 2건 이상) 이 카드가
+              // "그 날 배송된 몫"만 보여준다는 걸 알 수 있게 표시
+              const isSplitRecord = Array.isArray(o.deliveryEvents) && o.deliveryEvents.length > 1;
               return `
-            <tr id="dblrow-${o.id}" style="border-top:1px solid var(--border);cursor:pointer;background:${rowBg};${rowBdl}opacity:${isChecked ? '.55' : '1'};"
+            <tr id="dblrow-${o.id}-${day.date}" data-dbl-id="${o.id}"
+                style="border-top:1px solid var(--border);cursor:pointer;background:${rowBg};${rowBdl}opacity:${isChecked ? '.55' : '1'};"
                 onclick="openModal('${o.id}')">
               <td style="padding:10px 14px;">
                 <div style="display:flex;align-items:flex-start;gap:6px;">
-                  <input type="checkbox" id="dblchk-${o.id}" ${isChecked ? 'checked' : ''}
+                  <input type="checkbox" id="dblchk-${o.id}-${day.date}" data-dbl-id="${o.id}" ${isChecked ? 'checked' : ''}
                          onclick="toggleDblCheck('${o.id}', event)"
                          title="더블체크(확인 표시)"
                          style="margin-top:2px;width:16px;height:16px;flex-shrink:0;cursor:pointer;accent-color:var(--navy);">
                   <div style="min-width:0;flex:1;">
                     <div style="font-size:13px;font-weight:600;color:var(--navy);
-                                white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">${escapeHtml(o.ship)}</div>
+                                white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">${escapeHtml(o.ship)}${isSplitRecord ? ' <span style="font-size:10px;font-weight:700;color:#b45309;">(분할)</span>' : ''}</div>
                     <div style="font-size:10px;color:var(--muted);margin-top:2px;">${escapeHtml(o.docNo)}</div>
                     ${(o.items||[]).map(item => {
                       const boxStr = formatItemBoxStr(item);
@@ -1120,24 +1154,28 @@ function renderDeliveryStatus() {
                 </div>
               </td>
               <td style="padding:10px;text-align:right;font-size:11px;font-weight:700;color:${isAnyReturn?'#dc2626':'#1a3a6e'};white-space:nowrap;vertical-align:top;">
-                ${(o.items||[]).map(item => {
-                  const _sign = _boxSign(o);
-                  const bc = calcItemBoxCount(item) * _sign;
-                  const rawDesc = item.desc || '';
+                ${(o.items||[]).map((item, idx) => {
                   const isBrineItem = _isQuailBrine(item);
                   const isRawQItem  = _isQuailEgg(item);
                   const label = isBrineItem ? '깐메추리' : isRawQItem ? '🥚메추리' : '🥚계란';
                   if (_isPktUnit(item.unit)) {
-                    const q = (Number(item.qty) || 0) * _sign;
+                    // v3.3.32: 봉지 단위는 다른 화면과 동일하게 부분납품 진행률 미지원(0 처리)
+                    // v3.3.33: 여러 날짜로 나뉜 경우 중복 집계를 막기 위해 완료일 레코드에만 표시
+                    const q = (o.deliveryStatus === 'partial' || r.date !== (o.deliveredDate || o.date))
+                      ? 0 : (Number(item.qty) || 0) * _boxSign(o);
                     if (!q) return '';
                     return `<div style="margin-bottom:2px;">🛍️봉지<br><span style="font-size:12px;">${formatPktCount(q)}</span></div>`;
                   }
+                  // v3.3.33: 위 상단 합계(grandBoxes)와 기준을 맞춰, 이 카드는 "그 날짜에
+                  // 배송된 몫"(r.perItemBoxes)만 표시 — 여러 날짜로 나뉘지 않은 일반 건은
+                  // 기존과 동일하게 전체(또는 부분납품 진행분)가 그대로 나온다.
+                  const bc = Number(r.perItemBoxes[idx]) || 0;
                   if (!bc) return '';
                   return `<div style="margin-bottom:2px;">${label}<br><span style="font-size:12px;">${formatBoxCount(bc)}</span></div>`;
                 }).filter(Boolean).join('')}
               </td>
               <td style="padding:10px 14px;text-align:right;white-space:nowrap;">
-                <div style="font-size:13px;font-weight:700;color:${amtCol};">${fmt(calcNetDelivery(o))}</div>
+                <div style="font-size:13px;font-weight:700;color:${amtCol};">${fmt(r.amt)}</div>
                 ${(() => {
                   const disc = _calcOrderDiscount(o);
                   return disc.amount > 0
@@ -1382,10 +1420,12 @@ function toggleDblCheck(id, ev) {
   if (willCheck) set.add(id); else set.delete(id);
   _saveDblCheckSet(set);
   // 전체 재렌더 없이 해당 행만 즉시 반영 (스크롤 위치 유지)
-  const cb  = document.getElementById('dblchk-' + id);
-  const row = document.getElementById('dblrow-' + id);
-  if (cb)  cb.checked = willCheck;
-  if (row) row.style.opacity = willCheck ? '.55' : '1';
+  // v3.3.33: 부분납품이 여러 날짜로 나뉘면 같은 발주가 여러 행(날짜별)에 나타날 수 있어
+  // id 하나가 아니라 data-dbl-id로 전부 찾아서 동일하게 반영한다.
+  document.querySelectorAll(`[data-dbl-id="${id}"]`).forEach(el => {
+    if (el.tagName === 'INPUT') el.checked = willCheck;
+    else el.style.opacity = willCheck ? '.55' : '1';
+  });
 }
 
 // ── 발주목록 반품 확인 체크 (기기별 저장, 더블체크와 동일한 방식·다른 기기와는 공유되지 않음) ──
@@ -1473,19 +1513,22 @@ function renderDashByDate() {
     o.deliveryStatus === 'returned'
   );
 
+  // v3.3.33: 부분납품이 여러 날짜에 걸치면 배송 이력(deliveryEvents) 기준으로 날짜별
+  // 레코드(record)로 나눠서 반영 — 납품현황 탭과 동일한 기준으로 통일
   const byDay = {};
   target.forEach(o => {
-    const d = o.deliveredDate || o.date || '날짜없음';
-    if (!byDay[d]) byDay[d] = { date: d, orders: [], amt: 0, boxes: 0 };
-    byDay[d].orders.push(o);
-    byDay[d].amt   += calcNetDelivery(o);
-    // v3.3.28: calcOrderImpactBoxes가 납품완료/부분납품(배송분만)/반품(부호 포함)을 모두 처리
-    byDay[d].boxes += calcOrderImpactBoxes(o);
+    _deliveryRecordsFor(o).forEach(r => {
+      const d = r.date;
+      if (!byDay[d]) byDay[d] = { date: d, records: [], amt: 0, boxes: 0 };
+      byDay[d].records.push(r);
+      byDay[d].amt   += r.amt;
+      byDay[d].boxes += r.boxes;
+    });
   });
 
   // 각 날짜 내 선명은 기본적으로 알파벳(가나다) 순 정렬
   Object.values(byDay).forEach(day => {
-    day.orders.sort((a, b) => (a.ship || '').localeCompare(b.ship || ''));
+    day.records.sort((a, b) => (a.order.ship || '').localeCompare(b.order.ship || ''));
   });
 
   const dayList = Object.values(byDay).sort((a, b) => b.date.localeCompare(a.date));
@@ -1504,11 +1547,12 @@ function renderDashByDate() {
     <div style="margin-bottom:12px;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
       <div style="background:var(--navy);color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;cursor:pointer;"
            onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
-        <span style="font-size:13px;font-weight:700;">📅 ${dateStr} · ${day.orders.length}건</span>
+        <span style="font-size:13px;font-weight:700;">📅 ${dateStr} · ${day.records.length}건</span>
         <span style="font-size:12px;opacity:.85;">${formatBoxCount(day.boxes)} · ${fmt(day.amt)}</span>
       </div>
       <div>
-        ${day.orders.filter(o => !o.archived).map(o => {
+        ${day.records.filter(r => !r.order.archived).map(r => {
+          const o = r.order;
           const isReturnDoc = !!o.isReturn;
           const isReturn    = o.deliveryStatus === 'returned';
           const isManualReturn = isReturn && !isReturnDoc;
@@ -1519,7 +1563,7 @@ function renderDashByDate() {
           const statusText  = isReturnDoc ? '↩️ 반품서' : isReturn ? '반품' : isPartialRow ? '🚚 부분납품' : '납품완료';
           const statusCol   = isReturn ? '#dc2626' : isPartialRow ? '#b45309' : '#16a34a';
           const amtCol      = isReturnDoc ? '#dc2626' : statusCol;
-          const rowBoxes    = calcOrderImpactBoxes(o); // v3.3.28: 부분납품이면 배송분만(부호 포함)
+          const rowBoxes    = r.boxes; // v3.3.33: 여러 날짜로 나뉜 경우 이 날짜분만(부호 포함)
           return `
           <div style="padding:10px 14px;border-top:1px solid var(--border);background:${statusColor};border-left:${borderLeft};cursor:pointer;"
                onclick="openModal('${o.id}')">
@@ -1534,7 +1578,7 @@ function renderDashByDate() {
                 }).join('')}
               </div>
               <div style="text-align:right;flex-shrink:0;margin-left:8px;">
-                <div style="font-size:13px;font-weight:700;color:${amtCol};">${fmt(calcNetDelivery(o))}</div>
+                <div style="font-size:13px;font-weight:700;color:${amtCol};">${fmt(r.amt)}</div>
                 <div style="font-size:10px;color:${amtCol};margin-top:3px;font-weight:600;">${statusText}</div>
                 <div style="font-size:10px;color:var(--muted);margin-top:2px;">${formatBoxCount(rowBoxes)}</div>
               </div>
@@ -1542,7 +1586,7 @@ function renderDashByDate() {
           </div>`;
         }).join('')}
         <div style="padding:8px 14px;background:#f8fafc;display:flex;justify-content:space-between;font-size:12px;font-weight:700;color:var(--navy);border-top:1px solid var(--border);">
-          <span>소계 ${day.orders.length}건</span>
+          <span>소계 ${day.records.length}건</span>
           <span>${formatBoxCount(day.boxes)} · ${fmt(day.amt)}</span>
         </div>
       </div>
