@@ -448,14 +448,20 @@ function renderStats() {
               onclick="selectStatMonth('${thisYM}')">이번달</button>` : ''}
       ${availableMonths.includes(lastYM) ? `
       <button class="chip${_statMonth===lastYM?' active':''}" style="font-size:11px;"
-              onclick="selectStatMonth('${lastYM}')">저번달</button>` : ''}
-      ${availableMonths
-        .filter(m => m !== thisYM && m !== lastYM)
-        .map(m => {
-          const [y, mo] = m.split('-');
-          return `<button class="chip${_statMonth===m?' active':''}" style="font-size:11px;"
-                          onclick="selectStatMonth('${m}')">${Number(y)}년 ${Number(mo)}월</button>`;
-        }).join('')}
+              onclick="selectStatMonth('${lastYM}')">지난달</button>` : ''}
+      ${(() => {
+        const isCustomMonth = _statMonth !== thisYM && _statMonth !== lastYM && _statMonth !== 'all';
+        const label = isCustomMonth
+          ? (() => { const [y, mo] = _statMonth.split('-'); return `📅 ${Number(y)}년 ${Number(mo)}월`; })()
+          : '📅 년월검색';
+        return `
+      <label class="chip${isCustomMonth ? ' active' : ''}" style="font-size:11px;position:relative;display:inline-flex;align-items:center;">
+        ${label}
+        <input type="month" value="${isCustomMonth ? _statMonth : ''}"
+               style="position:absolute;inset:0;opacity:0;width:100%;height:100%;border:0;padding:0;margin:0;cursor:pointer;"
+               onchange="if(this.value) selectStatMonth(this.value)">
+      </label>`;
+      })()}
       <button class="chip${_statMonth==='all'?' active':''}" style="font-size:11px;"
               onclick="selectStatMonth('all')">전체</button>
     </div>
@@ -796,14 +802,20 @@ function renderDeliveryStatus() {
               onclick="selectDelivMonth('${thisYM}')">이번달</button>` : ''}
       ${availableMonths.includes(lastYM) ? `
       <button class="chip${_delivMonth===lastYM?' active':''}" style="font-size:11px;"
-              onclick="selectDelivMonth('${lastYM}')">저번달</button>` : ''}
-      ${availableMonths
-        .filter(m => m !== thisYM && m !== lastYM)
-        .map(m => {
-          const [y, mo] = m.split('-');
-          return `<button class="chip${_delivMonth===m?' active':''}" style="font-size:11px;"
-                          onclick="selectDelivMonth('${m}')">${Number(y)}년 ${Number(mo)}월</button>`;
-        }).join('')}
+              onclick="selectDelivMonth('${lastYM}')">지난달</button>` : ''}
+      ${(() => {
+        const isCustomMonth = _delivMonth !== thisYM && _delivMonth !== lastYM && _delivMonth !== 'all';
+        const label = isCustomMonth
+          ? (() => { const [y, mo] = _delivMonth.split('-'); return `📅 ${Number(y)}년 ${Number(mo)}월`; })()
+          : '📅 년월검색';
+        return `
+      <label class="chip${isCustomMonth ? ' active' : ''}" style="font-size:11px;position:relative;display:inline-flex;align-items:center;">
+        ${label}
+        <input type="month" value="${isCustomMonth ? _delivMonth : ''}"
+               style="position:absolute;inset:0;opacity:0;width:100%;height:100%;border:0;padding:0;margin:0;cursor:pointer;"
+               onchange="if(this.value) selectDelivMonth(this.value)">
+      </label>`;
+      })()}
       <button class="chip${_delivMonth==='all'?' active':''}" style="font-size:11px;"
               onclick="selectDelivMonth('all')">전체</button>
     </div>
