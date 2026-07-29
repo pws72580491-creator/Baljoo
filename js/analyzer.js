@@ -7,11 +7,37 @@ const PDF_MAX_PAGES = 5;
 const IMAGE_MAX_PX  = 1024;   // 리사이즈 한계 (px) — 발주서는 1024로 충분
 const IMAGE_QUALITY = 0.75;   // JPEG 품질 — 속도 우선
 
-// ── v3.3.34: 선명(船名) 인식 보조 — AI가 선명을 놓치거나 오인식하는 경우가 있어,
-// 기존 발주 데이터에 실제로 존재하는 선명을 (1) AI 프롬프트에 참고 목록으로 제공하고,
-// (2) AI 응답을 그 목록과 대조해 1~2글자 오탈자 수준이면 자동 보정한다.
-// 하드코딩된 선명 목록이 아니라 이 앱에 실제로 쌓인 orders 데이터에서 만들기 때문에
-// 거래처가 바뀌어도 별도 유지보수가 필요 없음.
+// ══════════════════════════════════════════════════════
+// v3.3.35: 선명(ship) 자동 보정 — AI가 이미지에서 선명을 오독(OCR성 한두 글자
+// 오류)하거나 아예 못 읽는 경우가 있어, 기존에 저장된 선박명과 대조해 보완한다.
+// - 기존 발주(orders)에 실제로 쌓인 선명을 빈도순으로 마스터 목록화(하드코딩 없음)
+// - 정규화(_normShipKey — 괄호·공백·대소문자 차이 흡수) 후 대조해 이미 같은 배면
+//   손대지 않고, 편집거리 1~2 수준의 오타만 자동 보정
+// - "1호"·"2호"처럼 선명에 포함된 숫자가 다르면 실제로 다른 선박일 가능성이 높으므로
+//   절대 보정하지 않음(안전 우선)
+// - 편집거리가 같은 후보가 2개 이상(동점)이면 어느 쪽인지 알 수 없으므로 보정하지
+//   않고 원본 유지 — "잘못된 보정보다 원본이 낫다"는 docNo/poNo와 동일한 원칙
+// ══════════════════════════════════════════════════════
+function _levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+// 두 선명에 포함된 숫자 부분이 같은지 확인. "동해1호"↔"동해2호"처럼 배 번호만 다른
+// 경우는 오탈자가 아니라 완전히 다른 배이므로, 숫자가 다르면 절대 자동 보정하지 않음.
+function _shipDigitsMatch(a, b) {
+  return (a.match(/\d+/g) || []).join(',') === (b.match(/\d+/g) || []).join(',');
+}
 
 // 최근/자주 등장하는 선명일수록 프롬프트에서 먼저 참고되도록 빈도순 정렬 + 상한(150개)으로
 // 컷 — 목록이 너무 길면 프롬프트만 늘어나고 오히려 인식 정확도에 도움이 안 됨.
@@ -21,50 +47,20 @@ function _buildShipMasterList(maxCount = 150) {
     const s = (o.ship || '').trim();
     if (s) freq.set(s, (freq.get(s) || 0) + 1);
   });
-  return [...freq.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, maxCount)
-    .map(e => e[0]);
-}
-
-// 두 문자열 사이의 Levenshtein(편집) 거리
-function _levenshtein(a, b) {
-  const m = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
-  for (let i = 0; i <= a.length; i++) m[i][0] = i;
-  for (let j = 0; j <= b.length; j++) m[0][j] = j;
-  for (let i = 1; i <= a.length; i++) {
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      m[i][j] = Math.min(m[i - 1][j] + 1, m[i][j - 1] + 1, m[i - 1][j - 1] + cost);
-    }
-  }
-  return m[a.length][b.length];
-}
-
-// 두 선명에 포함된 숫자 부분이 같은지 확인. "동해1호"↔"동해2호"처럼 배 번호만 다른
-// 경우는 오탈자가 아니라 완전히 다른 배이므로, 숫자가 다르면 절대 자동 보정하지 않음.
-function _shipDigitsMatch(a, b) {
-  const da = (a.match(/\d+/g) || []).join('');
-  const db = (b.match(/\d+/g) || []).join('');
-  return da === db;
+  return [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, maxCount).map(e => e[0]);
 }
 
 // AI가 인식한 선명(rawShip)을 마스터 목록과 대조해 오탈자 수준이면 자동 보정.
-// docNo/poNo와 동일한 원칙 — 애매하면(후보 여러 개 동점) 절대 보정하지 않고 원본 유지.
-// 잘못 보정하는 것이 안 보정하는 것보다 더 위험함.
+// 애매하면(후보 여러 개 동점) 절대 보정하지 않고 원본 유지.
 function _correctShipName(rawShip, masterList) {
   const trimmed = (rawShip || '').trim();
-  if (!trimmed || !masterList || masterList.length === 0) {
-    return { ship: trimmed, corrected: false };
-  }
+  if (!trimmed || !masterList || !masterList.length) return { ship: trimmed, corrected: false };
 
   const normInput = _normShipKey(trimmed);
   // 정규화 기준(괄호 제거·공백 정리·대문자화)으로 이미 마스터 목록과 일치하면 그대로 사용
-  if (masterList.some(m => _normShipKey(m) === normInput)) {
-    return { ship: trimmed, corrected: false };
-  }
+  if (masterList.some(m => _normShipKey(m) === normInput)) return { ship: trimmed, corrected: false };
 
-  const threshold = trimmed.length <= 6 ? 1 : 2;   // 짧은 이름은 더 엄격하게
+  const threshold = trimmed.length <= 6 ? 1 : 2; // 짧은 이름은 더 엄격하게
   const candidates = [];
   masterList.forEach(m => {
     const normMaster = _normShipKey(m);
@@ -73,8 +69,7 @@ function _correctShipName(rawShip, masterList) {
       candidates.push({ ship: m, dist });
     }
   });
-
-  if (candidates.length === 0) return { ship: trimmed, corrected: false };
+  if (!candidates.length) return { ship: trimmed, corrected: false };
   candidates.sort((a, b) => a.dist - b.dist);
   const minDist = candidates[0].dist;
   const bestCandidates = candidates.filter(c => c.dist === minDist);
@@ -147,14 +142,13 @@ async function handleFiles(files) {
 
 async function analyzeFile(file) {
   try {
-    // v3.3.34: 기존 발주 데이터에 실제로 쌓인 선명들을 AI 인식 참고 목록으로 제공
+    // v3.3.35: 기존 발주 데이터에 실제로 쌓인 선명들을 AI 인식 참고 목록으로 제공
     // (선명 인식 실패·오인식 보완용). 하드코딩 없이 orders에서 매번 동적으로 구성.
     const shipMaster = _buildShipMasterList();
     const shipHintText = shipMaster.length > 0
-      ? `\nship(선명) 인식 참고 — 이 앱에 이미 등록된 거래처(선명) 목록입니다. 문서의 글자가
-  흐릿하거나 애매하면 이 목록 중 가장 유사한 것을 우선 참고하세요. 목록에 없는 새 거래처라면
-  이 목록을 무시하고 문서에 보이는 그대로 적으세요(목록에 억지로 끼워 맞추지 말 것):
-  [${shipMaster.join(', ')}]\n`
+      ? `\n참고로 이 앱에 이미 등록된 선명 목록입니다. 글자가 흐릿하거나 애매하면 이 목록 중 가장
+  유사한 것을 우선 참고하세요. 목록에 없는 새 선박이면 이 목록을 무시하고 문서에 보이는
+  그대로 적으세요(목록에 억지로 끼워 맞추지 말 것): [${shipMaster.join(', ')}]`
       : '';
 
     const prompt = `이 문서를 분석해 아래 JSON 형식으로만 응답하세요. 코드블록 없이 순수 JSON만 출력:
@@ -173,7 +167,18 @@ docNo·poNo 추출 규칙(중요 — 이 두 값은 발주 식별에 반드시 �
 - 문서에 이 라벨들이 명확하게 보이지 않으면, 절대로 다른 번호(예: 전화번호·팩스번호·페이지
   번호·품목 코드 등)로 대체하거나 추측해서 채우지 말고 반드시 빈 문자열("")로 둘 것.
   빈 값이 실제로 없는 것보다, 잘못 추측한 값이 훨씬 더 문제가 됨.
-${shipHintText}unit 선택 기준(중요):
+ship(선명) 추출 규칙(중요):
+- "선명"·"선박명"·"Vessel"·"Vessel Name"·"V/L"·"M/V"·"S/S"·"배정선박"·"납품처" 등으로 표시된
+  선박/배 이름을 찾을 것. 보통 문서 상단의 발주 정보 영역(날짜·발주번호 근처)에 위치.
+- 글자가 흐릿하거나 작아도 최대한 정확히, 인쇄된 그대로(띄어쓰기·숫자·"호" 등 포함) 옮겨 적을
+  것. 임의로 줄이거나 다른 표기로 바꾸거나 번역하지 말 것.
+- "1호"·"2호"처럼 선박명 뒤에 붙은 숫자는 서로 다른 배를 구분하는 중요한 정보이니, 흐릿해서
+  안 보이더라도 절대 다른 숫자로 추측하지 말 것 — 숫자 자체가 안 보이면 숫자를 뺀 나머지만
+  적을 것(예: "골든스타1호"가 안 보이면 "골든스타"까지만).
+- 선명 자리에 아무 글자도 없거나 정말 알아볼 수 없으면(회사명·화물명 등과 헷갈리지 말고),
+  추측해서 채우지 말고 빈 문자열("")로 둘 것 — 저장 전 화면에서 사용자가 직접 확인하도록
+  안내됨.${shipHintText}
+unit 선택 기준(중요):
 - 수량 단위가 DOZ·DOZEN·다스 → unit="doz" (절대 cs/ctn으로 쓰지 말것)
 - 수량 단위가 CS·CTN·BOX·CASE·박스 → unit="ctn"
 - 수량 단위가 PCS·EA·낱개 → unit="pcs"
@@ -258,14 +263,12 @@ ${shipHintText}unit 선택 기준(중요):
     parsed.returnedDate  = parsed.returnedDate || '';
     parsed.cancelledDate = '';
     parsed.updatedAt     = Date.now();
-    // v3.3.34: 마스터 목록과 대조해 오탈자 수준이면 자동 보정 (애매하면 보정 안 함)
-    if ((parsed.ship || '').trim()) {
-      const shipCorrection = _correctShipName(parsed.ship, shipMaster);
-      if (shipCorrection.corrected) {
-        parsed._shipAutoCorrected = true;
-        parsed._shipOriginalOcr   = shipCorrection.original;
-        parsed.ship               = shipCorrection.ship;
-      }
+    // v3.3.35: 선명 자동 보정 — 마스터 목록과 대조해 오탈자 수준이면 정확한 철자로 교정
+    const _shipCorrection = _correctShipName(parsed.ship, shipMaster);
+    if (_shipCorrection.corrected) {
+      parsed.ship               = _shipCorrection.ship;
+      parsed._shipAutoCorrected = true;
+      parsed._shipOriginal      = _shipCorrection.original;
     }
     // 선명 누락 플래그
     parsed._shipMissing  = !parsed.ship || !parsed.ship.trim();
@@ -335,6 +338,7 @@ function renderPreview() {
     // 반품서는 중복 판별 대상에서 완전히 제외
     const isReturnDoc  = !!o.isReturn;
     const shipMissing  = !!o._shipMissing;
+    const shipCorrected = !!o._shipAutoCorrected; // v3.3.35: 기존 선박명으로 자동 보정됐는지
     const dupMatch = _findDupMatch(o);
     const isDup = !!dupMatch;
 
@@ -381,12 +385,10 @@ function renderPreview() {
              color:${shipMissing ? '#f97316' : 'inherit'};
              font-family:inherit;
              font-style:${shipMissing ? 'italic' : 'normal'};">`;
-    // v3.3.34: 선명이 마스터 목록 기준으로 자동 보정된 경우, 원래 AI가 읽은 값을
-    // 툴팁으로 보여줘 사용자가 한 번 더 확인할 수 있도록 함
-    const shipCorrectedTag = o._shipAutoCorrected
-      ? `<span title="AI 인식 원본: ${escapeHtml(o._shipOriginalOcr || '')} → 자동 보정됨"
-          style="font-size:10px;font-weight:700;color:#0369a1;background:#e0f2fe;
-                 border-radius:4px;padding:1px 5px;margin-left:2px;white-space:nowrap;flex-shrink:0;">🔧보정</span>`
+    // v3.3.35: 선명이 기존 선박명으로 자동 보정된 경우, 원래 AI가 읽은 값을 함께 보여줘서
+    // 사용자가 잘못된 보정이면 바로 확인하고 고칠 수 있게 함
+    const shipCorrectedNote = shipCorrected
+      ? `<div style="font-size:10px;color:#0369a1;grid-column:1/-1;">🔧 자동보정: "${escapeHtml(o._shipOriginal)}" → "${escapeHtml(o.ship)}" (다르면 위에서 직접 수정)</div>`
       : '';
     // v3.3.29: 서류번호·거래처발주번호도 AI가 놓치거나 잘못 읽는 경우가 있어,
     // 선명과 동일하게 이 자리에서 바로 확인·수정할 수 있도록 입력창으로 변경
@@ -415,7 +417,7 @@ function renderPreview() {
     return `
     <div class="prev-card" id="pcard-${idx}" style="${cardStyle}">
       <div class="prev-head">
-        ${shipInputHtml}${shipCorrectedTag}
+        ${shipInputHtml}
         <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
           ${badge(o.category)}${statusBadgeHtml}
           <button onclick="removePending(${idx})" style="background:#fee2e2;border:none;border-radius:6px;color:#dc2626;font-size:12px;font-weight:700;padding:3px 8px;cursor:pointer;flex-shrink:0;">✕ 제거</button>
@@ -427,6 +429,7 @@ function renderPreview() {
         <div><span class="pm-label">발주일자</span>${escapeHtml(o.date) || '-'}</div>
         <div><span class="pm-label">납기일자</span>${escapeHtml(o.delivery) || '-'}</div>
         <div><span class="pm-label">총액</span><strong style="${totalStyle}">${fmt(o.total)}</strong></div>
+        ${shipCorrectedNote}
         ${infoMsg}
       </div>
       <table class="prev-table">
@@ -472,6 +475,7 @@ function updatePendingShip(idx, val) {
   const trimmed = String(val || '').trim();
   pendingOrders[idx].ship = trimmed;
   pendingOrders[idx]._shipMissing = !trimmed;
+  pendingOrders[idx]._shipAutoCorrected = false; // v3.3.35: 사용자가 직접 고쳤으니 자동보정 안내는 제거
   renderPreview();
 }
 
