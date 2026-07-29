@@ -1152,7 +1152,7 @@ function renderDeliveryStatus() {
                     <div style="font-size:13px;font-weight:600;color:var(--navy);
                                 white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">${escapeHtml(o.ship)}${isSplitRecord ? ' <span style="font-size:10px;font-weight:700;color:#b45309;">(분할)</span>' : ''}</div>
                     <div style="font-size:10px;color:var(--muted);margin-top:2px;">${escapeHtml(o.docNo)}</div>
-                    ${o.deliveryNote ? `<div style="font-size:10px;font-weight:700;color:#dc2626;margin-top:3px;">📝 ${escapeHtml(o.deliveryNote.length > 22 ? o.deliveryNote.slice(0,22)+'…' : o.deliveryNote)}</div>` : ''}
+                    ${manualDeliveryNote(o.deliveryNote) ? `<div style="font-size:10px;font-weight:700;color:#dc2626;margin-top:3px;">📝 ${escapeHtml(manualDeliveryNote(o.deliveryNote).length > 22 ? manualDeliveryNote(o.deliveryNote).slice(0,22)+'…' : manualDeliveryNote(o.deliveryNote))}</div>` : ''}
                     ${(o.items||[]).map(item => {
                       const boxStr = formatItemBoxStr(item);
                       const rawDesc = item.desc || '';
@@ -1584,6 +1584,7 @@ function renderDashByDate() {
               <div>
                 <div style="font-size:13px;font-weight:700;color:var(--navy);">${escapeHtml(o.ship)}</div>
                 <div style="font-size:10px;color:var(--muted);margin-top:2px;">${escapeHtml(o.docNo)}</div>
+                ${manualDeliveryNote(o.deliveryNote) ? `<div style="font-size:10px;font-weight:700;color:#dc2626;margin-top:3px;">📝 ${escapeHtml(manualDeliveryNote(o.deliveryNote).length > 22 ? manualDeliveryNote(o.deliveryNote).slice(0,22)+'…' : manualDeliveryNote(o.deliveryNote))}</div>` : ''}
                 ${(o.items||[]).map(i => {
                   const qtyCol = ((i.qty||0) < 0 || isManualReturn) ? 'color:#dc2626;' : '';
                   const boxStr = formatItemBoxStr(i);

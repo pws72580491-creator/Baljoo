@@ -215,6 +215,14 @@ function formatItemBoxStr(item) {
   return bc ? formatBoxCount(bc) : '';
 }
 
+// v3.3.38: deliveryNote에는 사용자가 직접 입력한 메모 외에, 납품사진 자동확인 시
+// 시스템이 덧붙이는 "[납품사진 자동확인]" 태그가 섞여 있을 수 있다(예: "긴급 [납품사진 자동확인]").
+// 목록 미리보기(📝)에는 자동으로 붙은 태그는 노출할 필요가 없고 사람이 직접 쓴 메모만
+// 보여주는 게 맞으므로, 이 태그를 제거한 "순수 수동 메모"만 뽑아내는 헬퍼.
+function manualDeliveryNote(note) {
+  return (note || '').replace(/\[납품사진 자동확인\]/g, '').trim();
+}
+
 // ctn/case/carton/box 단위는 화면에 'box'로 통일 표시
 // pkt/pkg/bag 단위는 '봉지'로 통일 표시
 function displayUnit(unit) {
