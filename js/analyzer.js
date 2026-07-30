@@ -341,29 +341,41 @@ function renderPreview() {
     const shipCorrected = !!o._shipAutoCorrected; // v3.3.35: 기존 선박명으로 자동 보정됐는지
     const dupMatch = _findDupMatch(o);
     const isDup = !!dupMatch;
+    // v3.3.39: 서류번호·발주번호는 같은데 발주일자만 다른 경우 — 병합 대상은 아니지만
+    // "같은 문서를 재스캔했는데 AI가 날짜를 다르게 읽었을 가능성"을 사용자에게 알려줌
+    const looseMatch = (!isDup && !isReturnDoc) ? _findNumberOnlyMatch(o) : null;
+    const isLooseDup = !!looseMatch;
 
     // v3.3.16: 중복 사유(어느 필드가 기존 어떤 발주와 겹쳤는지)를 사람이 읽을 수 있게 구성
     const dupFieldLabel = dupMatch ? (dupMatch.field === 'docNo' ? '서류번호' : '거래처발주번호') : '';
     const dupValue      = dupMatch ? (dupMatch.field === 'docNo' ? dupMatch.order.docNo : dupMatch.order.poNo) : '';
     const dupShip       = dupMatch ? (dupMatch.order.ship || '선명없음') : '';
+    const looseFieldLabel = looseMatch ? (looseMatch.field === 'docNo' ? '서류번호' : '거래처발주번호') : '';
+    const looseValue      = looseMatch ? (looseMatch.field === 'docNo' ? looseMatch.order.docNo : looseMatch.order.poNo) : '';
+    const looseShip       = looseMatch ? (looseMatch.order.ship || '선명없음') : '';
+    const looseExistDate  = looseMatch ? (looseMatch.order.date || '미상') : '';
 
-    // 뱃지: 반품서 / 선명누락 / 중복 / 신규
+    // 뱃지: 반품서 / 선명누락 / 중복 / 번호일치·날짜다름 / 신규
     const statusBadgeHtml = isReturnDoc
       ? `<span class="badge b-returned" style="margin-left:4px;">↩️ 반품서</span>`
       : shipMissing
         ? `<span class="badge" style="background:#fee2e2;color:#991b1b;margin-left:4px;">⚠️ 선명 누락</span>`
         : isDup
           ? `<span class="badge" style="background:#fef3c7;color:#92400e;margin-left:4px;" title="${escapeHtml(dupFieldLabel)}(${escapeHtml(dupValue)})가 '${escapeHtml(dupShip)}' 발주와 동일">⚠️ 중복</span>`
-          : `<span class="badge" style="background:#dcfce7;color:#15803d;margin-left:4px;">신규</span>`;
+          : isLooseDup
+            ? `<span class="badge" style="background:#e0e7ff;color:#3730a3;margin-left:4px;" title="${escapeHtml(looseFieldLabel)}(${escapeHtml(looseValue)})가 '${escapeHtml(looseShip)}' 발주와 동일하지만 발주일자가 다름(기존 ${escapeHtml(looseExistDate)})">🔎 번호일치·날짜다름</span>`
+            : `<span class="badge" style="background:#dcfce7;color:#15803d;margin-left:4px;">신규</span>`;
 
-    // 카드 테두리: 반품서=빨강, 선명누락=주황-빨강, 중복=노랑, 신규=기본
+    // 카드 테두리: 반품서=빨강, 선명누락=주황-빨강, 중복=노랑, 번호일치·날짜다름=인디고, 신규=기본
     const cardStyle = isReturnDoc
       ? 'border:2px solid #dc2626;background:#fff5f5;'
       : shipMissing
         ? 'border:2px solid #f97316;background:#fff7ed;'
         : isDup
           ? 'border:2px solid #f59e0b;background:#fffbeb;'
-          : '';
+          : isLooseDup
+            ? 'border:2px solid #6366f1;background:#eef2ff;'
+            : '';
 
     // 안내 메시지 — 중복인 경우 어느 필드가 어떤 기존 발주와 겹쳤는지 구체적으로 표시
     const infoMsg = isReturnDoc
@@ -372,7 +384,9 @@ function renderPreview() {
         ? `<div style="font-size:11px;color:#9a3412;background:#ffedd5;border-radius:6px;padding:5px 8px;grid-column:1/-1;">⚠️ AI가 선명을 인식하지 못했습니다. 저장 전 선명을 직접 확인하거나 수정 후 저장하세요.</div>`
         : isDup
           ? `<div style="font-size:11px;color:#92400e;background:#fde68a;border-radius:6px;padding:5px 8px;grid-column:1/-1;">⚠️ <b>${escapeHtml(dupFieldLabel)}</b>(${escapeHtml(dupValue)})가 기존 발주 "<b>${escapeHtml(dupShip)}</b>"와 동일합니다. 제거하거나 저장 시 기존 데이터를 덮어씁니다.</div>`
-          : '';
+          : isLooseDup
+            ? `<div style="font-size:11px;color:#3730a3;background:#e0e7ff;border-radius:6px;padding:5px 8px;grid-column:1/-1;">🔎 <b>${escapeHtml(looseFieldLabel)}</b>(${escapeHtml(looseValue)})가 기존 발주 "<b>${escapeHtml(looseShip)}</b>"와 동일하지만 발주일자가 다릅니다(기존 ${escapeHtml(looseExistDate)} / 이번 ${escapeHtml(o.date||'미상')}). 같은 문서를 다시 올린 것이라면 발주일자를 확인해주세요 — 지금 저장하면 별개 발주로 새로 추가됩니다.</div>`
+            : '';
 
     const totalStyle = isReturnDoc ? 'color:#dc2626;font-weight:700;' : '';
     // 선명 입력창 — 선명 누락/오인식 시 이 자리에서 바로 수정 후 전체 저장 가능
@@ -454,13 +468,15 @@ function renderPreview() {
     </div>`;
   }).join('');
 
-  // 상태 메시지 — 선명누락 / 중복 / 반품서 건수 표시
+  // 상태 메시지 — 선명누락 / 중복 / 번호일치·날짜다름 / 반품서 건수 표시
   const shipMissingCnt = pendingOrders.filter(o => o._shipMissing).length;
   const dupCnt = pendingOrders.filter(o => _isDupOfSaved(o)).length;
+  const looseDupCnt = pendingOrders.filter(o => !o.isReturn && !_isDupOfSaved(o) && _findNumberOnlyMatch(o)).length;
   const retCnt = pendingOrders.filter(o => o.isReturn).length;
   const parts  = [];
   if (shipMissingCnt > 0) parts.push(`🚢 선명 누락 ${shipMissingCnt}건`);
   if (dupCnt > 0)         parts.push(`⚠️ 중복 ${dupCnt}건`);
+  if (looseDupCnt > 0)    parts.push(`🔎 번호일치·날짜다름 ${looseDupCnt}건`);
   if (retCnt > 0)         parts.push(`↩️ 반품서 ${retCnt}건`);
   if (parts.length > 0) {
     setStatus(`📋 ${pendingOrders.length}건 확인 중 — ${parts.join(' · ')}. 확인 후 저장하세요.`);

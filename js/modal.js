@@ -77,7 +77,7 @@ function openModal(id) {
         <div class="db-row"><span class="db-label">발주금액</span><span class="db-val" style="text-decoration:line-through;color:var(--muted);">${fmt(o.total)}</span></div>
         <div class="db-row"><span class="db-label">상태</span><span class="db-val" style="color:#6d28d9;">🚫 발주취소 (모든 집계에서 제외)</span></div>
       ` : ''}
-      ${o.deliveryNote ? `<div style="font-size:12px;color:var(--muted);margin-top:8px;">📝 ${escapeHtml(o.deliveryNote)}</div>` : ''}
+      ${manualDeliveryNote(o.deliveryNote) ? `<div style="font-size:12px;color:var(--muted);margin-top:8px;">📝 ${escapeHtml(manualDeliveryNote(o.deliveryNote))}</div>` : ''}
     </div>` : ''}
 
     <div class="sdiv">납품 처리</div>

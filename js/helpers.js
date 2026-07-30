@@ -445,6 +445,28 @@ function _isDupOfSaved(o) {
   return !!_findDupMatch(o);
 }
 
+// ── 발주서 "번호는 같은데 날짜만 다른" 케이스 감지 (정보 제공용 — 병합 판정과 무관) ──
+// v3.3.17에서 _findDupMatch()에 발주일자 일치 조건이 추가되면서(서류번호 재사용 오탐
+// 방지 목적), 같은 문서를 재촬영/재업로드했는데 AI가 발주일자를 살짝 다르게 읽은 경우
+// (흐릿한 날짜 도장 등)에는 "중복 아님"으로 조용히 완전히 새 건이 추가돼버리는 사각지대가
+// 생겼음. 이 함수는 saveAll()의 병합 여부에는 전혀 관여하지 않고(그 안전장치는 그대로
+// 유지), 미리보기에서 "번호는 같은데 날짜가 다르다"는 것만 사용자에게 알려주는 용도.
+function _findNumberOnlyMatch(o) {
+  if (o.isReturn) return null;
+  const oDoc = (o.docNo || '').trim();
+  const oPo  = (o.poNo  || '').trim();
+  if (!oDoc && !oPo) return null;
+  for (const x of orders) {
+    if (x.isReturn) continue;
+    if (x.date === o.date) continue; // 날짜까지 같으면 _findDupMatch가 이미 처리
+    const xDoc = (x.docNo || '').trim();
+    const xPo  = (x.poNo  || '').trim();
+    if (oDoc && xDoc && xDoc === oDoc) return { order: x, field: 'docNo' };
+    if (oPo  && xPo  && xPo  === oPo)  return { order: x, field: 'poNo'  };
+  }
+  return null;
+}
+
 // ── 서류번호·발주번호 중복 검사 (저장된 발주 전체 대상) ──
 // 반품서(isReturn)는 원본 발주의 서류번호/발주번호를 그대로 참조하는 경우가 많아
 // 중복 판정에서 제외한다 (업로드 미리보기 단계의 중복 판별과 동일한 기준 —
