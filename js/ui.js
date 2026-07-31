@@ -913,7 +913,10 @@ function renderDeliveryStatus() {
   function _stockByDateFor(goalField, itemFilterFn) {
     const dmgField = goalField + 'Dmg'; // 파손(회수) 수량 필드 — 예: 'egg' → 'eggDmg'
     const stockByDate = {};
-    const byDateAll = {};
+    const byDateAll = {};    // 그 날짜의 "정상 납품" 박스 합계(반품 제외)
+    const byDateReturn = {}; // 그 날짜에 "반품 확인"으로 재고에 되돌아온 박스 합계(항상 양수)
+    // v3.3.42: 반품(확인됨)의 signed 기여분은 항상 음수이므로(_boxSign 참고), 부호만으로
+    // 정상 납품과 반품을 구분해 따로 누적한다 — 미확인 반품은 여전히 양수로 정상 집계됨.
     allDone.forEach(o => {
       _deliveryRecordsFor(o).forEach(r => {
         let sum = 0;
@@ -921,7 +924,9 @@ function renderDeliveryStatus() {
           if (!itemFilterFn(item)) return;
           sum += Number(r.perItemBoxes[idx]) || 0;
         });
-        if (sum) byDateAll[r.date] = (byDateAll[r.date] || 0) + sum;
+        if (!sum) return;
+        if (sum < 0) byDateReturn[r.date] = (byDateReturn[r.date] || 0) + Math.abs(sum);
+        else         byDateAll[r.date]    = (byDateAll[r.date]    || 0) + sum;
       });
     });
 
@@ -942,6 +947,9 @@ function renderDeliveryStatus() {
     const stockDates = new Set(trackedGoalDates);
     Object.keys(byDateAll)
       .filter(d => d >= firstTrackedDate) // 추적 시작일 이전 납품 실적은 이월 계산에서 제외
+      .forEach(d => stockDates.add(d));
+    Object.keys(byDateReturn)
+      .filter(d => d >= firstTrackedDate)
       .forEach(d => stockDates.add(d));
     // 파손만 입력되고 해당 날짜에 입고·납품 실적이 없는 경우도(추적 시작일 이후라면)
     // 누락 없이 이월 계산에 포함되도록 delivGoal_ 전체를 훑어 파손 입력 날짜를 추가 수집
@@ -964,8 +972,9 @@ function renderDeliveryStatus() {
       const damaged   = g ? (g[dmgField] || 0) : 0;
       const opening   = carry;
       const delivered = byDateAll[d] || 0;
-      const closing   = opening + stockIn - delivered - damaged;
-      stockByDate[d] = { stockIn, damaged, opening, delivered, closing };
+      const returned  = byDateReturn[d] || 0;
+      const closing   = opening + stockIn - delivered - damaged + returned;
+      stockByDate[d] = { stockIn, damaged, opening, delivered, returned, closing };
       carry = closing;
     });
     return stockByDate;
@@ -1053,9 +1062,9 @@ function renderDeliveryStatus() {
       // goal = { egg: N, quail: N, brine: N } 또는 null — 세 품목 모두 "입고" 수량으로 사용
 
       // 품목별: 입고 + 전일 재고 이월 → 오늘 재고
-      const eggStock   = eggStockByDate[day.date]   || { stockIn: 0, opening: 0, delivered: 0, closing: 0 };
-      const quailStock = quailStockByDate[day.date] || { stockIn: 0, opening: 0, delivered: 0, closing: 0 };
-      const brineStock = brineStockByDate[day.date] || { stockIn: 0, opening: 0, delivered: 0, closing: 0 };
+      const eggStock   = eggStockByDate[day.date]   || { stockIn: 0, opening: 0, delivered: 0, returned: 0, closing: 0 };
+      const quailStock = quailStockByDate[day.date] || { stockIn: 0, opening: 0, delivered: 0, returned: 0, closing: 0 };
+      const brineStock = brineStockByDate[day.date] || { stockIn: 0, opening: 0, delivered: 0, returned: 0, closing: 0 };
 
       const hasEggFlow   = !!(goal && (goal.egg   || goal.eggDmg))   || eggStock.opening   !== 0 || eggStock.closing   !== 0;
       const hasQuailFlow = !!(goal && (goal.quail || goal.quailDmg)) || quailStock.opening !== 0 || quailStock.closing !== 0;
@@ -1066,13 +1075,15 @@ function renderDeliveryStatus() {
         const blocks = [];
         const addStockBlock = (label, stock) => {
           const color = stock.closing < 0 ? '#dc2626' : stock.closing === 0 ? '#22c55e' : '#f59e0b';
-          const openingText = stock.opening ? ` + 전일재고 ${formatBoxCount(stock.opening)}` : '';
+          const openingText  = stock.opening  ? ` + 전일재고 ${formatBoxCount(stock.opening)}` : '';
+          // v3.3.42: 반품 확인된 수량은 전일재고에 묻지 않고 "반품 N박스"로 바로 옆에 별도 표시
+          const returnedText = stock.returned ? ` + 반품 ${formatBoxCount(stock.returned)}` : '';
           const dmgText = stock.damaged ? ` - 파손 ${formatBoxCount(stock.damaged)}` : '';
           const stockText = stock.closing < 0
             ? `⚠️ 재고부족 ${formatBoxCount(Math.abs(stock.closing))}`
             : `재고 ${label} ${formatBoxCount(stock.closing)}`;
           blocks.push(`
-          <div style="font-size:10px;opacity:.75;margin-top:${blocks.length ? '6' : '2'}px;">입고 ${label} ${formatBoxCount(stock.stockIn)}${openingText}${dmgText}</div>
+          <div style="font-size:10px;opacity:.75;margin-top:${blocks.length ? '6' : '2'}px;">입고 ${label} ${formatBoxCount(stock.stockIn)}${openingText}${returnedText}${dmgText}</div>
           <div style="font-size:11px;font-weight:700;color:${color};margin-top:3px;">${stockText}</div>`);
         };
 
