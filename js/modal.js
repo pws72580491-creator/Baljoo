@@ -293,6 +293,8 @@ function toggleDelivered(id) {
       const note = prompt('납품 비고 (선택사항)', o.deliveryNote || '');
       if (note === null) return;
       o.deliveryNote   = note.trim();
+      // v3.3.43: 반품 상태였다가 바로 납품완료로 전환하는 경우, 남아있던 반품확인 체크를 정리
+      if (o.deliveryStatus === 'returned') _pruneReturnChk(o.id);
       const dateVal = todayStr();
       // v3.3.33: 부분납품 중이었다면 "오늘 새로 채워진 만큼"을 이력에 기록
       const prevBoxes = (o.items || []).map(i => calcItemDeliveredBoxes(i));
@@ -336,6 +338,8 @@ function setDelivery(id, status) {
       if (!confirm(`[${o.ship}]\n이 발주를 취소 처리할까요?\n(모든 금액·박스 집계에서 제외됩니다)`)) return;
       const note = prompt('취소 사유 (선택사항)', o.deliveryNote || '');
       if (note !== null) o.deliveryNote = note.trim();
+      // v3.3.43: 반품 상태였다가 바로 취소 처리하는 경우, 남아있던 반품확인 체크를 정리
+      if (o.deliveryStatus === 'returned') _pruneReturnChk(o.id);
       o.returnAmount  = 0;
       o.partialAmount = 0;
       o.deliveredDate = '';
@@ -363,6 +367,9 @@ function setDelivery(id, status) {
         o.deliveredDate  = '';
         (o.items || []).forEach(i => { i.deliveredBoxes = 0; });
         _clearDeliveryEvents(o); // v3.3.33
+        // v3.3.43: 반품 확인 체크도 함께 초기화 — 안 지우면 나중에 이 발주가 다시 반품
+        // 처리될 때 예전 체크가 남아있어 재확인 없이 곧바로 "재고반영됨"으로 보이게 됨.
+        _pruneReturnChk(o.id);
         save();
         closeModalBtn();
         renderAll();

@@ -86,7 +86,7 @@ function load() {
         try {
           const chkSet = new Set(JSON.parse(localStorage.getItem('orderReturnCheck') || '[]'));
           orders.forEach(o => {
-            if (o.deliveryStatus === 'returned' && typeof _isPhantomReturn === 'function' && !_isPhantomReturn(o)) {
+            if (o.deliveryStatus === 'returned' && !_isPhantomReturn(o)) {
               chkSet.add(o.id);
             }
           });
@@ -108,7 +108,14 @@ function resetOrders() {
   orders = [];
   save();
   // v3.3.14: 전체 초기화 시 더블체크·반품확인 표시도 함께 정리 (모든 id가 사라지므로)
-  try { localStorage.removeItem('deliveryDblCheck'); localStorage.removeItem('orderReturnCheck'); } catch(e) {}
+  // v3.3.42: retChkMigrated_v341도 같이 지워야 함 — 안 지우면 초기화 후 Firebase 등으로
+  // 다시 복원했을 때 "기존 반품 자동 확인" 마이그레이션(storage.js load())이 재실행되지
+  // 않아, 복원된 반품 건들이 전부 미확인 상태로 보여서 재고 수치가 초기화 전과 달라진다.
+  try {
+    localStorage.removeItem('deliveryDblCheck');
+    localStorage.removeItem('orderReturnCheck');
+    localStorage.removeItem('retChkMigrated_v341');
+  } catch(e) {}
   renderAll();
   toast('🗑️ 목록 초기화 완료');
 }

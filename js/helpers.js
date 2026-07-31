@@ -291,8 +291,9 @@ function _isPhantomReturn(o) {
 // 박스/재고 집계 전용 부호: 납품완료 = +1, phantom 반품(납품 이력 없음) = 0.
 // v3.3.41: 반품(수동 반품·업로드 반품서 모두)은 발주목록의 "반품 확인" 체크가 될 때까지는
 // 재고에 반영하지 않도록 변경(사용자 요청 — 실물 회수를 직접 확인하기 전엔 재고 수치를
-// 섣불리 바꾸고 싶지 않다는 것). _isReturnChecked()는 ui.js에 있지만 실제 호출은 항상
-// 전체 스크립트 로드 후(렌더링 시점)에 일어나므로 파일 순서와 무관하게 안전하게 참조 가능.
+// 섣불리 바꾸고 싶지 않다는 것). _isReturnChecked()는 ui.js에 있지만 이 함수는 항상
+// 렌더링 시점(전체 스크립트 로드 후)에만 호출되므로 파일 순서와 무관하게 안전하게 참조된다
+// (다른 헬퍼들과 마찬가지로 별도 존재 확인 없이 직접 호출 — 코드베이스 전반의 관례와 통일).
 //   - 수동 반품(isReturn=false): 미확인 → 아직 '납품' 상태로 취급(+1, 반품 이전과 동일),
 //     확인 → 반품 반영(-1, 기존 로직).
 //   - 업로드 반품서(isReturn=true, 수량·금액이 이미 음수로 기록됨): 미확인 → 영향 없음(0,
@@ -301,7 +302,7 @@ function _isPhantomReturn(o) {
 function _boxSign(o) {
   if (_isPhantomReturn(o)) return 0;
   if (o.deliveryStatus !== 'returned') return 1;
-  const confirmed = typeof _isReturnChecked === 'function' && _isReturnChecked(o.id);
+  const confirmed = _isReturnChecked(o.id);
   if (o.isReturn) return confirmed ? 1 : 0;
   return confirmed ? -1 : 1;
 }

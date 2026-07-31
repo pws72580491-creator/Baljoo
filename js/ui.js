@@ -246,7 +246,10 @@ function orderCard(o, showDel, dupIdSet) {
 
   // 반품 확인 체크 (발주목록에서만 표시 — 대시보드 최근내역과 id 중복 방지)
   // v3.3.41: 이 체크가 재고 반영 여부를 결정하게 됨(_boxSign 참고) — 더 이상 순수 장식용 아님.
-  const isReturnedForChk = showDel && o.deliveryStatus === 'returned';
+  // v3.3.43: phantom 반품(납품 이력 없이 바로 반품 처리된 건)은 _boxSign이 확인 여부와
+  // 무관하게 항상 0을 반환하므로, 체크박스를 눌러도 재고에 아무 효과가 없다. 그런 건은
+  // 체크박스 자체를 숨겨서 "체크해도 안 바뀌는" 혼란을 없앤다.
+  const isReturnedForChk = showDel && o.deliveryStatus === 'returned' && !_isPhantomReturn(o);
   const isReturnChecked  = isReturnedForChk && _isReturnChecked(o.id);
   const returnChkHtml    = isReturnedForChk
     ? `<label style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);cursor:pointer;" onclick="event.stopPropagation();">
@@ -1465,6 +1468,13 @@ function _saveReturnChkSet(set) {
 function _isReturnChecked(id) {
   return _loadReturnChkSet().has(id);
 }
+// v3.3.43: 반품 확인 체크만 지우는 헬퍼(더블체크는 그대로 둠) — 반품 상태에서 다른 상태로
+// 전환될 때(미납품/납품완료/발주취소로 되돌리기) 호출해, 나중에 이 발주가 다시 반품
+// 처리되더라도 예전 체크가 남아 자동으로 "재고반영됨"이 되지 않도록 한다.
+function _pruneReturnChk(id) {
+  const ret = _loadReturnChkSet();
+  if (ret.delete(id)) _saveReturnChkSet(ret);
+}
 function toggleReturnChk(id, ev) {
   if (ev) ev.stopPropagation(); // 체크박스 클릭이 카드 전체의 openModal로 번지지 않도록 차단
   const set = _loadReturnChkSet();
@@ -1483,8 +1493,7 @@ function toggleReturnChk(id, ev) {
 function _pruneOrderChecks(id) {
   const dbl = _loadDblCheckSet();
   if (dbl.delete(id)) _saveDblCheckSet(dbl);
-  const ret = _loadReturnChkSet();
-  if (ret.delete(id)) _saveReturnChkSet(ret);
+  _pruneReturnChk(id);
 }
 
 // ── 납품현황 날짜 그룹 접기/펼치기 ──
