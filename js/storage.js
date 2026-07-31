@@ -76,6 +76,24 @@ function load() {
           }
         });
       });
+      // v3.3.41: "반품 확인" 체크가 재고 반영 여부를 좌우하도록 바뀌면서, 이 업데이트
+      // 이전에 이미 '반품' 처리돼 있던 기존 건들까지 갑자기 미확인 취급되면 과거에 이미
+      // 보고했던 재고/통계 수치가 이 업데이트만으로 소급 변경돼버린다. 그래서 이 마이그레이션
+      // 시점에 존재하는 반품 건은 전부 "이미 확인됨"으로 한 번만 자동 표시해 기존 수치를
+      // 그대로 유지하고, 이 시점 이후 새로 반품 처리되는 건부터만 실제로 확인이 필요하게 한다.
+      // 한 기기당 한 번만 실행(재실행 시 사용자가 이후에 직접 해제한 것까지 되돌리지 않도록).
+      if (!localStorage.getItem('retChkMigrated_v341')) {
+        try {
+          const chkSet = new Set(JSON.parse(localStorage.getItem('orderReturnCheck') || '[]'));
+          orders.forEach(o => {
+            if (o.deliveryStatus === 'returned' && typeof _isPhantomReturn === 'function' && !_isPhantomReturn(o)) {
+              chkSet.add(o.id);
+            }
+          });
+          localStorage.setItem('orderReturnCheck', JSON.stringify([...chkSet]));
+        } catch (e) { console.warn('[storage] 반품확인 마이그레이션 실패:', e); }
+        localStorage.setItem('retChkMigrated_v341', '1');
+      }
       _loadInProgress = true;
       save();
       _loadInProgress = false;

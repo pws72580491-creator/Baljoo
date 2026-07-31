@@ -245,15 +245,16 @@ function orderCard(o, showDel, dupIdSet) {
   }
 
   // 반품 확인 체크 (발주목록에서만 표시 — 대시보드 최근내역과 id 중복 방지)
+  // v3.3.41: 이 체크가 재고 반영 여부를 결정하게 됨(_boxSign 참고) — 더 이상 순수 장식용 아님.
   const isReturnedForChk = showDel && o.deliveryStatus === 'returned';
   const isReturnChecked  = isReturnedForChk && _isReturnChecked(o.id);
   const returnChkHtml    = isReturnedForChk
     ? `<label style="margin-left:auto;display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);cursor:pointer;" onclick="event.stopPropagation();">
          <input type="checkbox" id="retchk-${o.id}" ${isReturnChecked ? 'checked' : ''}
                 onclick="toggleReturnChk('${o.id}', event)"
-                title="반품 확인 표시 (내 기기에만 저장)"
+                title="체크해야 이 반품이 재고에 반영됩니다 (내 기기에만 저장)"
                 style="width:16px;height:16px;cursor:pointer;accent-color:#dc2626;">
-         확인${isReturnChecked ? '됨' : ''}
+         ${isReturnChecked ? '재고반영됨' : '재고미반영'}
        </label>`
     : '';
 
@@ -1459,10 +1460,10 @@ function toggleReturnChk(id, ev) {
   const willCheck = !set.has(id);
   if (willCheck) set.add(id); else set.delete(id);
   _saveReturnChkSet(set);
-  const cb   = document.getElementById('retchk-' + id);
-  const card = document.getElementById('ordercard-' + id);
-  if (cb)   cb.checked = willCheck;
-  if (card) card.style.opacity = willCheck ? '.55' : '1';
+  // v3.3.41: 이 체크가 재고 반영 여부(_boxSign 참고)를 좌우하게 되면서, 체크박스 하나만
+  // 로컬로 토글하던 예전 방식으론 대시보드·발주목록의 집계 숫자가 갱신되지 않는다.
+  // renderAll()로 전체를 다시 그려 총 박스·재고 관련 숫자가 즉시 반영되도록 한다.
+  renderAll();
 }
 
 // v3.3.14 fix: 발주 삭제(개별/전체초기화) 시 더블체크·반품확인 표시도 함께 정리.
