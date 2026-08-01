@@ -914,7 +914,8 @@ function renderDeliveryStatus() {
   // 실제로 나간 만큼만 반영 — 예전엔 완료 시점 날짜 하나에 전량이 몰려서, 중간에 걸친
   // 날짜의 재고가 실제보다 많게(납품 누락으로) 잡히는 문제가 있었음.
   function _stockByDateFor(goalField, itemFilterFn) {
-    const dmgField = goalField + 'Dmg'; // 파손(회수) 수량 필드 — 예: 'egg' → 'eggDmg'
+    const dmgField = goalField + 'Dmg';  // 파손(회수) 수량 필드 — 예: 'egg' → 'eggDmg'
+    const openField = goalField + 'Open'; // v3.3.44: 전일재고 직접 수정(override) 필드 — 예: 'egg' → 'eggOpen'
     const stockByDate = {};
     const byDateAll = {};    // 그 날짜의 "정상 납품" 박스 합계(반품 제외)
     const byDateReturn = {}; // 그 날짜에 "반품 확인"으로 재고에 되돌아온 박스 합계(항상 양수)
@@ -964,6 +965,9 @@ function renderDeliveryStatus() {
       let g = null;
       try { g = JSON.parse(localStorage.getItem(k) || 'null'); } catch(e) {}
       if (g && Number(g[dmgField]) > 0) stockDates.add(d);
+      // v3.3.44: 전일재고 직접 수정(override)만 입력되고 그 날짜에 다른 입고·납품·파손
+      // 실적이 전혀 없는 경우도 이월 계산에서 누락되지 않도록 추가 수집
+      if (g && g[openField] !== undefined && g[openField] !== null && g[openField] !== '') stockDates.add(d);
     }
 
     const ascDates = [...stockDates].sort((a, b) => a.localeCompare(b));
@@ -973,11 +977,14 @@ function renderDeliveryStatus() {
       try { g = JSON.parse(localStorage.getItem('delivGoal_' + d) || 'null'); } catch(e) {}
       const stockIn   = g ? (g[goalField] || 0) : 0;
       const damaged   = g ? (g[dmgField] || 0) : 0;
-      const opening   = carry;
+      // v3.3.44: "전일재고 직접 수정" 값이 입력돼 있으면 그 값을 그날의 opening으로 강제
+      // 사용(실사 보정 등) — 없으면 기존처럼 전날 closing을 그대로 이어받는다(carry).
+      const hasOverride = g && g[openField] !== undefined && g[openField] !== null && g[openField] !== '';
+      const opening   = hasOverride ? Number(g[openField]) : carry;
       const delivered = byDateAll[d] || 0;
       const returned  = byDateReturn[d] || 0;
       const closing   = opening + stockIn - delivered - damaged + returned;
-      stockByDate[d] = { stockIn, damaged, opening, delivered, returned, closing };
+      stockByDate[d] = { stockIn, damaged, opening, delivered, returned, closing, openingOverridden: !!hasOverride };
       carry = closing;
     });
     return stockByDate;
@@ -1069,16 +1076,19 @@ function renderDeliveryStatus() {
       const quailStock = quailStockByDate[day.date] || { stockIn: 0, opening: 0, delivered: 0, returned: 0, closing: 0 };
       const brineStock = brineStockByDate[day.date] || { stockIn: 0, opening: 0, delivered: 0, returned: 0, closing: 0 };
 
-      const hasEggFlow   = !!(goal && (goal.egg   || goal.eggDmg))   || eggStock.opening   !== 0 || eggStock.closing   !== 0;
-      const hasQuailFlow = !!(goal && (goal.quail || goal.quailDmg)) || quailStock.opening !== 0 || quailStock.closing !== 0;
-      const hasBrineFlow = !!(goal && (goal.brine || goal.brineDmg)) || brineStock.opening !== 0 || brineStock.closing !== 0;
+      const hasEggFlow   = !!(goal && (goal.egg   || goal.eggDmg))   || eggStock.opening   !== 0 || eggStock.closing   !== 0 || eggStock.openingOverridden;
+      const hasQuailFlow = !!(goal && (goal.quail || goal.quailDmg)) || quailStock.opening !== 0 || quailStock.closing !== 0 || quailStock.openingOverridden;
+      const hasBrineFlow = !!(goal && (goal.brine || goal.brineDmg)) || brineStock.opening !== 0 || brineStock.closing !== 0 || brineStock.openingOverridden;
 
       // 입고/파손/재고 배지 텍스트 (계란·메추리·깐메추리 동일한 방식으로 표시)
       const goalBadgeHtml = (() => {
         const blocks = [];
         const addStockBlock = (label, stock) => {
           const color = stock.closing < 0 ? '#dc2626' : stock.closing === 0 ? '#22c55e' : '#f59e0b';
-          const openingText  = stock.opening  ? ` + 전일재고 ${formatBoxCount(stock.opening)}` : '';
+          // v3.3.44: 전일재고를 직접 수정(override)한 날은 "전일재고 30박스✏️"처럼 연필
+          // 아이콘을 붙여, 자동 이월값이 아니라 사람이 직접 입력한 값임을 표시
+          const openingText  = (stock.opening || stock.openingOverridden)
+            ? ` + 전일재고 ${formatBoxCount(stock.opening)}${stock.openingOverridden ? '✏️' : ''}` : '';
           // v3.3.42: 반품 확인된 수량은 전일재고에 묻지 않고 "반품 N박스"로 바로 옆에 별도 표시
           const returnedText = stock.returned ? ` + 반품 ${formatBoxCount(stock.returned)}` : '';
           const dmgText = stock.damaged ? ` - 파손 ${formatBoxCount(stock.damaged)}` : '';
@@ -1110,7 +1120,7 @@ function renderDeliveryStatus() {
               <span style="font-size:11px;opacity:.65;white-space:nowrap;flex-shrink:0;">${day.records.length}척</span>
             </div>
             <!-- 목표 입력 버튼 (이벤트 전파 차단) -->
-            <button onclick="event.stopPropagation();openDelivGoal('${day.date}')"
+            <button onclick="event.stopPropagation();openDelivGoal('${day.date}', ${eggStock.opening}, ${quailStock.opening}, ${brineStock.opening})"
                     style="background:${goal ? '#f59e0b' : 'rgba(255,255,255,.18)'};color:#fff;border:none;
                            border-radius:8px;padding:6px 8px;font-size:16px;cursor:pointer;flex-shrink:0;line-height:1;">
               🎯
@@ -1242,10 +1252,13 @@ function renderDeliveryStatus() {
 // ══════════════════════════════════════════════════════
 // 납품현황 날짜별 목표 박스 입력
 // ══════════════════════════════════════════════════════
-function openDelivGoal(dateStr) {
+function openDelivGoal(dateStr, eggAutoOpen, quailAutoOpen, brineAutoOpen) {
   let goal = null;
   try { goal = JSON.parse(localStorage.getItem('delivGoal_' + dateStr) || 'null'); } catch(e) {}
   goal = goal || { egg: 0, quail: 0, brine: 0, eggDmg: 0, quailDmg: 0, brineDmg: 0 };
+  // v3.3.44: 전일재고 직접 수정(override) 입력칸에 쓸 자동계산값 힌트 — 이미 override가
+  // 저장돼 있으면 그 값이 곧 opening 계산에 쓰였을 것이므로 placeholder로도 자연스럽게 맞음.
+  const autoOpen = { egg: eggAutoOpen || 0, quail: quailAutoOpen || 0, brine: brineAutoOpen || 0 };
 
   // 기존 모달이 있으면 제거
   const existing = document.getElementById('deliv-goal-modal');
@@ -1261,8 +1274,8 @@ function openDelivGoal(dateStr) {
                 box-sizing:border-box;box-shadow:0 -4px 24px rgba(0,0,0,.18);">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
         <div>
-          <div style="font-size:16px;font-weight:800;color:var(--navy);">🎯 입고 · 파손 박스 입력</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:2px;">${dateStr} · 입고는 더하고, 파손(회수)은 전일재고에서 차감되어 재고에 반영됩니다</div>
+          <div style="font-size:16px;font-weight:800;color:var(--navy);">🎯 재고 입력</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">${dateStr} · 입고는 더하고 파손(회수)은 차감되어 재고에 반영됩니다</div>
         </div>
         <button onclick="closeDelivGoal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--muted);padding:4px 8px;">✕</button>
       </div>
@@ -1305,7 +1318,7 @@ function openDelivGoal(dateStr) {
           { id:'brine', label:'깐메추리(파손)' },
         ].map(({id, label}, i, arr) => {
           const isLast = i === arr.length - 1;
-          const nextId = isLast ? '' : 'dmg-' + arr[i + 1].id;
+          const nextId = isLast ? 'open-egg' : 'dmg-' + arr[i + 1].id;
           return `
         <div style="display:flex;align-items:center;gap:8px;">
           <div style="width:96px;font-size:12px;font-weight:700;color:#dc2626;flex-shrink:0;white-space:nowrap;">${label}</div>
@@ -1313,7 +1326,7 @@ function openDelivGoal(dateStr) {
                   style="width:36px;height:36px;flex-shrink:0;border-radius:50%;border:1px solid #fca5a5;
                          background:#fff5f5;font-size:20px;cursor:pointer;line-height:1;color:#dc2626;">−</button>
           <input id="dmg-${id}" type="number" min="0" inputmode="numeric"
-                 enterkeyhint="${isLast ? 'done' : 'next'}"
+                 enterkeyhint="next"
                  value="${id==='egg'?goal.eggDmg||0:id==='quail'?goal.quailDmg||0:goal.brineDmg||0}"
                  onkeydown="_goalInputKeydown(event,'${nextId}')"
                  onfocus="this.select()"
@@ -1326,12 +1339,39 @@ function openDelivGoal(dateStr) {
         </div>`;}).join('')}
       </div>
 
+      <!-- 전일재고 직접 수정 (선택 — 실사 결과와 다를 때 보정용) -->
+      <div style="font-size:12px;font-weight:800;color:#4f46e5;margin-bottom:4px;">✏️ 전일재고 직접 수정 (선택)</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">비워두면 평소처럼 전날 재고를 자동으로 이어받습니다. 실사와 다를 때만 입력하세요.</div>
+      <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:22px;">
+        ${[
+          { id:'egg',   label:'🥚 계란(전일재고)' },
+          { id:'quail', label:'🥚 메추리(전일재고)' },
+          { id:'brine', label:'깐메추리(전일재고)' },
+        ].map(({id, label}, i, arr) => {
+          const isLast = i === arr.length - 1;
+          const nextId = isLast ? '' : 'open-' + arr[i + 1].id;
+          const curOverride = (goal[id + 'Open'] !== undefined && goal[id + 'Open'] !== null) ? goal[id + 'Open'] : '';
+          return `
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:96px;font-size:12px;font-weight:700;color:#4f46e5;flex-shrink:0;white-space:nowrap;">${label}</div>
+          <input id="open-${id}" type="number" inputmode="numeric"
+                 enterkeyhint="${isLast ? 'done' : 'next'}"
+                 value="${curOverride}"
+                 placeholder="자동:${autoOpen[id]}"
+                 onkeydown="_goalInputKeydown(event,'${nextId}')"
+                 onfocus="this.select()"
+                 style="width:84px;flex-shrink:0;text-align:center;font-size:16px;font-weight:800;
+                        border:2px solid #c7d2fe;border-radius:10px;padding:5px 4px;color:#4f46e5;">
+          <span style="font-size:12px;color:var(--muted);flex-shrink:0;">박스</span>
+        </div>`;}).join('')}
+      </div>
+
       <!-- 버튼 -->
       <div style="display:flex;gap:10px;">
         <button onclick="clearDelivGoal('${dateStr}')"
                 style="flex:1;padding:13px;border-radius:12px;border:1px solid #fca5a5;
                        background:#fff;color:#dc2626;font-size:14px;font-weight:700;cursor:pointer;">
-          입고·파손 삭제
+          전체 삭제
         </button>
         <button onclick="saveDelivGoal('${dateStr}')"
                 style="flex:2;padding:13px;border-radius:12px;border:none;
@@ -1381,7 +1421,18 @@ function saveDelivGoal(dateStr) {
     quailDmg: Math.max(0, parseInt(document.getElementById('dmg-quail')?.value) || 0),
     brineDmg: Math.max(0, parseInt(document.getElementById('dmg-brine')?.value) || 0),
   };
-  const allZero = goal.egg === 0 && goal.quail === 0 && goal.brine === 0
+  // v3.3.44: 전일재고 직접 수정(override) — 빈칸이면 저장하지 않음(=자동 계산 유지),
+  // 숫자를 입력한 경우에만 그 값을 opening으로 강제 사용하도록 필드를 추가.
+  ['egg', 'quail', 'brine'].forEach(id => {
+    const raw = document.getElementById('open-' + id)?.value;
+    if (raw !== undefined && raw !== null && String(raw).trim() !== '') {
+      const n = Number(raw);
+      if (Number.isFinite(n)) goal[id + 'Open'] = n;
+    }
+  });
+  const hasOverride = goal.eggOpen !== undefined || goal.quailOpen !== undefined || goal.brineOpen !== undefined;
+  const allZero = !hasOverride
+               && goal.egg === 0 && goal.quail === 0 && goal.brine === 0
                && goal.eggDmg === 0 && goal.quailDmg === 0 && goal.brineDmg === 0;
   if (allZero) {
     localStorage.removeItem('delivGoal_' + dateStr);
@@ -1394,7 +1445,7 @@ function saveDelivGoal(dateStr) {
   // v3.3.25: 재고 이력도 Firebase에 자동 백업 (기존엔 이 기기 localStorage에만 남아
   // 캐시 삭제 시 함께 사라졌음)
   if (typeof scheduleAutoSync === 'function') scheduleAutoSync();
-  toast('🎯 입고·파손이 저장되었습니다.');
+  toast('🎯 저장되었습니다.');
 }
 
 function clearDelivGoal(dateStr) {
@@ -1402,7 +1453,7 @@ function clearDelivGoal(dateStr) {
   closeDelivGoal();
   _reRenderDelivKeepOpen();
   if (typeof scheduleAutoSync === 'function') scheduleAutoSync();
-  toast('입고·파손이 삭제되었습니다.');
+  toast('입고·파손·전일재고 수정이 모두 삭제되었습니다.');
 }
 
 // 현재 열려있는 날짜 인덱스를 보존하며 납품현황 재렌더
