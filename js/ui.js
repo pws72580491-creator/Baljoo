@@ -921,6 +921,11 @@ function renderDeliveryStatus() {
     const byDateReturn = {}; // 그 날짜에 "반품 확인"으로 재고에 되돌아온 박스 합계(항상 양수)
     // v3.3.42: 반품(확인됨)의 signed 기여분은 항상 음수이므로(_boxSign 참고), 부호만으로
     // 정상 납품과 반품을 구분해 따로 누적한다 — 미확인 반품은 여전히 양수로 정상 집계됨.
+    // v3.3.45: 확인된 반품은 원래 납품일(r.date)이 아니라 "반품 확인 체크한 날짜"를
+    // 재고 반영 기준일로 사용 — 날짜별 목록에 표시되는 위치(_deliveryRecordsFor의 date)는
+    // 그대로 두고, 재고 집계에서만 반영 시점을 확인일로 옮긴다(사용자 요청). v3.3.41
+    // 마이그레이션으로 날짜 없이 자동 확인된 기존 반품 건은 _returnCheckedDate가 빈 값을
+    // 반환하므로 기존처럼 r.date(납품일) 그대로 사용된다.
     allDone.forEach(o => {
       _deliveryRecordsFor(o).forEach(r => {
         let sum = 0;
@@ -929,8 +934,13 @@ function renderDeliveryStatus() {
           sum += Number(r.perItemBoxes[idx]) || 0;
         });
         if (!sum) return;
-        if (sum < 0) byDateReturn[r.date] = (byDateReturn[r.date] || 0) + Math.abs(sum);
-        else         byDateAll[r.date]    = (byDateAll[r.date]    || 0) + sum;
+        if (sum < 0) {
+          const chkDate = _returnCheckedDate(o.id);
+          const targetDate = chkDate || r.date;
+          byDateReturn[targetDate] = (byDateReturn[targetDate] || 0) + Math.abs(sum);
+        } else {
+          byDateAll[r.date] = (byDateAll[r.date] || 0) + sum;
+        }
       });
     });
 
@@ -1509,6 +1519,9 @@ function toggleDblCheck(id, ev) {
 
 // ── 발주목록 반품 확인 체크 (기기별 저장, 더블체크와 동일한 방식·다른 기기와는 공유되지 않음) ──
 const RETURN_CHK_KEY = 'orderReturnCheck';
+// v3.3.45: id별로 "언제 확인 체크했는지" 날짜도 함께 저장 — 반품의 재고 반영을 원래
+// 납품일이 아니라 "실제로 확인한 날"에 기록하기 위한 용도(사용자 요청).
+const RETURN_CHK_DATE_KEY = 'orderReturnCheckDate';
 function _loadReturnChkSet() {
   try { return new Set(JSON.parse(localStorage.getItem(RETURN_CHK_KEY) || '[]')); }
   catch(e) { return new Set(); }
@@ -1516,8 +1529,20 @@ function _loadReturnChkSet() {
 function _saveReturnChkSet(set) {
   try { localStorage.setItem(RETURN_CHK_KEY, JSON.stringify([...set])); } catch(e) {}
 }
+function _loadReturnChkDateMap() {
+  try { return JSON.parse(localStorage.getItem(RETURN_CHK_DATE_KEY) || '{}'); }
+  catch(e) { return {}; }
+}
+function _saveReturnChkDateMap(map) {
+  try { localStorage.setItem(RETURN_CHK_DATE_KEY, JSON.stringify(map)); } catch(e) {}
+}
 function _isReturnChecked(id) {
   return _loadReturnChkSet().has(id);
+}
+// 확인 체크한 날짜(없으면 빈 문자열 — v3.3.41 마이그레이션으로 자동 확인된 기존 반품
+// 건들은 날짜가 없고, 이 경우 helpers.js에서 기존처럼 원래 납품일을 그대로 사용한다).
+function _returnCheckedDate(id) {
+  return _loadReturnChkDateMap()[id] || '';
 }
 // v3.3.43: 반품 확인 체크만 지우는 헬퍼(더블체크는 그대로 둠) — 반품 상태에서 다른 상태로
 // 전환될 때(미납품/납품완료/발주취소로 되돌리기) 호출해, 나중에 이 발주가 다시 반품
@@ -1525,6 +1550,8 @@ function _isReturnChecked(id) {
 function _pruneReturnChk(id) {
   const ret = _loadReturnChkSet();
   if (ret.delete(id)) _saveReturnChkSet(ret);
+  const dateMap = _loadReturnChkDateMap();
+  if (dateMap[id] !== undefined) { delete dateMap[id]; _saveReturnChkDateMap(dateMap); }
 }
 function toggleReturnChk(id, ev) {
   if (ev) ev.stopPropagation(); // 체크박스 클릭이 카드 전체의 openModal로 번지지 않도록 차단
@@ -1532,6 +1559,12 @@ function toggleReturnChk(id, ev) {
   const willCheck = !set.has(id);
   if (willCheck) set.add(id); else set.delete(id);
   _saveReturnChkSet(set);
+  // v3.3.45: 체크(확인)하는 순간의 날짜를 함께 저장 — 재고 반영 시점을 이 날짜로 쓴다.
+  // 체크 해제 시에는 날짜도 함께 지워, 나중에 다시 체크하면 그때의 새 날짜로 기록된다.
+  const dateMap = _loadReturnChkDateMap();
+  if (willCheck) dateMap[id] = todayStr();
+  else delete dateMap[id];
+  _saveReturnChkDateMap(dateMap);
   // v3.3.41: 이 체크가 재고 반영 여부(_boxSign 참고)를 좌우하게 되면서, 체크박스 하나만
   // 로컬로 토글하던 예전 방식으론 대시보드·발주목록의 집계 숫자가 갱신되지 않는다.
   // renderAll()로 전체를 다시 그려 총 박스·재고 관련 숫자가 즉시 반영되도록 한다.
