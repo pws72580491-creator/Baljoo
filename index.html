@@ -2,10 +2,16 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.3.45
+  Version : v3.3.46
   Released: 2026-07-30
   ────────────────────────────────────────
   CHANGELOG
+  v3.3.46 (2026-07-30) — 일괄보관 화면에 납품완료 기간 선택 추가
+    - [신규] 발주목록 "일괄보관" 모드에 시작일~종료일 입력 + "이 기간에 납품완료된 건
+      선택" 버튼 추가. 납품완료일(deliveredDate) 기준으로 그 기간에 해당하는 건만 골라
+      선택 목록에 추가함(기존 선택에 더해지는 방식, 전체선택과 동일한 패턴).
+    - [범위] 현재 화면에 적용된 다른 필터(카테고리·검색어 등)와 함께 AND로 적용됨
+      (filtered() 재사용) — 보관 가능 조건(납품완료 또는 이미 보관중)도 기존과 동일.
   v3.3.45 (2026-07-30) — 반품 재고 반영 날짜를 "확인 체크한 날"로 변경
     - [변경] 반품 확인 체크가 재고에 반영되는 날짜를 원래 납품일이 아니라 "실제로 확인
       체크한 날짜"로 변경 — 체크할 때마다 그 날짜를 기록해두고(orderReturnCheckDate),
@@ -657,7 +663,7 @@
   // 막기 위해, 버전은 여기 한 곳에서만 관리하고 나머지는 이 값을 참조한다.
   // ⚠️ sw.js의 CACHE_NAME과 manifest.json의 description은 별도 실행 컨텍스트라
   //    이 값을 직접 참조할 수 없음 — 릴리즈 시 그 두 곳만 수동으로 맞춰줄 것.
-  const APP_VERSION = 'v3.3.45';
+  const APP_VERSION = 'v3.3.46';
   document.title = '이른아침 · 발주관리 ' + APP_VERSION;
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -1394,9 +1400,17 @@ body{
     <input type="date" id="bulkDate" style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:13px;" />
     <button class="btn btn-p btn-sm" style="white-space:nowrap;" onclick="bulkDeliver()">✅ 납품완료</button>
   </div>
-  <div id="bulkArchiveRow" style="display:none;gap:8px;">
-    <button class="btn btn-sm" style="flex:1;background:#f59e0b;color:#fff;white-space:nowrap;" onclick="bulkArchive()">📦 선택 건 보관</button>
-    <button class="btn btn-sm" style="flex:1;background:#10b981;color:#fff;white-space:nowrap;" onclick="bulkUnarchive()">📤 선택 건 보관해제</button>
+  <div id="bulkArchiveRow" style="display:none;flex-direction:column;gap:8px;">
+    <div style="display:flex;gap:6px;align-items:center;">
+      <input type="date" id="bulkArchFrom" style="flex:1;min-width:0;padding:8px 6px;border-radius:8px;border:1px solid var(--border);font-size:12px;" />
+      <span style="color:#fff;font-size:12px;flex-shrink:0;">~</span>
+      <input type="date" id="bulkArchTo" style="flex:1;min-width:0;padding:8px 6px;border-radius:8px;border:1px solid var(--border);font-size:12px;" />
+    </div>
+    <button class="btn btn-g btn-sm" onclick="bulkSelectByDeliveredRange()">📅 이 기간에 납품완료된 건 선택</button>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-sm" style="flex:1;background:#f59e0b;color:#fff;white-space:nowrap;" onclick="bulkArchive()">📦 선택 건 보관</button>
+      <button class="btn btn-sm" style="flex:1;background:#10b981;color:#fff;white-space:nowrap;" onclick="bulkUnarchive()">📤 선택 건 보관해제</button>
+    </div>
   </div>
 </div>
 
