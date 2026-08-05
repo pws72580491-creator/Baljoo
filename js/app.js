@@ -265,6 +265,12 @@ function toggleBulkMode(mode) {
     list.classList.add('bulk-mode');
     archRow.style.display  = 'flex';
     delivRow.style.display = 'none';
+    // v3.3.46: 기간선택 모드로 새로 진입할 때마다 이전에 입력해뒀던 기간값이 남아있지
+    // 않도록 초기화(빈 화면에서 다시 지정하도록)
+    const archFrom = document.getElementById('bulkArchFrom');
+    const archTo   = document.getElementById('bulkArchTo');
+    if (archFrom) archFrom.value = '';
+    if (archTo)   archTo.value   = '';
   } else {
     // 모드 종료
     delivBtn.textContent = '☑️ 일괄납품';
@@ -307,6 +313,31 @@ function bulkSelectAll() {
   });
   _updateBulkBar();
   renderAll();
+}
+
+// v3.3.46: 일괄보관 모드에서 납품완료일 기간을 지정해 그 기간에 완료된 건만 골라 선택.
+// 현재 화면에 적용된 다른 필터(카테고리/검색어 등)와 함께 AND로 적용됨(filtered() 재사용).
+// 기존 선택에 더해지는 방식(전체선택과 동일한 패턴) — 다시 고르려면 "선택해제" 먼저.
+function bulkSelectByDeliveredRange() {
+  const from = document.getElementById('bulkArchFrom')?.value || '';
+  const to   = document.getElementById('bulkArchTo')?.value   || '';
+  if (!from && !to) {
+    toast('⚠️ 시작일 또는 종료일을 먼저 선택하세요.');
+    return;
+  }
+  let count = 0;
+  filtered().forEach(o => {
+    if (o.deliveryStatus !== 'delivered' && !o.archived) return; // 보관 모드와 동일한 선택 가능 조건
+    const d = o.deliveredDate || '';
+    if (!d) return; // 납품완료일 기록이 없는 건은 기간 선택 대상에서 제외
+    if (from && d < from) return;
+    if (to   && d > to)   return;
+    bulkSelected.add(o.id);
+    count++;
+  });
+  _updateBulkBar();
+  renderAll();
+  toast(count > 0 ? `📅 ${count}건이 기간에 맞춰 선택되었습니다.` : '📅 해당 기간에 납품완료된 건이 없습니다.');
 }
 
 function bulkDeselectAll() {
