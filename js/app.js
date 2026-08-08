@@ -92,7 +92,7 @@ function exportExcel() {
       rows.push({
         '발주일자':       o.date,
         '납기일자':       o.delivery || '',
-        '선명':          o.ship,
+        '선명':          _stripShipParen(o.ship),
         '서류번호':       o.docNo || '',
         '거래처발주번호':  o.poNo || '',
         '구분':          o.category === 'cruise' ? '크루즈' : o.category === 'cargo' ? '카고' : o.category === 'return' ? '반품' : '직접입력',
@@ -458,15 +458,18 @@ function exportMonthExcel(ym) {
     // 반품(부호 보정)·미납품·발주취소(그대로, 부호=1) 모두 기존과 동일하게 처리
     const boxes   = calcOrderImpactBoxes(o);
     const items   = o.items || [];
+    // v3.3.49: 엑셀 내보내기에도 선명 괄호 부가정보 제외 적용 — 과거에 저장된 건(v3.3.48
+    // 이전, 괄호가 그대로 남아있는 데이터)도 내보낼 때는 깔끔하게 나가도록
+    const shipClean = _stripShipParen(o.ship);
 
     if (items.length === 0) {
-      rows.push([date, o.ship, cat, o.docNo||'', o.poNo||'', '', '', '', boxes.toFixed(1),
+      rows.push([date, shipClean, cat, o.docNo||'', o.poNo||'', '', '', '', boxes.toFixed(1),
                  o.total||0, net, status, o.deliveryNote||'']);
     } else {
       items.forEach((item, idx) => {
         const iBoxes = _itemImpactBoxes(item, o);
         rows.push([
-          date, o.ship, cat, o.docNo||'', o.poNo||'',
+          date, shipClean, cat, o.docNo||'', o.poNo||'',
           item.desc||'', item.qty||'', displayUnit(item.unit)||'', iBoxes.toFixed(1),
           idx === 0 ? (o.total||0) : '',  // 첫 품목 행에만 총액 표시
           idx === 0 ? net : '',
