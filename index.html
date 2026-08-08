@@ -2,10 +2,16 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.3.47
+  Version : v3.3.48
   Released: 2026-07-30
   ────────────────────────────────────────
   CHANGELOG
+  v3.3.48 (2026-07-30) — 선명 인식 시 괄호 부가정보 제외
+    - [신규] AI가 발주서에서 선명을 인식할 때 괄호로 붙은 부가정보(건조연도·조선소·
+      IMO 등, 예: "OCEANA RIVER (2019-08, SASEBO ... 866)")를 제외하고 배 이름만
+      저장하도록 프롬프트 지시 추가 + `_stripShipParen()` 후처리로 이중 보장.
+    - [순서] 괄호 제거를 선명 자동보정(마스터 목록 대조)보다 먼저 적용해 오탈자 대조가
+      괄호 때문에 엉키지 않도록 함.
   v3.3.47 (2026-07-30) — 통계 탭 월결산 내보내기: CSV → 엑셀(xlsx)로 변경
     - [변경] 통계 탭에서 특정 월 선택 시 뜨는 "내보내기" 버튼이 CSV 대신 실제 .xlsx
       파일로 다운로드됨. 앱에 이미 있는 SheetJS(XLSX)를 재사용(exportExcel()과 동일
@@ -668,7 +674,7 @@
   // 막기 위해, 버전은 여기 한 곳에서만 관리하고 나머지는 이 값을 참조한다.
   // ⚠️ sw.js의 CACHE_NAME과 manifest.json의 description은 별도 실행 컨텍스트라
   //    이 값을 직접 참조할 수 없음 — 릴리즈 시 그 두 곳만 수동으로 맞춰줄 것.
-  const APP_VERSION = 'v3.3.47';
+  const APP_VERSION = 'v3.3.48';
   document.title = '이른아침 · 발주관리 ' + APP_VERSION;
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
