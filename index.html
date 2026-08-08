@@ -2,10 +2,13 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.3.48
+  Version : v3.3.49
   Released: 2026-07-30
   ────────────────────────────────────────
   CHANGELOG
+  v3.3.49 (2026-07-30) — 엑셀 내보내기 선명에도 괄호 제거 적용
+    - [변경] exportExcel()·exportMonthExcel() 모두 선명 필드에 _stripShipParen() 적용 —
+      v3.3.48 이전에 저장돼 괄호가 남아있는 과거 데이터도 내보낼 때는 깔끔하게 나감.
   v3.3.48 (2026-07-30) — 선명 인식 시 괄호 부가정보 제외
     - [신규] AI가 발주서에서 선명을 인식할 때 괄호로 붙은 부가정보(건조연도·조선소·
       IMO 등, 예: "OCEANA RIVER (2019-08, SASEBO ... 866)")를 제외하고 배 이름만
@@ -674,7 +677,7 @@
   // 막기 위해, 버전은 여기 한 곳에서만 관리하고 나머지는 이 값을 참조한다.
   // ⚠️ sw.js의 CACHE_NAME과 manifest.json의 description은 별도 실행 컨텍스트라
   //    이 값을 직접 참조할 수 없음 — 릴리즈 시 그 두 곳만 수동으로 맞춰줄 것.
-  const APP_VERSION = 'v3.3.48';
+  const APP_VERSION = 'v3.3.49';
   document.title = '이른아침 · 발주관리 ' + APP_VERSION;
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
