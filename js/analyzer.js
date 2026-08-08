@@ -18,6 +18,18 @@ const IMAGE_QUALITY = 0.75;   // JPEG 품질 — 속도 우선
 // - 편집거리가 같은 후보가 2개 이상(동점)이면 어느 쪽인지 알 수 없으므로 보정하지
 //   않고 원본 유지 — "잘못된 보정보다 원본이 낫다"는 docNo/poNo와 동일한 원칙
 // ══════════════════════════════════════════════════════
+// v3.3.48: AI가 선명을 인식할 때 괄호() 안의 부가정보(건조연도·조선소·IMO 등)까지
+// 그대로 선명에 포함시켜 오는 경우가 있어, 저장되는 선명 자체에서 괄호 부분을 제거한다.
+// _normShipKey()(ui.js, 비교용 정규화)와 같은 괄호 제거 규칙을 재사용하되, 대소문자·
+// 공백 정규화는 하지 않고 괄호 부분만 순수하게 걷어내 실제 저장/표시되는 값을 다듬는다.
+function _stripShipParen(ship) {
+  return (ship || '')
+    .replace(/\([^)]*\)/g, '')  // 짝이 맞는 괄호와 그 안의 내용 제거
+    .replace(/\([^)]*$/, '')    // 짝이 안 맞는 여는 괄호 이후 전부 제거(잘린 OCR 등 방어)
+    .replace(/\s+/g, ' ')       // 연속 공백 → 하나로
+    .trim();
+}
+
 function _levenshtein(a, b) {
   const m = a.length, n = b.length;
   if (!m) return n;
@@ -175,6 +187,9 @@ ship(선명) 추출 규칙(중요):
 - "1호"·"2호"처럼 선박명 뒤에 붙은 숫자는 서로 다른 배를 구분하는 중요한 정보이니, 흐릿해서
   안 보이더라도 절대 다른 숫자로 추측하지 말 것 — 숫자 자체가 안 보이면 숫자를 뺀 나머지만
   적을 것(예: "골든스타1호"가 안 보이면 "골든스타"까지만).
+- 선명 뒤에 괄호로 건조연도·조선소명·IMO 번호 등 부가정보가 함께 적혀 있으면(예: "OCEANA
+  RIVER (2019-08, SASEBO HEAVY INDUSTRIES CO. LTD. - SASEBO, 866)") 괄호와 그 안의
+  내용은 전부 빼고 배 이름만 적을 것(위 예시는 "OCEANA RIVER"만).
 - 선명 자리에 아무 글자도 없거나 정말 알아볼 수 없으면(회사명·화물명 등과 헷갈리지 말고),
   추측해서 채우지 말고 빈 문자열("")로 둘 것 — 저장 전 화면에서 사용자가 직접 확인하도록
   안내됨.${shipHintText}
@@ -263,6 +278,10 @@ unit 선택 기준(중요):
     parsed.returnedDate  = parsed.returnedDate || '';
     parsed.cancelledDate = '';
     parsed.updatedAt     = Date.now();
+    // v3.3.48: AI가 선명 뒤에 괄호로 붙여오는 부가정보(건조연도·조선소·IMO 등) 제거 —
+    // 자동보정(마스터 목록 대조)보다 먼저 적용해, 괄호가 섞인 채로 오탈자 대조가
+    // 엉키지 않도록 한다.
+    parsed.ship = _stripShipParen(parsed.ship);
     // v3.3.35: 선명 자동 보정 — 마스터 목록과 대조해 오탈자 수준이면 정확한 철자로 교정
     const _shipCorrection = _correctShipName(parsed.ship, shipMaster);
     if (_shipCorrection.corrected) {
