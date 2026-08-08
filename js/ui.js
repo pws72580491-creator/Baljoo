@@ -567,10 +567,10 @@ function renderStats() {
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;
                   padding:11px 14px;background:var(--navy);color:#fff;border-radius:10px;">
         <span style="font-size:16px;font-weight:800;">${Number(y)}년 ${Number(mo)}월 결산</span>
-        <button onclick="exportMonthCSV('${_statMonth}')"
+        <button onclick="exportMonthExcel('${_statMonth}')"
                 style="background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;
                        border-radius:6px;padding:5px 10px;font-size:11px;cursor:pointer;white-space:nowrap;">
-          📥 CSV 내보내기
+          📥 엑셀 내보내기
         </button>
       </div>`;
   }

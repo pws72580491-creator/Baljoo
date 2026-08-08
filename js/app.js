@@ -422,9 +422,12 @@ function bulkUnarchive() {
 }
 
 // ══════════════════════════════════════════════
-// 월별 납품내역 CSV 내보내기
+// 월별 납품내역 엑셀(xlsx) 내보내기
 // ══════════════════════════════════════════════
-function exportMonthCSV(ym) {
+// v3.3.47: CSV → xlsx로 변경(사용자 요청) — 앱에 이미 로드된 SheetJS(XLSX)를 재사용해
+// exportExcel()과 동일한 방식으로 내보냄. 행 구성(rows)은 기존 CSV 버전 그대로 재사용.
+function exportMonthExcel(ym) {
+  if (!window.XLSX) { toast('⚠️ 엑셀 라이브러리 로드 중...'); return; }
   const [y, mo] = ym.split('-');
   const label   = `${y}년 ${Number(mo)}월`;
 
@@ -438,7 +441,7 @@ function exportMonthCSV(ym) {
     return;
   }
 
-  // BOM + CSV 헤더
+  // 헤더
   const rows = [
     ['납품일', '선명', '구분', '서류번호', '발주번호', '품목', '수량', '단위', '박스수', '발주금액', '실납품금액', '납품상태', '비고']
   ];
@@ -483,25 +486,17 @@ function exportMonthCSV(ym) {
   rows.push([]);
   rows.push(['합계', '', '', '', '', '', '', '', totalBoxes.toFixed(1), '', totalNet, '', '']);
 
-  // CSV 문자열 생성
-  const csv = '\uFEFF' + rows.map(r =>
-    r.map(v => {
-      const s = String(v ?? '');
-      // 쉼표·줄바꿈·따옴표 포함 시 따옴표로 감쌈
-      return /[,"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
-    }).join(',')
-  ).join('\r\n');
-
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href     = url;
-  a.download = `납품내역_${y}${mo}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  toast(`📥 ${label} 납품내역 CSV 다운로드 완료`);
+  // 2차원 배열(rows) → 시트 → xlsx 다운로드 (exportExcel()과 동일한 SheetJS 사용 방식)
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [
+    { wch: 11 }, { wch: 22 }, { wch: 7 }, { wch: 14 }, { wch: 14 },
+    { wch: 24 }, { wch: 8 }, { wch: 6 }, { wch: 8 }, { wch: 12 },
+    { wch: 12 }, { wch: 8 }, { wch: 20 },
+  ];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, `${y}년${Number(mo)}월`);
+  XLSX.writeFile(wb, `납품내역_${y}${mo}.xlsx`);
+  toast('📥 엑셀 파일 다운로드 완료');
 }
 
 init();
