@@ -72,6 +72,12 @@ function openModal(id) {
         <div class="db-row"><span class="db-label">반품금액</span><span class="db-val minus">-${fmt(o.returnAmount ?? o.total)}</span></div>
         <div class="db-divider"></div>
         <div class="db-row"><span class="db-label">실 납품금액</span><span class="db-val net">${fmt(netAmt)}</span></div>
+        <div class="db-divider"></div>
+        ${!o.isReturn ? (
+          o.deliveredDate
+            ? `<div class="db-row"><span class="db-label">납품 이력</span><span class="db-val" style="color:#16a34a;">✅ ${escapeHtml(o.deliveredDate)} 납품완료 → 반품처리</span></div>`
+            : `<div class="db-row"><span class="db-label">납품 이력</span><span class="db-val" style="color:#c2410c;">⚠️ 미납품 상태에서 바로 반품 처리됨</span></div>`
+        ) : `<div class="db-row"><span class="db-label">문서 구분</span><span class="db-val" style="color:var(--muted);">📄 업로드된 반품서 (원 발주와 별개 문서)</span></div>`}
       ` : ''}
       ${isCancelled ? `
         <div class="db-row"><span class="db-label">발주금액</span><span class="db-val" style="text-decoration:line-through;color:var(--muted);">${fmt(o.total)}</span></div>
