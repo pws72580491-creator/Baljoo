@@ -2,10 +2,84 @@
 <!--
   이른아침 · 발주관리 PWA
   ════════════════════════════════════════
-  Version : v3.3.41
+  Version : v3.3.52
   Released: 2026-07-30
   ────────────────────────────────────────
   CHANGELOG
+  v3.3.52 (2026-07-30) — 확인: 삭제 시 납품현황 반영 정상 / 통계 탭도 동일 안전장치 추가
+    - [확인] delOrder()는 orders 배열에서 실제로 제거 + renderAll() 호출, renderAll()엔
+      이미 "납품현황 탭이 보이는 중이면 즉시 재렌더" 안전장치가 있어 정상 동작 확인됨.
+    - [신규] renderAll()에 통계 탭용 안전장치도 추가(기존엔 납품현황만 있었음) — 통계
+      탭을 보던 중 모달에서 삭제·상태변경을 해도 탭을 나갔다 돌아오지 않고 즉시 반영.
+  v3.3.51 (2026-07-30) — 선명 괄호 제거: 중첩 괄호(조선소명 안 괄호 등) 버그 수정
+    - [발견] 조선소명 등 괄호 안쪽에 또 괄호가 있는 경우(예: "... HYUNDAI (ULSAN) CO LTD
+      - ULSAN, 866)"), 기존 정규식(`[^)]*` — 첫 ')'에서 멈춤)이 안쪽 괄호까지만 지우고
+      바깥쪽 ')'는 못 지워 "선명 , 866)"처럼 잔재가 남는 문제(사용자 스크린샷으로 확인).
+    - [수정] `_stripShipParen()`(analyzer.js)·`_normShipKey()`(ui.js) 둘 다 `[^)]*` →
+      그리디 `.*`로 변경 — 첫 '('부터 문자열의 마지막 ')'까지 중첩 여부와 무관하게 통째로
+      제거.
+    - [소급 정리] storage.js `load()`에 선명 정리 단계 추가 — 이미 저장된 발주도 매번
+      불러올 때 `_stripShipParen()`을 다시 적용해, 과거에 이 버그로 잔재가 남은 선명을
+      자동으로 깨끗하게 고침(이미 깨끗한 값은 그대로라 안전).
+  v3.3.50 (2026-07-30) — 전수 점검: 선명 자동보정이 괄호를 다시 끌고 오던 실제 버그 발견·수정
+    - [발견] 선명 자동보정(오탈자 대조)의 후보 목록이 마스터 목록의 "원본" 문자열을 그대로
+      썼는데, 그 마스터 목록엔 v3.3.48 이전 저장돼 괄호가 남아있는 과거 선명도 섞여 있어서,
+      AI가 오탈자를 인식하면 보정 결과로 괄호 붙은 옛 선명이 다시 나올 수 있었음(재현 테스트로
+      확인).
+    - [수정] `_buildShipMasterList()`가 마스터 목록 집계 시점에 괄호를 제거(근본 원인 차단) +
+      `_correctShipName()`의 후보 선정 시에도 한 번 더 제거(이중 방어).
+    - [점검] 불러오기(AI 분석·Firebase 복원)·내보내기(엑셀 2종)·납품사진 매칭까지 선명이
+      오가는 모든 경로 전수 확인 — 위 한 곳 외엔 이상 없음.
+  v3.3.49 (2026-07-30) — 엑셀 내보내기 선명에도 괄호 제거 적용
+    - [변경] exportExcel()·exportMonthExcel() 모두 선명 필드에 _stripShipParen() 적용 —
+      v3.3.48 이전에 저장돼 괄호가 남아있는 과거 데이터도 내보낼 때는 깔끔하게 나감.
+  v3.3.48 (2026-07-30) — 선명 인식 시 괄호 부가정보 제외
+    - [신규] AI가 발주서에서 선명을 인식할 때 괄호로 붙은 부가정보(건조연도·조선소·
+      IMO 등, 예: "OCEANA RIVER (2019-08, SASEBO ... 866)")를 제외하고 배 이름만
+      저장하도록 프롬프트 지시 추가 + `_stripShipParen()` 후처리로 이중 보장.
+    - [순서] 괄호 제거를 선명 자동보정(마스터 목록 대조)보다 먼저 적용해 오탈자 대조가
+      괄호 때문에 엉키지 않도록 함.
+  v3.3.47 (2026-07-30) — 통계 탭 월결산 내보내기: CSV → 엑셀(xlsx)로 변경
+    - [변경] 통계 탭에서 특정 월 선택 시 뜨는 "내보내기" 버튼이 CSV 대신 실제 .xlsx
+      파일로 다운로드됨. 앱에 이미 있는 SheetJS(XLSX)를 재사용(exportExcel()과 동일
+      방식), 열 너비도 지정해 바로 보기 편하게 함. 내용 구성은 기존과 동일(납품일·선명·
+      구분·서류번호·발주번호·품목·수량·단위·박스수·발주금액·실납품금액·납품상태·비고).
+  v3.3.46 (2026-07-30) — 일괄보관 화면에 납품완료 기간 선택 추가
+    - [신규] 발주목록 "일괄보관" 모드에 시작일~종료일 입력 + "이 기간에 납품완료된 건
+      선택" 버튼 추가. 납품완료일(deliveredDate) 기준으로 그 기간에 해당하는 건만 골라
+      선택 목록에 추가함(기존 선택에 더해지는 방식, 전체선택과 동일한 패턴).
+    - [범위] 현재 화면에 적용된 다른 필터(카테고리·검색어 등)와 함께 AND로 적용됨
+      (filtered() 재사용) — 보관 가능 조건(납품완료 또는 이미 보관중)도 기존과 동일.
+  v3.3.45 (2026-07-30) — 반품 재고 반영 날짜를 "확인 체크한 날"로 변경
+    - [변경] 반품 확인 체크가 재고에 반영되는 날짜를 원래 납품일이 아니라 "실제로 확인
+      체크한 날짜"로 변경 — 체크할 때마다 그 날짜를 기록해두고(orderReturnCheckDate),
+      재고 이월 계산에서 이 날짜를 반영 시점으로 사용.
+    - [범위] 재고 집계(전일재고 옆 "반품 N박스" 표시)에만 영향 — 날짜별 목록에서 이
+      발주가 어느 날짜 카드 아래에 표시되는지는 그대로(원래 납품일 기준 유지).
+    - [보존] v3.3.41 마이그레이션으로 날짜 기록 없이 자동 확인된 기존 반품 건은 그대로
+      원래 납품일 기준을 유지 — 과거 수치가 이번 변경으로 소급 바뀌지 않음.
+  v3.3.44 (2026-07-30) — 전일재고 직접 수정 기능 추가
+    - [신규] 납품현황 각 날짜 카드의 🎯 버튼 안에 "✏️ 전일재고 직접 수정" 섹션 추가 —
+      계란·메추리·깐메추리별로 실사 결과에 맞춰 그 날짜의 전일재고를 직접 입력 가능.
+      비워두면 기존처럼 전날 재고를 자동으로 이어받음.
+    - [표시] override로 설정된 전일재고는 "전일재고 30박스✏️"처럼 연필 아이콘을 붙여
+      자동 계산값과 구분되게 표시.
+    - [동작] 값을 입력한 날짜부터는 그 값을 새 기준점으로 이후 날짜의 재고가 이어서
+      계산됨(실사 보정 지점). "전체 삭제" 버튼으로 입고·파손과 함께 초기화 가능.
+  v3.3.43 (2026-07-30) — 전수 검수: 반품확인 기능(v3.3.41) 사각지대 3건 수정
+    - [수정] resetOrders()가 retChkMigrated_v341 플래그를 안 지워서, 초기화 후 재복원 시
+      "기존 반품 자동확인" 마이그레이션이 재실행되지 않던 문제.
+    - [수정] 반품 확인 후 미납품/납품완료/발주취소로 되돌리면 체크 상태가 안 지워져서,
+      같은 발주가 나중에 다시 반품 처리될 때 재확인 없이 자동으로 "재고반영됨"이 되던 문제
+      → _pruneReturnChk() 신규 추가, 상태 전환 3곳에 모두 적용.
+    - [수정] phantom 반품(납품 이력 없음)은 체크해도 재고에 영향이 없는데 체크박스가
+      계속 보이던 것 — 이제 숨김 처리.
+    - [정리] helpers.js·storage.js의 불필요한 typeof 방어 가드 제거(코드베이스 관례 통일).
+  v3.3.42 (2026-07-30) — 납품현황 재고 표시에 "반품" 항목 분리
+    - [변경] 반품 확인(v3.3.41)으로 재고에 되돌아온 박스가 "전일재고"에 조용히 합쳐지지
+      않고, "입고 N + 전일재고 M + 반품 K" 형태로 전일재고 바로 옆에 별도 표시됨.
+    - [유지] 최종 "재고" 합계 숫자 자체는 이전과 동일(계산식 동치) — 구성 항목만 분리해
+      어느 날짜에 반품이 얼마나 반영됐는지 눈으로 바로 확인 가능하게 함.
   v3.3.41 (2026-07-30) — 반품 확인 체크가 재고 반영을 좌우하도록 변경
     - [변경] 발주목록의 "반품 확인" 체크(예전엔 기기별 개인 표시용, 계산엔 무관)가 이제
       실제 재고 반영 여부를 결정함 — 체크 전엔 수동 반품은 계속 '납품' 취급(재고 그대로),
@@ -627,7 +701,7 @@
   // 막기 위해, 버전은 여기 한 곳에서만 관리하고 나머지는 이 값을 참조한다.
   // ⚠️ sw.js의 CACHE_NAME과 manifest.json의 description은 별도 실행 컨텍스트라
   //    이 값을 직접 참조할 수 없음 — 릴리즈 시 그 두 곳만 수동으로 맞춰줄 것.
-  const APP_VERSION = 'v3.3.41';
+  const APP_VERSION = 'v3.3.52';
   document.title = '이른아침 · 발주관리 ' + APP_VERSION;
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -1364,9 +1438,17 @@ body{
     <input type="date" id="bulkDate" style="flex:1;padding:8px 10px;border-radius:8px;border:1px solid var(--border);font-size:13px;" />
     <button class="btn btn-p btn-sm" style="white-space:nowrap;" onclick="bulkDeliver()">✅ 납품완료</button>
   </div>
-  <div id="bulkArchiveRow" style="display:none;gap:8px;">
-    <button class="btn btn-sm" style="flex:1;background:#f59e0b;color:#fff;white-space:nowrap;" onclick="bulkArchive()">📦 선택 건 보관</button>
-    <button class="btn btn-sm" style="flex:1;background:#10b981;color:#fff;white-space:nowrap;" onclick="bulkUnarchive()">📤 선택 건 보관해제</button>
+  <div id="bulkArchiveRow" style="display:none;flex-direction:column;gap:8px;">
+    <div style="display:flex;gap:6px;align-items:center;">
+      <input type="date" id="bulkArchFrom" style="flex:1;min-width:0;padding:8px 6px;border-radius:8px;border:1px solid var(--border);font-size:12px;" />
+      <span style="color:#fff;font-size:12px;flex-shrink:0;">~</span>
+      <input type="date" id="bulkArchTo" style="flex:1;min-width:0;padding:8px 6px;border-radius:8px;border:1px solid var(--border);font-size:12px;" />
+    </div>
+    <button class="btn btn-g btn-sm" onclick="bulkSelectByDeliveredRange()">📅 이 기간에 납품완료된 건 선택</button>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-sm" style="flex:1;background:#f59e0b;color:#fff;white-space:nowrap;" onclick="bulkArchive()">📦 선택 건 보관</button>
+      <button class="btn btn-sm" style="flex:1;background:#10b981;color:#fff;white-space:nowrap;" onclick="bulkUnarchive()">📤 선택 건 보관해제</button>
+    </div>
   </div>
 </div>
 
