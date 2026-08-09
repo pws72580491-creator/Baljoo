@@ -41,6 +41,11 @@ function load() {
         if (!o.deliveryStatus)          o.deliveryStatus = 'pending';
         if (o.returnAmount === undefined) o.returnAmount  = 0;
         if (!o.deliveryNote)            o.deliveryNote   = '';
+        // v3.3.51: 선명에 괄호 부가정보가 남아있으면(v3.3.48 이전 저장분, 또는 중첩 괄호
+        // 때문에 생긴 깨진 잔재 — v3.3.50까지도 완전히 못 걸러졌음) 정리한다.
+        // _stripShipParen()은 이미 깨끗한 값엔 그대로(변화 없음)라 매 로드마다 적용해도 안전.
+        o.ship = _stripShipParen(o.ship);
+        if (o._shipOriginal) o._shipOriginal = _stripShipParen(o._shipOriginal);
         // 반품(카테고리='return' 또는 업로드 반품서 isReturn=true) 건은
         // 이 발주를 최초로 만나는 딱 1번만 미처리(pending) 상태를 'returned'로 보정한다.
         // 한 번 마이그레이션된 뒤로는 사용자가 발주취소/미납품 등 어떤 상태로 바꾸든
