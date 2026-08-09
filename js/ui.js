@@ -397,6 +397,8 @@ function _normShipKey(ship) {
   return (ship || '')
     .replace(/\([^)]*\)/g, '')  // 짝이 맞는 괄호와 그 안의 내용 제거
     .replace(/\([^)]*$/, '')    // v3.3.26: 짝이 안 맞는 여는 괄호 이후 전부 제거(잘린 OCR 등 방어)
+    .replace(/,.*$/, '')        // v3.3.51: 첫 콤마 이후 부가정보 제거(analyzer.js _stripShipParen과 동일 규칙)
+    .replace(/\s-.*$/, '')      // v3.3.51: 공백+하이픈 이후 부가정보 제거
     .replace(/\s+/g, ' ')       // 연속 공백 → 하나로
     .trim()
     .toUpperCase();             // v3.3.26: 대소문자 차이만으로 같은 배가 갈라지는 것도 함께 방지
