@@ -172,6 +172,9 @@ function renderAll() {
 
   // 납품현황 탭이 현재 보이는 상태면 즉시 갱신 (납품취소 등 상태 변경 즉시 반영)
   if (typeof curView !== 'undefined' && curView === 3) renderDeliveryStatus();
+  // v3.3.52: 통계 탭도 동일하게 — 모달에서 삭제·상태변경 등을 했을 때 통계 탭을 보고
+  // 있었다면 다른 탭으로 나갔다 돌아오지 않아도 바로 반영되도록(납품현황과 동일한 패턴)
+  if (typeof curView !== 'undefined' && curView === 4) renderStats();
 
   // 발주 목록
   const list = filtered();
