@@ -56,7 +56,10 @@ function _shipDigitsMatch(a, b) {
 function _buildShipMasterList(maxCount = 150) {
   const freq = new Map();
   (orders || []).forEach(o => {
-    const s = (o.ship || '').trim();
+    // v3.3.50: 마스터 목록 집계 시점에 괄호 부가정보를 제거 — v3.3.48 이전 저장된 옛
+    // 데이터에 괄호가 남아있어도 여기서 정리해, 괄호 유무로 같은 배가 서로 다른 항목으로
+    // 갈려 빈도가 나뉘거나 자동보정 후보에 괄호가 다시 섞여 들어오는 걸 근본적으로 막는다.
+    const s = _stripShipParen(o.ship || '');
     if (s) freq.set(s, (freq.get(s) || 0) + 1);
   });
   return [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, maxCount).map(e => e[0]);
@@ -78,7 +81,10 @@ function _correctShipName(rawShip, masterList) {
     const normMaster = _normShipKey(m);
     const dist = _levenshtein(normInput, normMaster);
     if (dist > 0 && dist <= threshold && _shipDigitsMatch(normInput, normMaster)) {
-      candidates.push({ ship: m, dist });
+      // v3.3.50: 마스터 목록은 과거(v3.3.48 이전) 저장된 원본 선명을 그대로 모아온 것이라
+      // 괄호 부가정보가 남아있을 수 있음 — 후보로 쓸 때 괄호를 제거해, 오탈자 보정이 옛
+      // 데이터의 괄호까지 다시 끌고 들어오지 않도록 한다.
+      candidates.push({ ship: _stripShipParen(m), dist });
     }
   });
   if (!candidates.length) return { ship: trimmed, corrected: false };
