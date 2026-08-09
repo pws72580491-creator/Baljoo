@@ -179,14 +179,54 @@ function renderAll() {
   // 발주 목록
   const list = filtered();
   const archivedCnt = orders.filter(o => !!o.archived).length;
+  const trashCnt = deletedOrders.length; // v3.3.53
   const dupCnt = dupIdSet.size;
-  const subTxt = statusMode === 'archived'
+  const subTxt = statusMode === 'trash'
+    ? `휴지통 ${list.length}건 · ${TRASH_RETENTION_DAYS}일 후 자동 완전삭제`
+    : statusMode === 'archived'
     ? `보관함 ${list.length}건`
-    : `${list.length}건${archivedCnt > 0 ? ` · 📦보관 ${archivedCnt}` : ''}${dupCnt > 0 ? ` · ⚠️중복 ${dupCnt}` : ''}`;
+    : `${list.length}건${archivedCnt > 0 ? ` · 📦보관 ${archivedCnt}` : ''}${trashCnt > 0 ? ` · 🗑️휴지통 ${trashCnt}` : ''}${dupCnt > 0 ? ` · ⚠️중복 ${dupCnt}` : ''}`;
   document.getElementById('o-sub').textContent      = subTxt;
   document.getElementById('orders-list').innerHTML  = list.length
-    ? list.map(o => orderCard(o, true, dupIdSet)).join('')
-    : `<div class="empty"><div class="empty-icon">${statusMode === 'archived' ? '📦' : '📭'}</div><div class="empty-t">${statusMode === 'archived' ? '보관된 발주가 없습니다' : '결과 없음'}</div></div>`;
+    ? (statusMode === 'trash' ? list.map(o => trashCard(o)).join('') : list.map(o => orderCard(o, true, dupIdSet)).join(''))
+    : `<div class="empty"><div class="empty-icon">${statusMode === 'trash' ? '🗑️' : statusMode === 'archived' ? '📦' : '📭'}</div><div class="empty-t">${statusMode === 'trash' ? '휴지통이 비어있습니다' : statusMode === 'archived' ? '보관된 발주가 없습니다' : '결과 없음'}</div></div>`;
+}
+
+// ── 휴지통 카드 HTML (v3.3.53) ──
+function trashCard(o) {
+  const item = o.items?.[0] || {};
+  const deletedAtStr = o.deletedAt ? o.deletedAt.slice(0, 10) : '';
+  let dDayStr = '';
+  if (o.deletedAt) {
+    const elapsedMs   = Date.now() - new Date(o.deletedAt).getTime();
+    const remainDays  = Math.max(0, TRASH_RETENTION_DAYS - Math.floor(elapsedMs / 86400000));
+    dDayStr = `${remainDays}일 후 자동삭제`;
+  }
+  return `
+  <div class="order-card" style="opacity:.85;">
+    <div class="oc-top">
+      <div class="oc-ship">${escapeHtml(o.ship)}</div>
+      <div class="oc-amount" style="color:var(--muted);text-decoration:line-through;">${fmt(o.total)}</div>
+    </div>
+    <div class="oc-meta">
+      <span class="oc-doc">${escapeHtml(o.docNo)}</span>
+      ${badge(o.category)}
+      <span class="badge" style="background:#fee2e2;color:#b91c1c;">🗑️ 삭제됨 ${escapeHtml(deletedAtStr)}</span>
+    </div>
+    <div class="oc-bottom">
+      <div class="oc-item">${escapeHtml(item.desc) || '-'}</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-shrink:0;margin-left:8px;">
+        <span class="oc-dates">${escapeHtml(o.date)}</span>
+      </div>
+    </div>
+    <div class="oc-status-row" style="display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:11px;color:var(--muted);">${dDayStr}</span>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-sm" onclick="event.stopPropagation();restoreOrder('${o.id}')">↩️ 복원</button>
+        <button class="btn btn-d btn-sm" onclick="event.stopPropagation();permanentlyDeleteOrder('${o.id}')">완전삭제</button>
+      </div>
+    </div>
+  </div>`;
 }
 
 // ── 발주 카드 HTML ──

@@ -418,17 +418,57 @@ function setDelivery(id, status) {
   }
 }
 
-// ── 발주 삭제 ──
+// ── 발주 삭제 (v3.3.53: 즉시 영구삭제 대신 휴지통으로 이동) ──
 function delOrder(id) {
   try {
-    if (!confirm('삭제하시겠습니까?')) return;
+    if (!confirm(`삭제하시겠습니까?\n(휴지통으로 이동 · ${TRASH_RETENTION_DAYS}일 후 자동으로 완전삭제됩니다)`)) return;
+    const target = orders.find(o => o.id === id);
     orders = orders.filter(o => o.id !== id);
     save();
-    _pruneOrderChecks(id); // v3.3.14: 삭제된 id의 더블체크/반품확인 표시도 함께 정리
+    if (target) {
+      target.deletedAt = new Date().toISOString();
+      deletedOrders.push(target);
+      saveTrash();
+    }
+    // v3.3.53: 더블체크/반품확인 표시는 여기서 정리하지 않음 — 휴지통에서 복원하면
+    // 그대로 되살아나야 하므로, 실제 영구삭제(보관기간 만료·수동 완전삭제) 시점에만 정리한다.
     renderAll();
-    toast('삭제되었습니다.');
+    toast(`🗑️ 휴지통으로 이동했습니다 (${TRASH_RETENTION_DAYS}일 후 자동삭제)`);
   } catch (err) {
     console.error('[delOrder] 오류:', err);
+    toast('⚠️ 삭제 중 오류가 발생했습니다.');
+  }
+}
+
+// ── 휴지통: 복원 (v3.3.53) ──
+function restoreOrder(id) {
+  try {
+    const idx = deletedOrders.findIndex(o => o.id === id);
+    if (idx === -1) return;
+    const [target] = deletedOrders.splice(idx, 1);
+    delete target.deletedAt;
+    orders.push(target);
+    save();
+    saveTrash();
+    renderAll();
+    toast('↩️ 복원되었습니다.');
+  } catch (err) {
+    console.error('[restoreOrder] 오류:', err);
+    toast('⚠️ 복원 중 오류가 발생했습니다.');
+  }
+}
+
+// ── 휴지통: 수동 완전삭제 (v3.3.53) ──
+function permanentlyDeleteOrder(id) {
+  try {
+    if (!confirm('완전히 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) return;
+    deletedOrders = deletedOrders.filter(o => o.id !== id);
+    saveTrash();
+    _pruneOrderChecks(id); // 영구삭제 시점에 더블체크/반품확인 표시 정리
+    renderAll();
+    toast('완전히 삭제되었습니다.');
+  } catch (err) {
+    console.error('[permanentlyDeleteOrder] 오류:', err);
     toast('⚠️ 삭제 중 오류가 발생했습니다.');
   }
 }

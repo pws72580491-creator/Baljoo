@@ -5,6 +5,12 @@
 const STORE_KEY = 'baljuOrders_v2';
 let orders = [];
 
+// v3.3.53: 휴지통 — delOrder()가 즉시 영구삭제하는 대신 여기로 옮겨 TRASH_RETENTION_DAYS일
+// 보관 후 자동 영구삭제한다 (load() 시점마다 기한 지난 항목을 정리).
+const TRASH_KEY = 'baljuDeletedOrders_v1';
+const TRASH_RETENTION_DAYS = 30;
+let deletedOrders = [];
+
 let _loadInProgress = false;  // load() 중 save() 시 자동동기화 방지
 
 function save() {
@@ -17,6 +23,16 @@ function save() {
     if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
       if (typeof toast === 'function') toast('⚠️ 저장 공간이 부족합니다. 오래된 데이터를 정리해주세요.');
     }
+  }
+}
+
+// v3.3.53: 휴지통 저장 (orders와 별도 localStorage 키 — 자동동기화 debounce는 동일하게 재사용)
+function saveTrash() {
+  try {
+    localStorage.setItem(TRASH_KEY, JSON.stringify(deletedOrders));
+    if (!_loadInProgress && typeof scheduleAutoSync === 'function') scheduleAutoSync();
+  } catch(e) {
+    console.error('[storage] 휴지통 저장 실패:', e);
   }
 }
 
@@ -102,6 +118,29 @@ function load() {
       _loadInProgress = true;
       save();
       _loadInProgress = false;
+    }
+
+    // v3.3.53: 휴지통 불러오기 + 보관기간(TRASH_RETENTION_DAYS) 지난 항목 자동 영구삭제.
+    // orders 유무와 무관하게 항상 실행되어야 하므로 위 if(raw) 블록 밖에 둔다.
+    try {
+      const rawTrash    = localStorage.getItem(TRASH_KEY);
+      const parsedTrash = rawTrash ? safeParse(rawTrash) : [];
+      deletedOrders = Array.isArray(parsedTrash) ? parsedTrash : [];
+
+      const cutoff    = Date.now() - TRASH_RETENTION_DAYS * 86400000;
+      const isExpired = o => !o.deletedAt || new Date(o.deletedAt).getTime() < cutoff;
+      const expired   = deletedOrders.filter(isExpired);
+      if (expired.length) {
+        // 영구삭제 시점에만 더블체크/반품확인 표시 정리 (휴지통에 있는 동안은 복원 시
+        // 그대로 되살아나야 하므로 건드리지 않음)
+        expired.forEach(o => { if (typeof _pruneOrderChecks === 'function') _pruneOrderChecks(o.id); });
+        deletedOrders = deletedOrders.filter(o => !isExpired(o));
+        _loadInProgress = true;
+        saveTrash();
+        _loadInProgress = false;
+      }
+    } catch(e) {
+      console.error('[storage] 휴지통 불러오기 실패:', e);
     }
   } catch(e) {
     console.error('[storage] 불러오기 실패:', e);

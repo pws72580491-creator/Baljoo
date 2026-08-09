@@ -504,6 +504,14 @@ function _computeDupOrderIdSet() {
 let sortMode = 'date_desc';
 
 function filtered() {
+  // v3.3.53: 휴지통 모드는 orders가 아닌 deletedOrders를 대상으로 함 (완전히 별도 배열)
+  if (statusMode === 'trash') {
+    const dq = searchQ.toLowerCase();
+    return [...deletedOrders]
+      .filter(o => !searchQ || (o.ship + o.docNo + o.poNo).toLowerCase().includes(dq))
+      .sort((a, b) => (b.deletedAt || '').localeCompare(a.deletedAt || '')); // 최근 삭제한 것부터
+  }
+
   const from = document.getElementById('fDateFrom')?.value || '';
   const to   = document.getElementById('fDateTo')?.value   || '';
   const isArchiveMode = statusMode === 'archived';

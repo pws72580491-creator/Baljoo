@@ -95,6 +95,19 @@ function _setSyncedIds(idSet) {
   try { localStorage.setItem(SYNCED_IDS_KEY, JSON.stringify([...idSet])); } catch(e) {}
 }
 
+// v3.3.53: 휴지통(deletedOrders) 동기화 — orders와 동일한 id-diff 병합 패턴 재사용.
+// 로컬에서 복원하거나(휴지통→orders) 완전삭제(수동/보관기간 만료)하면 이 기기 기준
+// "마지막 동기화 때는 있었는데 지금은 없는 id"가 되어 원격에서도 함께 제거된다.
+const SYNCED_TRASH_IDS_KEY = 'fbSyncedTrashIds';
+
+function _getSyncedTrashIds() {
+  try { return new Set(JSON.parse(localStorage.getItem(SYNCED_TRASH_IDS_KEY) || '[]')); }
+  catch(e) { return new Set(); }
+}
+function _setSyncedTrashIds(idSet) {
+  try { localStorage.setItem(SYNCED_TRASH_IDS_KEY, JSON.stringify([...idSet])); } catch(e) {}
+}
+
 // v3.3.25: 재고 이력(입고·파손 — localStorage의 delivGoal_<날짜>)은 그동안 Firebase에
 // 전혀 백업되지 않고 이 기기의 localStorage에만 있었음. 크롬 캐시/사이트 데이터를
 // 지우거나 기기를 바꾸면 발주 데이터(orders)는 Firebase에서 복원되지만 재고 이력은
@@ -145,6 +158,11 @@ async function _mergeBackupTransaction(db) {
   const deletedStockDates = _getSyncedStockDates();
   Object.keys(localStockGoals).forEach(d => deletedStockDates.delete(d));
 
+  // v3.3.53: 휴지통도 동일한 id-diff 방식으로 병합 (복원·완전삭제 시 다른 기기에도 반영)
+  const localTrashById = new Map((deletedOrders || []).filter(o => o.id).map(o => [o.id, o]));
+  const deletedTrashIds = _getSyncedTrashIds();
+  localTrashById.forEach((_, id) => deletedTrashIds.delete(id));
+
   const result = await runTransaction(ref(db, 'baljoo/backup'), (current) => {
     const remoteOrders = Array.isArray(current?.orders) ? current.orders : [];
     const merged = new Map(remoteOrders.filter(o => o && o.id).map(o => [o.id, o]));
@@ -156,17 +174,24 @@ async function _mergeBackupTransaction(db) {
     deletedStockDates.forEach(d => delete mergedStockGoals[d]);
     Object.entries(localStockGoals).forEach(([d, v]) => { mergedStockGoals[d] = v; });
 
+    const remoteTrash = Array.isArray(current?.deletedOrders) ? current.deletedOrders : [];
+    const mergedTrash = new Map(remoteTrash.filter(o => o && o.id).map(o => [o.id, o]));
+    deletedTrashIds.forEach(id => mergedTrash.delete(id));     // 내가 복원/완전삭제한 것만 반영
+    localTrashById.forEach((o, id) => mergedTrash.set(id, o)); // 내가 아는 최신 값으로 덮어씀
+
     return {
-      orders:     [...merged.values()],
-      stockGoals: mergedStockGoals,
-      backedAt:   new Date().toISOString(),
-      count:      merged.size,
-      version:    (typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown')
+      orders:        [...merged.values()],
+      stockGoals:    mergedStockGoals,
+      deletedOrders: [...mergedTrash.values()],
+      backedAt:      new Date().toISOString(),
+      count:         merged.size,
+      version:       (typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown')
     };
   });
   if (result.committed) {
     _setSyncedIds(new Set(localById.keys()));
     _setSyncedStockDates(new Set(Object.keys(localStockGoals)));
+    _setSyncedTrashIds(new Set(localTrashById.keys()));
   }
   return result;
 }
@@ -234,10 +259,16 @@ window.fbRestore = async function() {
     // 원본 그대로 저장 후 load()에게 하위 호환 정규화를 위임
     // (storage.js load()의 정규화 로직과 중복 실행되는 것을 방지)
     localStorage.setItem('baljuOrders_v2', JSON.stringify(data.orders));
+    // v3.3.53: 휴지통도 백업 데이터에 있으면 load()가 읽어들일 수 있도록 미리 저장
+    // (없으면 기존 로컬 휴지통을 그대로 둠 — 백업 데이터에 필드 자체가 없는 구버전 백업 대비)
+    if (data.deletedOrders && Array.isArray(data.deletedOrders)) {
+      localStorage.setItem(TRASH_KEY, JSON.stringify(data.deletedOrders));
+    }
     load();
     // v3.3.14: 복원 직후를 "이 기기의 마지막 동기화 시점"으로 재설정해야
     // 다음 자동동기화가 복원된 항목을 엉뚱하게 삭제 대상으로 오판하지 않음
     _setSyncedIds(new Set(orders.map(o => o.id).filter(Boolean)));
+    _setSyncedTrashIds(new Set(deletedOrders.map(o => o.id).filter(Boolean))); // v3.3.53
     // v3.3.25: 재고 이력(입고·파손)도 백업 데이터에 있으면 함께 복원
     let restoredStockDates = 0;
     if (data.stockGoals && typeof data.stockGoals === 'object') {
@@ -251,7 +282,7 @@ window.fbRestore = async function() {
     if (typeof window.renderAll === 'function') window.renderAll();
     else if (typeof renderAll === 'function') renderAll();
     const backedAt = data.backedAt ? new Date(data.backedAt).toLocaleString('ko-KR') : '알 수 없음';
-    setFbStatus(`✅ 복원 완료 — ${orders.length}건 · 재고 이력 ${restoredStockDates}일 (백업일: ${backedAt})`, 'var(--success)');
+    setFbStatus(`✅ 복원 완료 — ${orders.length}건 · 재고 이력 ${restoredStockDates}일 · 휴지통 ${deletedOrders.length}건 (백업일: ${backedAt})`, 'var(--success)');
     toast(`📥 복원 완료 — ${orders.length}건 · 재고 이력 ${restoredStockDates}일`);
   } catch (e) {
     console.error('[firebase] 복원 실패:', e);
