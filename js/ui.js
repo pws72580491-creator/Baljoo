@@ -971,6 +971,13 @@ function renderDeliveryStatus() {
     // 그대로 두고, 재고 집계에서만 반영 시점을 확인일로 옮긴다(사용자 요청). v3.3.41
     // 마이그레이션으로 날짜 없이 자동 확인된 기존 반품 건은 _returnCheckedDate가 빈 값을
     // 반환하므로 기존처럼 r.date(납품일) 그대로 사용된다.
+    // v3.3.56 FIX: 확인된 수동 반품(isReturn=false)이 재고를 이중으로 늘리던 버그 수정.
+    // 미확인 상태일 땐 _boxSign()이 +1이라 원래 납품일에 정상 출고(-N)로 잡히는데,
+    // 체크하는 순간 _boxSign()이 -1로 바뀌면서 그 출고분이 통째로 사라지고(0으로),
+    // 대신 확인일에 +N 반품크레딧만 새로 생겼다 — "출고 취소(+N)"와 "반품크레딧(+N)"이
+    // 둘 다 적용돼 순증감 0이어야 할 게 +N(2배)으로 부풀려졌음. 확인된 수동 반품은
+    // 원래 납품일의 정상 출고를 그대로 유지한 채, 확인일에 반품크레딧을 "추가로" 얹어야
+    // 납품일~확인일 사이엔 -N(실제로 나가있던 기간), 확인일 이후엔 순증감 0(상쇄)이 된다.
     allDone.forEach(o => {
       _deliveryRecordsFor(o).forEach(r => {
         let sum = 0;
@@ -983,6 +990,11 @@ function renderDeliveryStatus() {
           const chkDate = _returnCheckedDate(o.id);
           const targetDate = chkDate || r.date;
           byDateReturn[targetDate] = (byDateReturn[targetDate] || 0) + Math.abs(sum);
+          // 확인된 수동 반품(업로드 반품서 isReturn=true는 애초에 "정상 출고"였던 적이
+          // 없으므로 제외)은 원래 납품일의 출고분을 별도로 복원한다.
+          if (!o.isReturn && o.deliveredDate) {
+            byDateAll[o.deliveredDate] = (byDateAll[o.deliveredDate] || 0) + Math.abs(sum);
+          }
         } else {
           byDateAll[r.date] = (byDateAll[r.date] || 0) + sum;
         }
