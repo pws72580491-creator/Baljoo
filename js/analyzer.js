@@ -348,11 +348,16 @@ async function pdfToImages(file) {
   const n      = Math.min(pdf.numPages, PDF_MAX_PAGES);
   const images = [];
   for (let i = 1; i <= n; i++) {
-    const page     = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale: 1.8 });
-    // 최대 크기 제한 (API 오류 방지)
-    const scale    = Math.min(1.2, IMAGE_MAX_PX / Math.max(viewport.width, viewport.height));
-    const vp2      = page.getViewport({ scale });
+    const page = await pdf.getPage(i);
+    // v3.3.57 FIX: 기존엔 scale:1.8로 한 번 확대한 viewport의 width/height로
+    // "최대 크기 제한(IMAGE_MAX_PX)"을 다시 나눠서, 최종 scale이 의도한 것보다 약
+    // 1.8배(면적 기준 약 3.2배) 작게 나오던 버그. 원본(scale:1, 72dpi 기준) 크기를
+    // 기준으로 계산해야 IMAGE_MAX_PX 한도까지 제대로 확대된다 — 특히 표가 빽빽하고
+    // 글자가 작은 문서(거래명세서 등)에서 인식률이 크게 떨어지는 원인이었음.
+    const base  = page.getViewport({ scale: 1 });
+    // 최대 크기 제한 (API 오류 방지) — 1.8배까지는 확대하되 IMAGE_MAX_PX를 넘지 않도록
+    const scale = Math.min(1.8, IMAGE_MAX_PX / Math.max(base.width, base.height));
+    const vp2   = page.getViewport({ scale });
     const canvas   = document.createElement('canvas');
     canvas.width   = vp2.width;
     canvas.height  = vp2.height;
