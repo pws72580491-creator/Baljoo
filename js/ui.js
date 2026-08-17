@@ -54,9 +54,6 @@ function _renderDashMonthNav() {
 
 // ── 전체 렌더 ──
 function renderAll() {
-  // 발주취소(cancelled) 건은 모든 집계에서 제외
-  const total = orders.reduce((s, o) => s + (o.deliveryStatus === 'cancelled' ? 0 : (o.total || 0)), 0);
-
   // 대시보드 본문은 선택된 월(_dashMonth) 데이터만 사용
   _renderDashMonthNav();
   const monthOrders = _filterByMonth(orders, _dashMonth);
@@ -97,9 +94,6 @@ function renderAll() {
   const dashHasQuailRaw   = dashQuailRawBoxes > 0;
   const dashHasQuailBrine = dashQuailBrineBoxes > 0 || dashQuailBrinePkts > 0;
 
-  // 상단바(topbar)는 전체 발주 기준 유지
-  document.getElementById('h-cnt').textContent    = orders.filter(o => !o.archived && o.deliveryStatus !== 'cancelled').length;
-  document.getElementById('h-tot').textContent    = fmt(total);
   // 대시보드 본문 카드는 선택된 월 기준
   document.getElementById('s-cnt').textContent    = deliveredCnt;
   document.getElementById('s-tot').textContent    = fmt(netTotal);
