@@ -241,46 +241,66 @@ function toggleBulkMode(mode) {
 
   const delivBtn = document.getElementById('bulkDelivBtn');
   const archBtn  = document.getElementById('bulkArchBtn');
+  const delBtn   = document.getElementById('bulkDelBtn');
   const bar      = document.getElementById('bulkBar');
   const list     = document.getElementById('orders-list');
   const delivRow = document.getElementById('bulkDeliverRow');
   const archRow  = document.getElementById('bulkArchiveRow');
+  const delRow   = document.getElementById('bulkDeleteRow');
 
   if (isBulkMode === 'deliver') {
     delivBtn.textContent = '✕ 취소';
     delivBtn.classList.add('active');
     archBtn.textContent  = '📦 일괄보관';
     archBtn.classList.remove('active');
+    if (delBtn) { delBtn.textContent = '🗑️ 일괄삭제'; delBtn.classList.remove('active'); }
     bar.style.display    = 'flex';
     list.classList.add('bulk-mode');
     delivRow.style.display = 'flex';
     archRow.style.display  = 'none';
+    if (delRow) delRow.style.display = 'none';
     document.getElementById('bulkDate').value = todayStr();
   } else if (isBulkMode === 'archive') {
     archBtn.textContent  = '✕ 취소';
     archBtn.classList.add('active');
     delivBtn.textContent = '☑️ 일괄납품';
     delivBtn.classList.remove('active');
+    if (delBtn) { delBtn.textContent = '🗑️ 일괄삭제'; delBtn.classList.remove('active'); }
     bar.style.display    = 'flex';
     list.classList.add('bulk-mode');
     archRow.style.display  = 'flex';
     delivRow.style.display = 'none';
+    if (delRow) delRow.style.display = 'none';
     // v3.3.46: 기간선택 모드로 새로 진입할 때마다 이전에 입력해뒀던 기간값이 남아있지
     // 않도록 초기화(빈 화면에서 다시 지정하도록)
     const archFrom = document.getElementById('bulkArchFrom');
     const archTo   = document.getElementById('bulkArchTo');
     if (archFrom) archFrom.value = '';
     if (archTo)   archTo.value   = '';
+  } else if (isBulkMode === 'delete') {
+    // v3.3.59: 보관함 전용 일괄삭제 모드 — 선택 건을 휴지통으로 이동(soft delete)
+    if (delBtn) { delBtn.textContent = '✕ 취소'; delBtn.classList.add('active'); }
+    delivBtn.textContent = '☑️ 일괄납품';
+    delivBtn.classList.remove('active');
+    archBtn.textContent  = '📦 일괄보관';
+    archBtn.classList.remove('active');
+    bar.style.display    = 'flex';
+    list.classList.add('bulk-mode');
+    if (delRow) delRow.style.display = 'flex';
+    delivRow.style.display = 'none';
+    archRow.style.display  = 'none';
   } else {
     // 모드 종료
     delivBtn.textContent = '☑️ 일괄납품';
     delivBtn.classList.remove('active');
     archBtn.textContent  = '📦 일괄보관';
     archBtn.classList.remove('active');
+    if (delBtn) { delBtn.textContent = '🗑️ 일괄삭제'; delBtn.classList.remove('active'); }
     bar.style.display    = 'none';
     list.classList.remove('bulk-mode');
     delivRow.style.display = 'none';
     archRow.style.display  = 'none';
+    if (delRow) delRow.style.display = 'none';
   }
   renderAll();
 }
@@ -307,6 +327,11 @@ function bulkSelectAll() {
     } else if (isBulkMode === 'archive') {
       // 보관 모드: 납품완료 또는 이미 보관중인 건 선택 가능
       if (o.deliveryStatus === 'delivered' || !!o.archived) {
+        bulkSelected.add(o.id);
+      }
+    } else if (isBulkMode === 'delete') {
+      // v3.3.59: 일괄삭제 모드 — 보관중인 건만 선택 가능
+      if (!!o.archived) {
         bulkSelected.add(o.id);
       }
     }
@@ -419,6 +444,36 @@ function bulkUnarchive() {
   bulkSelected.clear();
   toggleBulkMode('archive'); // 모드 종료
   toast(`📤 ${cnt}건 보관 해제되었습니다.`);
+}
+
+// v3.3.59: 보관함 일괄삭제 — delOrder()와 동일하게 즉시 영구삭제하지 않고 휴지통으로
+// 이동한다(TRASH_RETENTION_DAYS일 후 자동 완전삭제). 여러 건을 한 번에 처리하므로
+// 건마다 확인창을 띄우지 않고 전체 건수 기준으로 한 번만 확인받는다.
+function bulkDeleteSelected() {
+  if (bulkSelected.size === 0) {
+    toast('⚠️ 선택된 발주가 없습니다.');
+    return;
+  }
+  const cnt = bulkSelected.size;
+  if (!confirm(`선택한 ${cnt}건을 삭제하시겠습니까?\n(휴지통으로 이동 · ${TRASH_RETENTION_DAYS}일 후 자동으로 완전삭제됩니다)`)) return;
+
+  let movedCnt = 0;
+  bulkSelected.forEach(id => {
+    const idx = orders.findIndex(o => o.id === id);
+    if (idx === -1) return;
+    const [target] = orders.splice(idx, 1);
+    target.deletedAt = new Date().toISOString();
+    deletedOrders.push(target);
+    movedCnt++;
+  });
+
+  save();
+  saveTrash();
+  // v3.3.53과 동일하게, 더블체크/반품확인 표시는 여기서 정리하지 않음 — 휴지통에서
+  // 복원하면 그대로 되살아나야 하므로, 실제 영구삭제 시점에만 정리한다.
+  bulkSelected.clear();
+  toggleBulkMode('delete'); // 모드 종료
+  toast(`🗑️ ${movedCnt}건이 휴지통으로 이동했습니다 (${TRASH_RETENTION_DAYS}일 후 자동삭제)`);
 }
 
 // ══════════════════════════════════════════════

@@ -172,6 +172,10 @@ function renderAll() {
 
   // 발주 목록
   const list = filtered();
+  // v3.3.59: 일괄삭제 버튼은 보관함(archived) 필터를 볼 때만 노출 — 그 외 필터에선
+  // 어차피 archived 건이 목록에 안 보여서 선택할 대상이 없기 때문
+  const bulkDelBtnEl = document.getElementById('bulkDelBtn');
+  if (bulkDelBtnEl) bulkDelBtnEl.style.display = (statusMode === 'archived') ? '' : 'none';
   const archivedCnt = orders.filter(o => !!o.archived).length;
   const trashCnt = deletedOrders.length; // v3.3.53
   const dupCnt = dupIdSet.size;
@@ -269,6 +273,11 @@ function orderCard(o, showDel, dupIdSet) {
       // v3.3.32: 발주취소(cancelled) 건은 다른 납품 처리 로직과 동일하게 제외
       canBulk = !isReturnDoc && o.deliveryStatus !== 'delivered' && o.deliveryStatus !== 'returned'
               && o.deliveryStatus !== 'cancelled' && !o.archived;
+    } else if (isBulkMode === 'delete') {
+      // v3.3.59: 일괄삭제는 보관함(archived) 건만 대상으로 함 — filtered()가 이미
+      // statusMode==='archived'일 때만 archived 건을 보여주므로, 실질적으로 보관함
+      // 필터를 선택했을 때만 체크박스가 나타난다.
+      canBulk = !!o.archived;
     } else {
       canBulk = o.deliveryStatus === 'delivered' || !!o.archived;
     }
