@@ -192,6 +192,9 @@ function init() {
   renderAll();
   document.getElementById('tabInk').style.left = '0%';
 
+  // v3.3.60: 하루 1회 자동 스냅샷 — 네트워크 필요라 UI를 막지 않도록 결과를 기다리지 않음
+  if (typeof maybeAutoSnapshot === 'function') maybeAutoSnapshot();
+
   // 대시보드 상단 버전 배지를 APP_VERSION 단일 소스에서 채움 (하드코딩된 값이 릴리즈마다 밀리는 것 방지)
   const verBadge = document.getElementById('app-version-badge');
   if (verBadge && typeof APP_VERSION !== 'undefined') verBadge.textContent = '발주관리 ' + APP_VERSION;

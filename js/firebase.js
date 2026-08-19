@@ -237,6 +237,183 @@ window.fbBackup = async function() {
   }
 };
 
+// ══════════════════════════════════════════════════════
+// v3.3.60: 시점별 스냅샷 — baljoo/backup(계속 덮어써지는 "최신 백업" 1개)과는
+// 별개로, baljoo/snapshots/{시각} 에 그 순간의 전체 데이터를 통째로 복사해둔다.
+// 매일 앱을 열 때 1회 자동 저장 + 언제든 수동 저장 가능. 복원할 땐 목록에서
+// 원하는 시점을 골라 그 시점 데이터로 되돌릴 수 있다.
+// ══════════════════════════════════════════════════════
+
+// 스냅샷 저장 공통 로직 (수동/자동 공용) — auto=true면 실패해도 조용히 무시(호출부에서 처리)
+async function _fbSaveSnapshotCore(label, auto) {
+  const db = await getDb();
+  const { ref, set } = await import(FB_DB_URL);
+  // Firebase 키 금지문자(. # $ [ ] /) 제거 — ISO 문자열은 시간순 정렬이 그대로 유지됨
+  const snapshotId = new Date().toISOString().replace(/[.:]/g, '-');
+  const payload = {
+    orders:        orders,
+    deletedOrders: deletedOrders || [],
+    stockGoals:    _collectLocalStockGoals(),
+    backedAt:      new Date().toISOString(),
+    count:         orders.length,
+    version:       (typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown'),
+    label:         label || '',
+    auto:          !!auto
+  };
+  await set(ref(db, 'baljoo/snapshots/' + snapshotId), payload);
+  return snapshotId;
+}
+
+// 수동 스냅샷 저장 (버튼)
+window.fbSaveSnapshotManual = async function() {
+  try {
+    setFbStatus('스냅샷 저장 중...');
+    const label = (prompt('스냅샷 이름(선택, 비워도 됩니다):', '') || '').trim();
+    await _fbSaveSnapshotCore(label, false);
+    setFbStatus(`✅ 스냅샷 저장 완료 (${new Date().toLocaleString('ko-KR')})`, 'var(--success)');
+    toast('📸 스냅샷 저장 완료');
+  } catch (e) {
+    console.error('[firebase] 스냅샷 저장 실패:', e);
+    setFbStatus('❌ 스냅샷 저장 실패: ' + _friendlyFbError(e), '#e53e3e');
+    toast('❌ 스냅샷 저장 실패');
+  }
+};
+
+// 자동 일일 스냅샷 — 앱을 열 때(init) 호출. 오늘 날짜로 이미 저장했으면 건너뜀.
+// 실패(네트워크 오류 등)해도 사용자 흐름을 방해하지 않도록 조용히 무시한다.
+const LAST_AUTO_SNAPSHOT_KEY = 'fbLastAutoSnapshotDate';
+async function maybeAutoSnapshot() {
+  try {
+    const today = todayStr();
+    if (localStorage.getItem(LAST_AUTO_SNAPSHOT_KEY) === today) return;
+    await _fbSaveSnapshotCore('자동 저장', true);
+    localStorage.setItem(LAST_AUTO_SNAPSHOT_KEY, today);
+  } catch (e) {
+    console.warn('[firebase] 자동 스냅샷 실패(무시):', e);
+  }
+}
+
+// 저장된 스냅샷 목록 조회 — 최신순 정렬
+async function fbListSnapshots() {
+  const db = await getDb();
+  const { ref, get } = await import(FB_DB_URL);
+  const snap = await get(ref(db, 'baljoo/snapshots'));
+  if (!snap.exists()) return [];
+  const data = snap.val();
+  return Object.entries(data)
+    .map(([id, v]) => ({ id, ...v }))
+    .sort((a, b) => String(b.backedAt || b.id).localeCompare(String(a.backedAt || a.id)));
+}
+
+// 특정 스냅샷 1건 삭제
+window.fbDeleteSnapshot = async function(snapshotId) {
+  if (!confirm('이 스냅샷을 삭제할까요? (되돌릴 수 없습니다)')) return;
+  try {
+    const db = await getDb();
+    const { ref, remove } = await import(FB_DB_URL);
+    await remove(ref(db, 'baljoo/snapshots/' + snapshotId));
+    toast('스냅샷을 삭제했습니다.');
+    openSnapshotPicker(); // 목록 새로고침
+  } catch (e) {
+    console.error('[firebase] 스냅샷 삭제 실패:', e);
+    toast('❌ 스냅샷 삭제 실패');
+  }
+};
+
+// 특정 시점(스냅샷)으로 복원 — fbRestore()와 로직은 유사하지만, 이미 검증된
+// fbRestore()를 건드리지 않기 위해 의도적으로 별도 함수로 둔다(안정성 우선).
+window.fbRestoreSnapshot = async function(snapshotId, labelForConfirm) {
+  if (!confirm(`"${labelForConfirm || snapshotId}" 시점으로 복원할까요?\n현재 데이터는 이 스냅샷 데이터로 교체됩니다.`)) return;
+  try {
+    setFbStatus('시점 복원 중...');
+    const db = await getDb();
+    const { ref, get } = await import(FB_DB_URL);
+    const snap = await get(ref(db, 'baljoo/snapshots/' + snapshotId));
+    if (!snap.exists()) { toast('❌ 스냅샷을 찾을 수 없습니다.'); return; }
+    const data = snap.val();
+    if (!data.orders || !Array.isArray(data.orders)) { toast('❌ 복원할 데이터가 없습니다.'); return; }
+
+    clearTimeout(_autoSyncTimer);
+    localStorage.setItem('baljuOrders_v2', JSON.stringify(data.orders));
+    if (data.deletedOrders && Array.isArray(data.deletedOrders)) {
+      localStorage.setItem(TRASH_KEY, JSON.stringify(data.deletedOrders));
+    }
+    load();
+    _setSyncedIds(new Set(orders.map(o => o.id).filter(Boolean)));
+    _setSyncedTrashIds(new Set(deletedOrders.map(o => o.id).filter(Boolean)));
+    let restoredStockDates = 0;
+    if (data.stockGoals && typeof data.stockGoals === 'object') {
+      _clearLocalStockGoals();
+      Object.entries(data.stockGoals).forEach(([d, v]) => {
+        localStorage.setItem('delivGoal_' + d, JSON.stringify(v));
+        restoredStockDates++;
+      });
+      _setSyncedStockDates(new Set(Object.keys(data.stockGoals)));
+    }
+    if (typeof window.renderAll === 'function') window.renderAll();
+    else if (typeof renderAll === 'function') renderAll();
+
+    const backedAt = data.backedAt ? new Date(data.backedAt).toLocaleString('ko-KR') : '알 수 없음';
+    setFbStatus(`✅ 시점 복원 완료 — ${orders.length}건 · 재고 이력 ${restoredStockDates}일 · 휴지통 ${deletedOrders.length}건 (시점: ${backedAt})`, 'var(--success)');
+    toast(`📥 ${backedAt} 시점으로 복원 완료`);
+    _closeSnapshotOv();
+  } catch (e) {
+    console.error('[firebase] 시점 복원 실패:', e);
+    setFbStatus('❌ 시점 복원 실패: ' + _friendlyFbError(e), '#e53e3e');
+    toast('❌ 시점 복원 실패');
+  }
+};
+
+// 시점 선택 복원 — 스냅샷 목록을 바텀시트로 보여준다 (checkDuplicateItems()의
+// 오버레이 패턴과 동일한 방식)
+window.openSnapshotPicker = async function() {
+  _closeSnapshotOv();
+  toast('스냅샷 목록 불러오는 중...');
+  let list = [];
+  try {
+    list = await fbListSnapshots();
+  } catch (e) {
+    console.error('[firebase] 스냅샷 목록 조회 실패:', e);
+    toast('❌ 스냅샷 목록을 불러오지 못했습니다.');
+    return;
+  }
+
+  const rows = list.length ? list.map(s => {
+    const dt = s.backedAt ? new Date(s.backedAt).toLocaleString('ko-KR') : s.id;
+    const labelText = s.label ? escapeHtml(s.label) : (s.auto ? '자동 저장' : '(이름 없음)');
+    return `
+    <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;">
+      <div style="min-width:0;flex:1;" onclick="fbRestoreSnapshot('${s.id}', '${escapeHtml(dt)}')">
+        <div style="font-weight:700;color:var(--navy);font-size:13px;">${dt} ${s.auto ? '<span style="font-size:10px;color:#6b7280;font-weight:400;">🤖자동</span>' : ''}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">${labelText} · 발주 ${s.count ?? (s.orders ? s.orders.length : 0)}건</div>
+      </div>
+      <button onclick="event.stopPropagation();fbDeleteSnapshot('${s.id}')" style="background:none;border:none;color:#dc2626;font-size:16px;cursor:pointer;padding:4px 6px;flex-shrink:0;">✕</button>
+    </div>`;
+  }).join('') : '<div style="padding:24px 14px;text-align:center;color:var(--muted);font-size:13px;">저장된 스냅샷이 없습니다</div>';
+
+  const ov = document.createElement('div');
+  ov.id = 'snapshotOv';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-end;';
+  ov.onclick = (e) => { if (e.target === ov) _closeSnapshotOv(); };
+  ov.innerHTML = `
+    <div style="background:#fff;width:100%;max-height:80vh;border-radius:16px 16px 0 0;display:flex;flex-direction:column;">
+      <div style="padding:16px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:var(--navy);">🕐 시점 선택 복원 — ${list.length}개</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;">원하는 시점을 탭하면 그 시점 데이터로 복원됩니다.</div>
+        </div>
+        <button onclick="_closeSnapshotOv()" style="background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer;padding:4px 8px;flex-shrink:0;">✕</button>
+      </div>
+      <div style="overflow-y:auto;">${rows}</div>
+    </div>`;
+  document.body.appendChild(ov);
+};
+
+function _closeSnapshotOv() {
+  const ov = document.getElementById('snapshotOv');
+  if (ov) ov.remove();
+}
+
 // ── 복원: Firebase → 로컬 ──
 window.fbRestore = async function() {
   if (!confirm('Firebase에서 데이터를 복원할까요?\n현재 데이터는 백업 데이터로 교체됩니다.')) return;
