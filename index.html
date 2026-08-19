@@ -701,7 +701,7 @@
   // 막기 위해, 버전은 여기 한 곳에서만 관리하고 나머지는 이 값을 참조한다.
   // ⚠️ sw.js의 CACHE_NAME과 manifest.json의 description은 별도 실행 컨텍스트라
   //    이 값을 직접 참조할 수 없음 — 릴리즈 시 그 두 곳만 수동으로 맞춰줄 것.
-  const APP_VERSION = 'v3.3.59';
+  const APP_VERSION = 'v3.3.60';
   document.title = '이른아침 · 발주관리 ' + APP_VERSION;
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -1249,6 +1249,12 @@ body{
           <button class="btn btn-g btn-sm" onclick="fbRestore()" style="flex:1;padding:9px 0;">📥 복원</button>
         </div>
         <div id="fb-status" style="font-size:11px;color:var(--muted);margin-top:8px;text-align:center;"></div>
+        <div style="border-top:1px solid var(--border);margin:12px 0 10px;"></div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">시점별 스냅샷 — 매일 자동 저장(하루 1회) + 필요할 때 직접 저장, 복원할 시점을 골라 되돌릴 수 있습니다</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-sm" onclick="fbSaveSnapshotManual()" style="flex:1;padding:9px 0;background:#f59e0b;color:#fff;">📸 지금 저장</button>
+          <button class="btn btn-sm" onclick="openSnapshotPicker()" style="flex:1;padding:9px 0;background:#6366f1;color:#fff;">🕐 시점 선택 복원</button>
+        </div>
       </div>
 
       <!-- v3.3.26: 품목 추가 버그로 인한 과거 손상 데이터 자가 점검 -->
