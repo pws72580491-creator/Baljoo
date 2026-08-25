@@ -1237,16 +1237,21 @@ function renderDeliveryStatus() {
             <tr id="dblrow-${o.id}-${day.date}" data-dbl-id="${o.id}"
                 style="border-top:1px solid var(--border);cursor:pointer;background:${rowBg};${rowBdl}opacity:${isChecked ? '.55' : '1'};"
                 onclick="openModal('${o.id}')">
-              <td style="padding:10px 14px;">
-                <div style="display:flex;align-items:flex-start;gap:6px;">
+              <td colspan="3" style="padding:10px 14px 0;">
+                <div style="display:flex;align-items:center;gap:6px;">
                   <input type="checkbox" id="dblchk-${o.id}-${day.date}" data-dbl-id="${o.id}" ${isChecked ? 'checked' : ''}
                          onclick="toggleDblCheck('${o.id}', event)"
                          title="더블체크(확인 표시)"
-                         style="margin-top:2px;width:16px;height:16px;flex-shrink:0;cursor:pointer;accent-color:var(--navy);">
-                  <div style="min-width:0;flex:1;">
-                    <div style="font-size:13px;font-weight:600;color:var(--navy);
-                                white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;">${escapeHtml(o.ship)}${isSplitRecord ? ' <span style="font-size:10px;font-weight:700;color:#b45309;">(분할)</span>' : ''}</div>
-                    <div style="font-size:10px;color:var(--muted);margin-top:2px;">${escapeHtml(o.docNo)}</div>
+                         style="width:16px;height:16px;flex-shrink:0;cursor:pointer;accent-color:var(--navy);">
+                  <div style="font-size:14px;font-weight:700;color:var(--navy);white-space:nowrap;">${escapeHtml(o.ship)}${isSplitRecord ? ' <span style="font-size:10px;font-weight:700;color:#b45309;">(분할)</span>' : ''}</div>
+                </div>
+              </td>
+            </tr>
+            <tr style="cursor:pointer;background:${rowBg};${rowBdl}opacity:${isChecked ? '.55' : '1'};"
+                onclick="openModal('${o.id}')">
+              <td style="padding:2px 14px 10px 36px;">
+                <div style="min-width:0;">
+                    <div style="font-size:10px;color:var(--muted);">${escapeHtml(o.docNo)}</div>
                     ${manualDeliveryNote(o.deliveryNote) ? `<div style="font-size:10px;font-weight:700;color:#dc2626;margin-top:3px;">📝 ${escapeHtml(manualDeliveryNote(o.deliveryNote).length > 22 ? manualDeliveryNote(o.deliveryNote).slice(0,22)+'…' : manualDeliveryNote(o.deliveryNote))}</div>` : ''}
                     ${(o.items||[]).map(item => {
                       const boxStr = formatItemBoxStr(item);
@@ -1258,10 +1263,9 @@ function renderDeliveryStatus() {
                         <span style="${qtyCol}">${item.qty}${displayUnit(item.unit)}${boxStr ? ' · '+boxStr : ''}</span>
                       </div>`;
                     }).join('')}
-                  </div>
                 </div>
               </td>
-              <td style="padding:10px;text-align:right;font-size:11px;font-weight:700;color:${isAnyReturn?'#dc2626':'#1a3a6e'};white-space:nowrap;vertical-align:top;">
+              <td style="padding:2px 10px 10px;text-align:right;font-size:11px;font-weight:700;color:${isAnyReturn?'#dc2626':'#1a3a6e'};white-space:nowrap;vertical-align:top;">
                 ${(o.items||[]).map((item, idx) => {
                   const isBrineItem = _isQuailBrine(item);
                   const isRawQItem  = _isQuailEgg(item);
@@ -1282,7 +1286,7 @@ function renderDeliveryStatus() {
                   return `<div style="margin-bottom:2px;">${label}<br><span style="font-size:12px;">${formatBoxCount(bc)}</span></div>`;
                 }).filter(Boolean).join('')}
               </td>
-              <td style="padding:10px 14px;text-align:right;white-space:nowrap;">
+              <td style="padding:2px 14px 10px;text-align:right;white-space:nowrap;vertical-align:top;">
                 <div style="font-size:13px;font-weight:700;color:${amtCol};">${fmt(r.amt)}</div>
                 ${(() => {
                   const disc = _calcOrderDiscount(o);
