@@ -479,6 +479,57 @@ function bulkDeleteSelected() {
   toast(`🗑️ ${movedCnt}건이 휴지통으로 이동했습니다 (${TRASH_RETENTION_DAYS}일 후 자동삭제)`);
 }
 
+// ══════════════════════════════════════════════════════
+// v3.3.63: 발주 카드 길게 누르기 → 일괄납품 모드로 바로 진입 + 누른 카드 자동선택
+// 발주목록 탭(showDel=true인 목록)에서만 동작 — 대시보드 미리보기 카드는 원래대로
+// 그냥 탭하면 상세만 열림(백그라운드에서 다른 탭의 벌크모드가 조용히 켜지는 걸 방지).
+// ══════════════════════════════════════════════════════
+let _lpTimer  = null;
+let _lpStartX = 0, _lpStartY = 0;
+let _lpFired  = false; // 롱프레스가 이미 발동됐는지 — 뒤따라오는 click(모달 열기)을 억제하기 위한 플래그
+const LP_DURATION       = 500; // ms — 이 시간 이상 누르고 있으면 롱프레스로 인정
+const LP_MOVE_THRESHOLD = 10;  // px — 스크롤 제스처와 구분하기 위한 이동 허용치
+
+function _lpStart(id, ev) {
+  if (isBulkMode) return; // 이미 어떤 벌크 모드든 진입해있으면 롱프레스 불필요(탭이 곧 선택/해제)
+  const t = ev.touches ? ev.touches[0] : ev;
+  _lpStartX = t.clientX; _lpStartY = t.clientY;
+  _lpFired = false;
+  clearTimeout(_lpTimer);
+  _lpTimer = setTimeout(() => {
+    _lpFired = true;
+    if (navigator.vibrate) { try { navigator.vibrate(15); } catch(e) {} }
+    toggleBulkMode('deliver');
+    // 방금 누른 카드가 일괄납품 모드에서 선택 가능한 건이면 자동으로 선택해둠
+    const o = orders.find(x => x.id === id);
+    const eligible = o && !o.archived && o.deliveryStatus !== 'delivered'
+                    && o.deliveryStatus !== 'returned' && o.deliveryStatus !== 'cancelled';
+    if (eligible) {
+      bulkSelected.add(id);
+      renderAll();
+    }
+  }, LP_DURATION);
+}
+
+function _lpMove(ev) {
+  if (!_lpTimer) return;
+  const t = ev.touches ? ev.touches[0] : ev;
+  if (Math.abs(t.clientX - _lpStartX) > LP_MOVE_THRESHOLD || Math.abs(t.clientY - _lpStartY) > LP_MOVE_THRESHOLD) {
+    clearTimeout(_lpTimer);
+    _lpTimer = null;
+  }
+}
+
+function _lpEnd() {
+  clearTimeout(_lpTimer);
+  _lpTimer = null;
+}
+
+function _lpClick(id) {
+  if (_lpFired) { _lpFired = false; return; } // 롱프레스로 이미 처리됨 — 모달은 열지 않음
+  openModal(id);
+}
+
 // ══════════════════════════════════════════════
 // 월별 납품내역 엑셀(xlsx) 내보내기
 // ══════════════════════════════════════════════

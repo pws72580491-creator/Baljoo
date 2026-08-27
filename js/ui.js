@@ -287,7 +287,11 @@ function orderCard(o, showDel, dupIdSet) {
     clickHandler = isDisabled ? '' : `onclick="toggleBulkSelect('${o.id}')"`;
   } else {
     canBulk = false; isDisabled = false; bulkClass = ''; bulkChk = '';
-    clickHandler = `onclick="openModal('${o.id}')"`;
+    // v3.3.63: 실제 목록(발주목록 탭)에서만 길게 누르기 지원 — 대시보드 미리보기는
+    // 원래대로 단순 탭-오픈만 유지
+    clickHandler = showDel
+      ? `onclick="_lpClick('${o.id}')" onpointerdown="_lpStart('${o.id}',event)" onpointermove="_lpMove(event)" onpointerup="_lpEnd()" onpointercancel="_lpEnd()"`
+      : `onclick="openModal('${o.id}')"`;
   }
 
   // 반품 확인 체크 (발주목록에서만 표시 — 대시보드 최근내역과 id 중복 방지)
