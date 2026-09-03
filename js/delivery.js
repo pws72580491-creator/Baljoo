@@ -56,7 +56,8 @@ ${orderSummary}
 
 이미지에서 "이른아침" 항목(선명/척수)을 모두 세고, 위 발주목록과 매칭해 아래 JSON만 출력(코드블록 없이):
 {"totalCount":이미지속이른아침전체항목수(숫자),"matched":[{"id":"발주ID","ship":"선명","reason":"근거"}],"summary":"요약"}
-이른아침 항목 없으면: {"totalCount":0,"matched":[],"summary":"이른아침 항목 없음"}`;
+이른아침 항목 없으면: {"totalCount":0,"matched":[],"summary":"이른아침 항목 없음"}
+동일한 선명으로 발주목록에 여러 건이 있으면, 그 중 날짜가 가장 오래된 건의 ID를 우선 선택하세요.`;
 
     parts.unshift(textPart(prompt));
     setDelProgress(70);
@@ -128,6 +129,22 @@ function renderDeliveryResult(result) {
     return order ? { ...m, order } : null;
   }).filter(Boolean);
 
+  // v3.3.64: 같은 선명으로 발주가 여러 건(미납품/부분납품 등 아직 처리 안 된 것만) 걸려있으면
+  // AI가 어떤 걸 골랐든 사용자가 직접 확인·변경할 수 있도록 후보 목록을 함께 보여준다.
+  // 후보는 발주일자 오래된 순으로 정렬해 기본 선택값도 "가장 오래된 건"이 되게 한다.
+  const shipCandidatesCache = {};
+  function getShipCandidates(ship) {
+    const key = (ship || '').trim().toLowerCase();
+    if (!key) return [];
+    if (shipCandidatesCache[key]) return shipCandidatesCache[key];
+    const list = orders
+      .filter(o => (o.ship || '').trim().toLowerCase() === key
+                && !['delivered', 'cancelled', 'returned'].includes(o.deliveryStatus))
+      .sort((a, b) => (a.date || '').localeCompare(b.date || '')); // 오래된 순
+    shipCandidatesCache[key] = list;
+    return list;
+  }
+
   // v3.3.14: analyzer.js의 전역 pendingOrders(업로드 미리보기 큐)와 이름이 겹쳐 헷갈리기 쉬웠던
   // 지역변수 이름을 정리 (동작에는 영향 없던 단순 네이밍 충돌).
   const undeliveredMatches = matchedOrders.filter(m => !['delivered', 'cancelled', 'returned'].includes(m.order.deliveryStatus));
@@ -161,11 +178,18 @@ function renderDeliveryResult(result) {
       </div>` : ''}
 
       <!-- 매칭된 발주 목록 (체크박스) -->
-      ${matchedOrders.map(m => `
-        <div class="prev-card" style="border-left:3px solid ${m.order.deliveryStatus === 'delivered' ? '#86efac' : 'var(--success)'};">
+      ${matchedOrders.map(m => {
+        const isPending = !['delivered', 'cancelled', 'returned'].includes(m.order.deliveryStatus);
+        const candidates = isPending ? getShipCandidates(m.order.ship) : [];
+        const isAmbiguous = candidates.length > 1;
+        // 기본 선택값: 후보가 여러 건이면 그중 가장 오래된 것 — AI가 무엇을 골랐든
+        // 여기서 한 번 더 "오래된 건 우선"으로 통일한다.
+        const defaultId = isAmbiguous ? candidates[0].id : m.order.id;
+        return `
+        <div class="prev-card" style="border-left:3px solid ${m.order.deliveryStatus === 'delivered' ? '#86efac' : isAmbiguous ? '#f59e0b' : 'var(--success)'};">
           <div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;">
-            ${!['delivered', 'cancelled', 'returned'].includes(m.order.deliveryStatus) ? `
-            <input type="checkbox" data-del-id="${escapeHtml(m.order.id)}" onchange="delUpdateCount()"
+            ${isPending ? `
+            <input type="checkbox" data-del-id="${escapeHtml(defaultId)}" onchange="delUpdateCount()"
                    style="width:20px;height:20px;margin-top:2px;flex-shrink:0;accent-color:var(--navy);">
             ` : `<span style="font-size:18px;flex-shrink:0;">${
               m.order.deliveryStatus === 'delivered' ? '✅' : m.order.deliveryStatus === 'cancelled' ? '🚫' : '↩️'
@@ -180,13 +204,23 @@ function renderDeliveryResult(result) {
                     : m.order.deliveryStatus === 'returned'  ? '↩️ 반품처리됨'
                     : '미납품'}
                 </span>
+                ${isAmbiguous ? `<span style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border-radius:4px;padding:1px 6px;">⚠️ 동일 선명 ${candidates.length}건</span>` : ''}
               </div>
               <div style="font-size:11px;color:var(--muted);margin-top:2px;">${escapeHtml(m.reason)}</div>
+              ${isAmbiguous ? `
+              <select onchange="delSwitchCandidate(this)" data-for="${escapeHtml(m.order.id)}"
+                      style="margin-top:6px;width:100%;font-size:12px;font-weight:700;color:var(--navy);
+                             border:1px solid #f59e0b;border-radius:6px;padding:6px 8px;background:#fffbeb;">
+                ${candidates.map((c, idx) => `<option value="${escapeHtml(c.id)}" ${c.id === defaultId ? 'selected' : ''}>${escapeHtml(c.docNo||'-')} · ${c.date} · ${fmt(c.total)}${idx===0?' (가장 오래됨)':''}</option>`).join('')}
+              </select>
+              ` : `
               <div style="font-size:11px;color:var(--muted);margin-top:1px;">${escapeHtml(m.order.docNo||'-')} · ${m.order.date} · ${fmt(m.order.total)}</div>
+              `}
             </div>
           </div>
         </div>
-      `).join('')}
+      `;
+      }).join('')}
 
       <!-- 납품 날짜 선택 + 처리 버튼 -->
       ${undeliveredMatches.length ? `
@@ -210,6 +244,14 @@ function renderDeliveryResult(result) {
       ${unmatched.map(u => `<div style="font-size:12px;color:var(--muted);padding:4px 0;">• ${escapeHtml(u)}</div>`).join('')}
     ` : ''}
   `;
+}
+
+// v3.3.64: 동일 선명 후보 드롭다운에서 다른 발주를 고르면, 바로 위(같은 카드) 체크박스가
+// 가리키는 발주 id를 그 선택으로 바꿔준다 — 체크박스 자체는 그대로 두고 data-del-id만 교체.
+function delSwitchCandidate(selectEl) {
+  const card = selectEl.closest('.prev-card');
+  const cb = card?.querySelector('input[type="checkbox"][data-del-id]');
+  if (cb) cb.dataset.delId = selectEl.value;
 }
 
 // ── 체크박스 헬퍼 ──
