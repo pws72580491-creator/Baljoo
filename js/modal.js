@@ -60,6 +60,16 @@ function openModal(id) {
       <div class="db-title">납품 금액 현황</div>
       ${isDelivered ? `
         <div class="db-row"><span class="db-label">납품금액</span><span class="db-val plus">${fmt(o.total)}</span></div>
+        <div class="db-row" style="align-items:center;">
+          <span class="db-label">실제 납품일</span>
+          <span class="db-val" style="display:flex;align-items:center;gap:6px;">
+            <input type="date" id="delivered-date-${o.id}" value="${o.deliveredDate || ''}"
+                   style="font-size:12px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;color:var(--navy);font-weight:700;">
+            <button onclick="changeDeliveredDate('${o.id}')"
+                    style="background:var(--navy);color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">변경</button>
+          </span>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px;">※ 납기일자(예정일)와는 별개 — 이 날짜가 납품현황·재고 계산의 기준입니다</div>
       ` : ''}
       ${isPartial ? `
         <div class="db-row"><span class="db-label">발주금액</span><span class="db-val">${fmt(o.total)}</span></div>
@@ -320,6 +330,44 @@ function toggleDelivered(id) {
   } catch (err) {
     console.error('[toggleDelivered] 오류:', err);
     toast('⚠️ 납품 처리 중 오류가 발생했습니다.');
+  }
+}
+
+// ── 실제 납품일 변경 (v3.3.65) ──
+// "납기일자"(o.delivery, 예정일)와 "실제 납품일"(o.deliveredDate, 실적)은 별개 필드다.
+// 납품현황 탭의 날짜별 그룹핑·재고 계산은 실제 납품일 기준이라, 예정일만 고쳐서는
+// 반영되지 않는다 — 이 함수가 실제 납품일 쪽을 직접 고친다.
+function changeDeliveredDate(id) {
+  try {
+    const o = orders.find(x => x.id === id);
+    if (!o) return;
+    const input = document.getElementById(`delivered-date-${id}`);
+    const newDate = input?.value;
+    if (!newDate) { toast('⚠️ 날짜를 선택해주세요.'); return; }
+    if (newDate === o.deliveredDate) { toast('기존과 같은 날짜입니다.'); return; }
+
+    // 여러 날짜에 걸쳐 나뉜 진짜 분할배송(deliveryEvents 2개 이상)은 "날짜 하나"로
+    // 바꾸는 게 의미가 불분명해 이 간단 변경 대상에서 제외한다.
+    if (Array.isArray(o.deliveryEvents) && o.deliveryEvents.length > 1) {
+      toast('⚠️ 여러 날짜로 나뉘어 배송된 건이라 여기서는 날짜를 바꿀 수 없습니다.');
+      return;
+    }
+
+    o.deliveredDate = newDate;
+    // 배송 이력이 이벤트 1개(단일 완료건)면 그 이벤트 날짜도 함께 옮겨야
+    // _deliveryRecordsFor()가 실제로 새 날짜로 반영한다(이력이 있으면 이력의
+    // 날짜를 deliveredDate보다 우선해서 쓰기 때문).
+    if (Array.isArray(o.deliveryEvents) && o.deliveryEvents.length === 1) {
+      o.deliveryEvents[0].date = newDate;
+    }
+
+    save();
+    renderAll();
+    openModal(id); // 모달을 새로고침해서 바뀐 날짜를 바로 보여줌
+    toast(`📅 납품일이 ${newDate}로 변경되었습니다.`);
+  } catch (err) {
+    console.error('[changeDeliveredDate] 오류:', err);
+    toast('⚠️ 납품일 변경 중 오류가 발생했습니다.');
   }
 }
 
