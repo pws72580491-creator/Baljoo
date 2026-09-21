@@ -111,6 +111,7 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
   if (candidate?.finishReason === 'SAFETY') throw new Error('이미지가 안전 필터에 차단되었습니다.');
   if (candidate?.finishReason === 'RECITATION') throw new Error('응답 생성 실패 (RECITATION). 다시 시도해주세요.');
 
+  window._geminiLastFinish = candidate?.finishReason || '';  // v3.3.68: 응답 잘림(MAX_TOKENS) 감지용
   const text = candidate?.content?.parts?.[0]?.text || '';
   if (!text) throw new Error('AI 응답 없음 — 이미지 형식을 확인하거나 다시 시도해주세요.');
   return text;
