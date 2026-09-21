@@ -29,14 +29,20 @@ async function handleDeliveryFiles(files) {
   await BG.start();
 
   try {
+    // v3.3.66: 납품 리스트는 발주서 사진(보통 품목 1~3줄)과 달리 여러 척이
+    // 한 화면에 줄줄이 나열된 "긴 목록" 문서라, 발주서용 해상도(IMAGE_MAX_PX=1024)로
+    // 줄이면 아래쪽 줄일수록 글자가 작아져 인식이 끊기기 쉽다(예: 위쪽 몇 척만
+    // 인식되고 나머지가 누락 — 반복 업로드가 필요해지는 원인). 이 업로드에서만
+    // 더 높은 해상도를 쓴다.
+    const DELIVERY_LIST_MAX_PX = 1600;
     const parts = [];
     for (const f of files) {
       if (f.type === 'application/pdf') {
-        const pages = await pdfToImages(f);
+        const pages = await pdfToImages(f, DELIVERY_LIST_MAX_PX);
         pages.forEach(dataUrl => parts.push(imagePart(dataUrl)));
       } else {
         // 리사이즈 적용
-        const dataUrl = await resizeImage(f, IMAGE_MAX_PX, IMAGE_QUALITY);
+        const dataUrl = await resizeImage(f, DELIVERY_LIST_MAX_PX, IMAGE_QUALITY);
         parts.push(imagePart(dataUrl));
       }
     }
@@ -57,7 +63,8 @@ ${orderSummary}
 이미지에서 "이른아침" 항목(선명/척수)을 모두 세고, 위 발주목록과 매칭해 아래 JSON만 출력(코드블록 없이):
 {"totalCount":이미지속이른아침전체항목수(숫자),"matched":[{"id":"발주ID","ship":"선명","reason":"근거"}],"summary":"요약"}
 이른아침 항목 없으면: {"totalCount":0,"matched":[],"summary":"이른아침 항목 없음"}
-동일한 선명으로 발주목록에 여러 건이 있으면, 그 중 날짜가 가장 오래된 건의 ID를 우선 선택하세요.`;
+동일한 선명으로 발주목록에 여러 건이 있으면, 그 중 날짜가 가장 오래된 건의 ID를 우선 선택하세요.
+이미지 위쪽부터 아래쪽까지, 목록 전체를 끝까지 빠짐없이 확인하세요 — 일부만 세고 멈추지 마세요.`;
 
     parts.unshift(textPart(prompt));
     setDelProgress(70);

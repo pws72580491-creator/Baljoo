@@ -341,7 +341,7 @@ function resizeImage(file, maxPx, quality) {
   });
 }
 
-async function pdfToImages(file) {
+async function pdfToImages(file, maxPx = IMAGE_MAX_PX) {
   if (!window.pdfjsLib) throw new Error('PDF 렌더링 라이브러리 로드 실패');
   const buf    = await file.arrayBuffer();
   const pdf    = await pdfjsLib.getDocument({ data: buf }).promise;
@@ -350,13 +350,13 @@ async function pdfToImages(file) {
   for (let i = 1; i <= n; i++) {
     const page = await pdf.getPage(i);
     // v3.3.57 FIX: 기존엔 scale:1.8로 한 번 확대한 viewport의 width/height로
-    // "최대 크기 제한(IMAGE_MAX_PX)"을 다시 나눠서, 최종 scale이 의도한 것보다 약
+    // "최대 크기 제한(maxPx)"을 다시 나눠서, 최종 scale이 의도한 것보다 약
     // 1.8배(면적 기준 약 3.2배) 작게 나오던 버그. 원본(scale:1, 72dpi 기준) 크기를
-    // 기준으로 계산해야 IMAGE_MAX_PX 한도까지 제대로 확대된다 — 특히 표가 빽빽하고
+    // 기준으로 계산해야 maxPx 한도까지 제대로 확대된다 — 특히 표가 빽빽하고
     // 글자가 작은 문서(거래명세서 등)에서 인식률이 크게 떨어지는 원인이었음.
     const base  = page.getViewport({ scale: 1 });
-    // 최대 크기 제한 (API 오류 방지) — 1.8배까지는 확대하되 IMAGE_MAX_PX를 넘지 않도록
-    const scale = Math.min(1.8, IMAGE_MAX_PX / Math.max(base.width, base.height));
+    // 최대 크기 제한 (API 오류 방지) — 1.8배까지는 확대하되 maxPx를 넘지 않도록
+    const scale = Math.min(1.8, maxPx / Math.max(base.width, base.height));
     const vp2   = page.getViewport({ scale });
     const canvas   = document.createElement('canvas');
     canvas.width   = vp2.width;
