@@ -15,63 +15,6 @@ function onDropDelivery(e) {
 function setDelStatus(m)   { document.getElementById('delStatus').textContent = m; }
 function setDelProgress(p) { document.getElementById('delProgBar').style.width = p + '%'; }
 
-// ── v3.3.67: 납품 리스트 분석 결과 집계 (전체 / 매칭 / 납품 대기 / 이미 납품완료 / 미매칭) ──
-// 최근 며칠 이내에 납품완료 처리된 발주까지 AI 매칭 후보에 포함할지("이미 처리된 척"을 인식하기 위함)
-const DELIVERY_RECENT_DAYS = 30;
-const DELIVERY_RECENT_MAX  = 40;
-
-function _delIsPending(st) { return !['delivered', 'cancelled', 'returned'].includes(st); }
-function _delShipKey(ship) { return (ship || '').trim().toLowerCase(); }
-function _delDaysAgoStr(n) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-// AI가 돌려준 matched를 정리: 존재하지 않는 ID·중복 제거 + "이미 납품완료" 발주를 골랐는데
-// 같은 선명의 미납품/부분납품 발주가 남아 있으면 그쪽(오래된 순)으로 교체 — 프롬프트 지시에만
-// 의존하지 않고 코드에서도 한 번 더 보장한다.
-function normalizeDeliveryMatches(result) {
-  const byId = id => orders.find(o => o.id === id);
-  const raw = (result.matched || []).filter(m => m && m.id && byId(m.id));
-  const claimed = new Set(raw.filter(m => _delIsPending(byId(m.id).deliveryStatus)).map(m => m.id));
-  const emitted = new Set();
-  const out = [];
-  for (const m of raw) {
-    let id = m.id;
-    let order = byId(id);
-    let reason = m.reason;
-    if (order.deliveryStatus === 'delivered') {
-      const key = _delShipKey(order.ship);
-      const alt = orders
-        .filter(o => _delShipKey(o.ship) === key && _delIsPending(o.deliveryStatus) && !claimed.has(o.id))
-        .sort((a, b) => (a.date || '').localeCompare(b.date || ''))[0];
-      if (alt) {
-        claimed.add(alt.id);
-        id = alt.id;
-        reason = (reason ? reason + ' ' : '') + '(같은 선명 미납품 발주로 자동 교체)';
-      }
-    }
-    if (emitted.has(id)) continue;
-    emitted.add(id);
-    out.push({ ...m, id, reason });
-  }
-  return out;
-}
-
-function getDeliveryCounts(result) {
-  const matchedOrders = (result.matched || [])
-    .map(m => orders.find(o => o.id === m.id))
-    .filter(Boolean);
-  const matchedCnt = matchedOrders.length;
-  const pending    = matchedOrders.filter(o => _delIsPending(o.deliveryStatus)).length;
-  const delivered  = matchedOrders.filter(o => o.deliveryStatus === 'delivered').length;
-  const other      = matchedCnt - pending - delivered;  // 취소·반품
-  const aiTotal    = Number(result.totalCount);
-  const total      = Math.max(Number.isFinite(aiTotal) ? aiTotal : 0, matchedCnt);
-  return { total, matchedCnt, pending, delivered, other, unmatched: total - matchedCnt };
-}
-
 async function handleDeliveryFiles(files) {
   if (!files.length) return;
   if (!getGeminiKey()) { toast('⚠️ API 키를 먼저 입력해주세요'); return; }
@@ -105,38 +48,22 @@ async function handleDeliveryFiles(files) {
     }
     setDelProgress(50);
 
-    // v3.3.67: 미납품/부분납품 발주(60건) + 최근 N일 내 납품완료된 발주(참고용)를 함께 전달.
-    // 이전엔 납품완료 건을 아예 빼서, 이미 처리한 척이 다시 리스트에 나오면 "미매칭"으로만
-    // 보였다 — 이제 "이미 납품완료"로 인식해 전체 척수 대비 처리 현황을 구분해 보여준다.
-    const _row = (o, st) => `${o.id}|${o.ship}|${o.docNo||''}|${o.poNo||''}|${o.date||''}|${st}`;
-    const pendingSummary = orders
-      .filter(o => _delIsPending(o.deliveryStatus))
+    const orderSummary = orders
+      .filter(o => !['delivered', 'cancelled', 'returned'].includes(o.deliveryStatus))
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''))  // 최근 날짜 우선
-      .slice(0, 60)
-      .map(o => _row(o, o.deliveryStatus === 'partial' ? '부분납품' : '미납품'))
-      .join('\n');
-    const recentCutoff = _delDaysAgoStr(DELIVERY_RECENT_DAYS);
-    const deliveredSummary = orders
-      .filter(o => o.deliveryStatus === 'delivered' && !o.isReturn
-                && (o.deliveredDate || o.date || '') >= recentCutoff)
-      .sort((a, b) => (b.deliveredDate || b.date || '').localeCompare(a.deliveredDate || a.date || ''))
-      .slice(0, DELIVERY_RECENT_MAX)
-      .map(o => _row(o, '납품완료'))
+      .slice(0, 60)  // 40 → 60건으로 확대
+      .map(o => `${o.id}|${o.ship}|${o.docNo||''}|${o.poNo||''}|${o.date||''}`)
       .join('\n');
 
     const prompt = `납품 확인서/리스트 이미지입니다. "이른아침" 업체 항목만 추출하세요.
 
-발주목록(ID|선명|서류번호|발주번호|날짜|상태):
-${pendingSummary}
-${deliveredSummary ? `
-최근 ${DELIVERY_RECENT_DAYS}일 내 이미 납품완료 처리된 발주(이미 처리된 척인지 확인용):
-${deliveredSummary}
-` : ''}
+발주목록(ID|선명|서류번호|발주번호|날짜):
+${orderSummary}
+
 이미지에서 "이른아침" 항목(선명/척수)을 모두 세고, 위 발주목록과 매칭해 아래 JSON만 출력(코드블록 없이):
 {"totalCount":이미지속이른아침전체항목수(숫자),"matched":[{"id":"발주ID","ship":"선명","reason":"근거"}],"summary":"요약"}
 이른아침 항목 없으면: {"totalCount":0,"matched":[],"summary":"이른아침 항목 없음"}
 동일한 선명으로 발주목록에 여러 건이 있으면, 그 중 날짜가 가장 오래된 건의 ID를 우선 선택하세요.
-같은 선명에 상태가 미납품/부분납품인 발주가 있으면 반드시 그쪽을 선택하고, 상태가 납품완료인 발주는 그 선명의 미납품/부분납품 발주가 하나도 없을 때만 매칭하세요.
 이미지 위쪽부터 아래쪽까지, 목록 전체를 끝까지 빠짐없이 확인하세요 — 일부만 세고 멈추지 마세요.`;
 
     parts.unshift(textPart(prompt));
@@ -176,11 +103,11 @@ ${deliveredSummary}
     }
 
     setDelProgress(90);
-    result.matched = normalizeDeliveryMatches(result);
     renderDeliveryResult(result);
     setDelProgress(100);
-    const c = getDeliveryCounts(result);
-    setDelStatus(`✅ 분석 완료 — 전체 ${c.total}척 중 ${c.matchedCnt}척 매칭 (납품 대기 ${c.pending} · 이미 납품완료 ${c.delivered}${c.unmatched > 0 ? ` · 미매칭 ${c.unmatched}` : ''})`);
+    const totalCnt = result.totalCount ?? result.matched?.length ?? 0;
+    const matchedCnt = result.matched?.length || 0;
+    setDelStatus(`✅ 분석 완료 — 전체 ${totalCnt}척 중 ${matchedCnt}척 매칭됨`);
     const delInput = document.getElementById('deliveryInput');
     if (delInput) delInput.value = '';  // 같은 파일 재선택 가능하도록 초기화
     await BG.end();
@@ -228,22 +155,17 @@ function renderDeliveryResult(result) {
   // v3.3.14: analyzer.js의 전역 pendingOrders(업로드 미리보기 큐)와 이름이 겹쳐 헷갈리기 쉬웠던
   // 지역변수 이름을 정리 (동작에는 영향 없던 단순 네이밍 충돌).
   const undeliveredMatches = matchedOrders.filter(m => !['delivered', 'cancelled', 'returned'].includes(m.order.deliveryStatus));
-  const cnt = getDeliveryCounts({ ...result, matched });  // v3.3.67: 전체/매칭/납품 대기/이미 납품완료/미매칭
+  const totalCnt = result.totalCount ?? matched.length;
   const todayVal = todayStr();
-  const chip = (txt, bg, fg) => `<span style="font-size:11px;font-weight:700;color:${fg};background:${bg};border-radius:6px;padding:3px 8px;">${txt}</span>`;
 
   sec.innerHTML = `
-    <!-- 매칭 요약 배너 (v3.3.67: 납품 대기 / 이미 납품완료 / 미매칭 구분) -->
-    <div style="margin-bottom:10px;padding:10px 12px;background:${cnt.unmatched > 0 ? '#fffbeb' : '#f0fdf4'};border-radius:8px;">
-      <div style="font-size:13px;font-weight:700;color:${cnt.unmatched > 0 ? '#b45309' : 'var(--success)'};">
-        📦 전체 ${cnt.total}척 중 ${cnt.matchedCnt}척 매칭
-      </div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">
-        ${chip(`🆕 납품 대기 ${cnt.pending}척`, '#dbeafe', '#1d4ed8')}
-        ${chip(`✅ 이미 납품완료 ${cnt.delivered}척`, '#dcfce7', '#15803d')}
-        ${cnt.unmatched > 0 ? chip(`❓ 미매칭 ${cnt.unmatched}척`, '#fef3c7', '#b45309') : ''}
-        ${cnt.other > 0 ? chip(`🚫 취소·반품 ${cnt.other}척`, '#f1f5f9', '#64748b') : ''}
-      </div>
+    <!-- 매칭 요약 배너 -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:10px 12px;
+                background:${matched.length < totalCnt ? '#fffbeb' : '#f0fdf4'};border-radius:8px;">
+      <span style="font-size:13px;font-weight:700;color:${matched.length < totalCnt ? '#b45309' : 'var(--success)'};">
+        📦 전체 ${totalCnt}척 중 ${matched.length}척 매칭
+      </span>
+      ${matched.length < totalCnt ? `<span style="font-size:11px;color:#b45309;">미매칭 ${totalCnt - matched.length}척</span>` : ''}
     </div>
     ${result.summary ? `<div style="font-size:12px;color:var(--muted);margin-bottom:10px;padding:8px 10px;background:var(--bg);border-radius:8px;">📋 ${escapeHtml(result.summary)}</div>` : ''}
 
@@ -283,7 +205,7 @@ function renderDeliveryResult(result) {
               <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                 <span style="font-size:13px;font-weight:800;color:var(--navy);">${escapeHtml(m.order.ship)}</span>
                 <span style="font-size:10px;font-weight:700;color:#15803d;background:#dcfce7;border-radius:4px;padding:1px 6px;">
-                  ${m.order.deliveryStatus === 'delivered' ? '이미 납품완료' + (m.order.deliveredDate ? ' · ' + m.order.deliveredDate.slice(5).replace('-', '/') : '')
+                  ${m.order.deliveryStatus === 'delivered' ? '이미 납품완료'
                     : m.order.deliveryStatus === 'partial'   ? '🚚 부분납품 중'
                     : m.order.deliveryStatus === 'cancelled' ? '🚫 발주취소됨'
                     : m.order.deliveryStatus === 'returned'  ? '↩️ 반품처리됨'
