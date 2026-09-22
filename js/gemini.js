@@ -2,9 +2,12 @@
 // gemini.js  —  Google AI Studio 직접 호출 유틸
 // ══════════════════════════════════════════════════════
 
-const GEMINI_MODEL    = 'gemini-2.5-flash';        // 주 모델 (현재 최신 GA)
-const GEMINI_MODEL_F2 = 'gemini-2.0-flash';        // 1차 폴백
-const GEMINI_MODEL_FB = 'gemini-1.5-flash';        // 최종 폴백 (가장 안정적·저비용)
+// v3.3.70: 기존 세 모델이 전부 서비스 종료됨 — gemini-1.5-flash·gemini-2.0-flash는 이미 완전
+// 종료, gemini-2.5-flash는 2026-10-16 종료 예정이라 다시 걸리기 전에 Gemini 3 계열로 교체.
+// (2.5-flash를 폴백에도 넣지 않은 이유: 넣어봤자 10월 중순부터는 어차피 죽는 모델이라 의미 없음)
+const GEMINI_MODEL    = 'gemini-3.5-flash';        // 주 모델 — 2.5-flash 후속 격인 가성비 모델 (Stable)
+const GEMINI_MODEL_F2 = 'gemini-3.6-flash';        // 1차 폴백 — 상위 세대, 멀티모달 추론 강화 (Stable)
+const GEMINI_MODEL_FB = 'gemini-3.5-flash-lite';   // 최종 폴백 — 가장 가볍고 저렴 (Stable)
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // ── Gemini API 직접 호출 (이미지+텍스트 멀티모달) ──
@@ -96,6 +99,9 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
     }
 
     const msg = errBody?.error?.message || resp.statusText;
+    // v3.3.70: 최종 폴백 모델까지 404/not found면 Google이 모델을 또 교체했을 가능성이 큼 —
+    // 원본 오류를 감추지 않되, 원인을 바로 알 수 있게 안내를 덧붙인다.
+    if (isFallbackable) throw new Error(`AI 모델을 찾을 수 없습니다 — Google이 모델을 변경했을 수 있어요, js/gemini.js의 모델명 확인 필요. (${msg})`);
     if (resp.status === 400) throw new Error('요청 오류: ' + msg);
     if (resp.status === 401 || resp.status === 403) throw new Error('API 키가 올바르지 않습니다. 설정에서 확인해주세요.');
     if (resp.status === 429) throw new Error('모든 키 한도 초과. 잠시 후 다시 시도하세요.');
