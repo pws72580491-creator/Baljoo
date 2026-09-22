@@ -2,6 +2,24 @@
 
 ---
 
+## v3.3.70 · 2026-09-22
+
+### 🐛 긴급 수정 — AI 매칭 전체 실패 ("models/gemini-1.5-flash is not found" 오류)
+
+**원인**: 앱이 쓰던 모델 3개가 순서대로 이미 죽어있었음 — `gemini-1.5-flash`·`gemini-2.0-flash`는
+Google이 완전 종료했고, 주 모델이던 `gemini-2.5-flash`도 2026-10-16 종료 예정. 폴백이 셋 다 실패로
+끝까지 굴러가 마지막 모델(1.5-flash)의 오류가 화면에 그대로 노출됨
+
+- **[수정]** `js/gemini.js`의 모델 3개를 전부 현재 서비스 중인 Gemini 3 계열로 교체
+  (`gemini-2.5-flash` → `gemini-3.5-flash`, `gemini-2.0-flash` → `gemini-3.6-flash`,
+  `gemini-1.5-flash` → `gemini-3.5-flash-lite`). 2.5-flash는 곧 종료될 모델이라 폴백에도 넣지 않음
+- **[개선]** 폴백 모델까지 전부 "모델 없음" 오류면, 원본 오류에 "Google이 모델을 변경했을 수 있음"
+  안내를 덧붙여 표시 — 다음에 또 이런 상황이 오면 화면 메시지만으로 원인을 바로 알 수 있음
+- 발주서 분석(analyzer.js)도 같은 `callGemini()`를 쓰므로 함께 정상화됨
+- 한계: Google이 또 모델을 교체하면 같은 오류가 재발함. `js/gemini.js` 상단 3개 상수만 바꾸면 됨
+
+---
+
 ## v3.3.69 · 2026-09-22
 
 - **[조정]** "이미 납품완료" 판정 기간 14일 → **10일** (`DELIVERY_RECENT_DAYS`). 리스트 재업로드가 보통 7~10일
