@@ -22,9 +22,13 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
     }
   }
 
+  // v3.3.71: Gemini 3.x는 기본 생각(thinking) 단계가 medium이라 코딩·에이전트급으로 오래
+  // 생각한 뒤 답함 — 단순 이미지 판독·매칭엔 과함(체감 지연의 주 원인). low로 낮춰 필요한
+  // 만큼만 생각하게 함(정확도 때문에 완전히 끄는 minimal은 사용 안 함). temperature 등
+  // 구세대 샘플링 파라미터는 Gemini 3 계열에서 권장하지 않아 제거.
   const body = {
     contents: [{ parts }],
-    generationConfig: { temperature: 0, maxOutputTokens: maxTokens }
+    generationConfig: { maxOutputTokens: maxTokens, thinkingConfig: { thinkingLevel: 'low' } }
   };
 
   let resp;
