@@ -122,8 +122,17 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
   if (candidate?.finishReason === 'RECITATION') throw new Error('응답 생성 실패 (RECITATION). 다시 시도해주세요.');
 
   window._geminiLastFinish = candidate?.finishReason || '';  // v3.3.68: 응답 잘림(MAX_TOKENS) 감지용
-  const text = candidate?.content?.parts?.[0]?.text || '';
-  if (!text) throw new Error('AI 응답 없음 — 이미지 형식을 확인하거나 다시 시도해주세요.');
+  // v3.3.72: parts[0]만 읽으면 Gemini 3.x처럼 응답이 여러 파트(생각 요약·서명 파트 등)로
+  // 나뉠 때 빈 문자열이 될 수 있어, thought가 아닌 텍스트 파트를 모두 이어 붙인다.
+  const respParts = candidate?.content?.parts || [];
+  const text = respParts.filter(p => p && !p.thought && typeof p.text === 'string').map(p => p.text).join('');
+  if (!text) {
+    const block = data?.promptFeedback?.blockReason;
+    const fr = candidate?.finishReason;
+    if (block) throw new Error(`AI 요청이 차단되었습니다 (${block}).`);
+    if (fr === 'MAX_TOKENS') throw new Error('AI 응답이 비어 있습니다 — 출력 한도(MAX_TOKENS)에서 잘렸습니다. 다시 시도해주세요.');
+    throw new Error(`AI 응답 없음 (종료사유: ${fr || '없음'}) — 이미지 형식을 확인하거나 다시 시도해주세요.`);
+  }
   return text;
 }
 

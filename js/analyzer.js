@@ -139,6 +139,7 @@ async function handleFiles(files) {
   await BG.start();
 
   const failedFiles = [];
+  const failReasons = [];   // v3.3.72: 실패 원인을 마지막 안내문에 남기기 위해 수집
   for (let i = 0; i < all.length; i++) {
     setProgress(Math.round(((i + 0.5) / all.length) * 100));
     setStatus(`분석 중 ${i + 1}/${all.length}: ${all[i].name} (백그라운드 처리 중)`);
@@ -146,6 +147,7 @@ async function handleFiles(files) {
     catch(e) {
       console.warn('[handleFiles] 파일 실패, 다음 파일로 계속:', all[i].name, e.message);
       failedFiles.push(all[i].name);
+      failReasons.push(e.message === 'API_KEY_MISSING' ? 'API 키 없음' : (e.message || '알 수 없는 오류'));
     }
   }
 
@@ -158,7 +160,10 @@ async function handleFiles(files) {
     const failMsg = failedFiles.length ? ` (실패 ${failedFiles.length}건: ${failedFiles.join(', ')})` : '';
     setStatus(`✅ ${pendingOrders.length}건 분석 완료. 확인 후 저장하세요.${failMsg}`);
   } else {
-    setStatus('❌ 발주서 데이터를 찾지 못했습니다. API 키와 파일 형식을 확인하세요.');
+    // v3.3.72: 예전엔 개별 파일의 실제 오류(한도 초과·요청 오류·응답 없음 등)가 이 일반 문구에
+    // 덮여서 원인을 알 수 없었음 — 원인을 함께 표시한다.
+    const why = failReasons.length ? ` — 원인: ${[...new Set(failReasons)].slice(0, 2).join(' / ')}` : '';
+    setStatus(`❌ 발주서 데이터를 찾지 못했습니다${why}`);
   }
 }
 
@@ -220,7 +225,7 @@ unit 선택 기준(중요):
       parts.push(imagePart(dataUrl));
     }
 
-    let txt = await callGemini(parts, 4000);
+    let txt = await callGemini(parts, 8000);   // v3.3.72: 4000 → 8000 (품목이 많은 발주서에서 JSON이 잘리지 않도록 여유)
 
     // 코드블록 제거 후 { } 범위만 추출
     txt = txt.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
