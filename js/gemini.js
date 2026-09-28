@@ -83,6 +83,18 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
       await new Promise(r => setTimeout(r, delay));
       return callGemini(parts, maxTokens, model, _retry + 1, 0);
     }
+    // v3.3.73: [버그 수정] 재시도까지 다 썼는데도 429/503이면, 예전엔 여기서 바로 아래 공통
+    // 오류 처리로 빠져 폴백 없이 실패 처리됐음 — 404 때와 똑같이 다음 모델로 넘어가야 함.
+    // (한도는 모델별로 따로 관리되므로, 주 모델 한도가 찼어도 폴백 모델은 남아있을 수 있음)
+    if (model === GEMINI_MODEL) {
+      console.warn(`[Gemini] 주 모델 ${resp.status} 소진, 폴백1로 교체`);
+      return callGemini(parts, maxTokens, GEMINI_MODEL_F2, 0, 0);
+    }
+    if (model === GEMINI_MODEL_F2) {
+      console.warn(`[Gemini] 폴백1 ${resp.status} 소진, 폴백2로 교체`);
+      return callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0);
+    }
+    // 최종 폴백 모델까지 소진 → 아래 공통 오류 처리로 진행해 안내 메시지 표시
   }
 
   // 모델 오류(404/deprecated) → 단계적 모델 폴백
