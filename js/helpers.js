@@ -508,7 +508,7 @@ function filtered() {
   if (statusMode === 'trash') {
     const dq = searchQ.toLowerCase();
     return [...deletedOrders]
-      .filter(o => !searchQ || (o.ship + o.docNo + o.poNo).toLowerCase().includes(dq))
+      .filter(o => !searchQ || [o.ship, o.docNo, o.poNo].join(' ').toLowerCase().includes(dq))
       .sort((a, b) => (b.deletedAt || '').localeCompare(a.deletedAt || '')); // 최근 삭제한 것부터
   }
 
@@ -520,17 +520,17 @@ function filtered() {
     .filter(o => isArchiveMode ? !!o.archived : !o.archived)
     .filter(o => filterMode === 'all' || o.category === filterMode)
     .filter(o => isArchiveMode || statusMode === 'all' || o.deliveryStatus === statusMode)
-    .filter(o => !searchQ || (o.ship + o.docNo + o.poNo).toLowerCase().includes(searchQ.toLowerCase()))
+    .filter(o => !searchQ || [o.ship, o.docNo, o.poNo].join(' ').toLowerCase().includes(searchQ.toLowerCase()))
     .filter(o => !from || o.date >= from)
     .filter(o => !to   || o.date <= to)
     .filter(o => !dupOnlyMode || dupIds.has(o.id));
 
   list.sort((a, b) => {
     switch (sortMode) {
-      case 'date_asc':  return a.date.localeCompare(b.date);
+      case 'date_asc':  return (a.date||'').localeCompare(b.date||'');
       case 'name_asc':  return (a.ship||'').localeCompare(b.ship||'');
       case 'name_desc': return (b.ship||'').localeCompare(a.ship||'');
-      default:          return b.date.localeCompare(a.date); // date_desc
+      default:          return (b.date||'').localeCompare(a.date||''); // date_desc
     }
   });
   return list;

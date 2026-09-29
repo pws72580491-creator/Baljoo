@@ -28,13 +28,13 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
   // 구세대 샘플링 파라미터는 Gemini 3 계열에서 권장하지 않아 제거.
   const body = {
     contents: [{ parts }],
-    generationConfig: { maxOutputTokens: maxTokens, thinkingConfig: { thinkingLevel: 'low' } }
+    generationConfig: { maxOutputTokens: maxTokens, responseMimeType: 'application/json', thinkingConfig: { thinkingLevel: 'low' } }
   };
 
   let resp;
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000); // 30초 타임아웃
+    const timeout = setTimeout(() => controller.abort(), 60000); // 60초 타임아웃
     resp = await fetch(
       `${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal }
@@ -43,7 +43,7 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
   } catch (networkErr) {
     // Failed to fetch / 타임아웃 / 네트워크 오류 → 다음 키로 교체 후 재시도
     const isTimeout = networkErr.name === 'AbortError';
-    console.warn(`[Gemini] ${isTimeout ? '타임아웃(30초)' : '네트워크 오류'}: ${networkErr.message}`);
+    console.warn(`[Gemini] ${isTimeout ? '타임아웃(60초)' : '네트워크 오류'}: ${networkErr.message}`);
     const keys = getGeminiKeys();
     if (_keyRetry < keys.length - 1) {
       rotateGeminiKey();
@@ -65,7 +65,7 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
   }
 
   // 429(한도초과) / 503(과부하) → 다음 키로 교체 후 재시도
-  if (resp.status === 429 || resp.status === 503) {
+  if ([429, 500, 502, 503, 504].includes(resp.status)) {
     const keys = getGeminiKeys();
     if (_keyRetry < keys.length - 1) {
       rotateGeminiKey();
@@ -183,13 +183,10 @@ function rotateGeminiKey() {
 }
 
 function saveGeminiKeys() {
-  let saved = 0;
-  [1,2,3,4].forEach(i => {
-    const val = (document.getElementById(`geminiKey${i}`)?.value || '').trim();
-    if (val) { localStorage.setItem(`geminiApiKey${i}`, val); saved++; }
-    else localStorage.removeItem(`geminiApiKey${i}`);
-  });
-  if (!saved) { toast('⚠️ 키를 1개 이상 입력해주세요'); return; }
+  const vals = [1,2,3,4].map(i => (document.getElementById(`geminiKey${i}`)?.value || '').trim());
+  const saved = vals.filter(Boolean).length;
+  if (!saved) { toast('⚠️ 키를 1개 이상 입력해주세요 (기존 키는 유지됩니다)'); return; }
+  vals.forEach((v, k) => { if (v) localStorage.setItem(`geminiApiKey${k + 1}`, v); else localStorage.removeItem(`geminiApiKey${k + 1}`); });
   _keyIndex = 0;
   toast(`✅ API 키 ${saved}개 저장 완료`);
 }

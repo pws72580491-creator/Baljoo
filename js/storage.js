@@ -47,7 +47,8 @@ function load() {
     if (raw) {
       const parsed = safeParse(raw);
       if (!Array.isArray(parsed)) {
-        console.warn('[storage] 저장 데이터 형식 오류 — 초기화합니다.');
+        try { localStorage.setItem('baljuOrders_corrupt_backup', raw); } catch (e) {}
+        console.warn('[storage] 저장 데이터 형식 오류 — 원본을 baljuOrders_corrupt_backup에 보관 후 초기화합니다.');
         orders = [];
         return;
       }
@@ -128,7 +129,7 @@ function load() {
       deletedOrders = Array.isArray(parsedTrash) ? parsedTrash : [];
 
       const cutoff    = Date.now() - TRASH_RETENTION_DAYS * 86400000;
-      const isExpired = o => !o.deletedAt || new Date(o.deletedAt).getTime() < cutoff;
+      const isExpired = o => { if (!o.deletedAt) { o.deletedAt = new Date().toISOString(); return false; } return new Date(o.deletedAt).getTime() < cutoff; };
       const expired   = deletedOrders.filter(isExpired);
       if (expired.length) {
         // 영구삭제 시점에만 더블체크/반품확인 표시 정리 (휴지통에 있는 동안은 복원 시
@@ -148,7 +149,8 @@ function load() {
 }
 
 function resetOrders() {
-  if (!confirm('발주 목록 전체를 초기화할까요?\n저장된 모든 내역이 삭제됩니다.')) return;
+  if (!confirm('발주 목록 전체를 초기화할까요?\n저장된 모든 내역이 삭제되며 클라우드 자동동기화에도 반영됩니다.\n(먼저 "스냅샷 지금 저장"을 권장합니다)')) return;
+  window._allowEmptySync = true;
   orders = [];
   save();
   // v3.3.14: 전체 초기화 시 더블체크·반품확인 표시도 함께 정리 (모든 id가 사라지므로)

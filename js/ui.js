@@ -154,7 +154,7 @@ function renderAll() {
   const dupIdSet = _computeDupOrderIdSet(); // 서류번호·발주번호 중복 (양쪽 목록에서 공용)
   const recent = [...monthOrders]
     .filter(o => !o.archived && (o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial' || o.deliveryStatus === 'cancelled' || o.deliveryStatus === 'returned'))
-    .sort((a, b) => b.date.localeCompare(a.date))
+    .sort((a, b) => (b.date||'').localeCompare(a.date||''))
     .slice(0, 10);
   document.getElementById('dash-list').innerHTML = recent.length
     ? recent.map(o => orderCard(o, false, dupIdSet)).join('')
@@ -952,7 +952,7 @@ function renderDeliveryStatus() {
     day.records.sort((a, b) => (a.order.ship || '').localeCompare(b.order.ship || ''));
   });
 
-  const dayList = Object.values(byDay).sort((a, b) => b.date.localeCompare(a.date));
+  const dayList = Object.values(byDay).sort((a, b) => (b.date||'').localeCompare(a.date||''));
 
   // ── 품목별 재고 이월 계산 (전체 이력 기준, 날짜 오름차순 누적) ──
   // 화면에 보이는 월(_delivMonth)과 무관하게 정확히 이월되도록,
@@ -1717,7 +1717,7 @@ function renderDashByDate() {
     day.records.sort((a, b) => (a.order.ship || '').localeCompare(b.order.ship || ''));
   });
 
-  const dayList = Object.values(byDay).sort((a, b) => b.date.localeCompare(a.date));
+  const dayList = Object.values(byDay).sort((a, b) => (b.date||'').localeCompare(a.date||''));
 
   if (!dayList.length) {
     el.innerHTML = '<div class="empty" style="padding:20px;"><div class="empty-icon">📅</div><div class="empty-t">기록 없음</div></div>';

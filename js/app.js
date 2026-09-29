@@ -179,7 +179,7 @@ function exportExcel() {
     XLSX.utils.book_append_sheet(wb, ws3, '월별결산');
   }
 
-  XLSX.writeFile(wb, `발주관리_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  XLSX.writeFile(wb, `발주관리_${todayStr()}.xlsx`);
   toast('📥 엑셀 파일 다운로드 완료');
 }
 
@@ -399,7 +399,7 @@ function bulkDeliver() {
     o.deliveredDate  = date;
     o.returnedDate   = '';
     o.cancelledDate  = '';
-    o.deliveryNote   = note.trim();
+    if (note.trim()) o.deliveryNote = (o.deliveryNote ? o.deliveryNote + ' ' : '') + note.trim();
     (o.items || []).forEach((i, idx) => { i.deliveredBoxes = nextBoxes[idx]; }); // v3.3.28
     _recordDeliveryDelta(o, date, prevBoxes, nextBoxes);
     count++;
@@ -572,14 +572,14 @@ function exportMonthExcel(ym) {
     const shipClean = _stripShipParen(o.ship);
 
     if (items.length === 0) {
-      rows.push([date, shipClean, cat, o.docNo||'', o.poNo||'', '', '', '', boxes.toFixed(1),
+      rows.push([date, shipClean, cat, o.docNo||'', o.poNo||'', '', '', '', Math.round(boxes * 10) / 10,
                  o.total||0, net, status, o.deliveryNote||'']);
     } else {
       items.forEach((item, idx) => {
         const iBoxes = _itemImpactBoxes(item, o);
         rows.push([
           date, shipClean, cat, o.docNo||'', o.poNo||'',
-          item.desc||'', item.qty||'', displayUnit(item.unit)||'', iBoxes.toFixed(1),
+          item.desc||'', item.qty||'', displayUnit(item.unit)||'', Math.round(iBoxes * 10) / 10,
           idx === 0 ? (o.total||0) : '',  // 첫 품목 행에만 총액 표시
           idx === 0 ? net : '',
           idx === 0 ? status : '',
@@ -596,7 +596,7 @@ function exportMonthExcel(ym) {
     .filter(o => o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial' || o.deliveryStatus === 'returned')
     .reduce((s, o) => s + calcOrderImpactBoxes(o), 0);
   rows.push([]);
-  rows.push(['합계', '', '', '', '', '', '', '', totalBoxes.toFixed(1), '', totalNet, '', '']);
+  rows.push(['합계', '', '', '', '', '', '', '', Math.round(totalBoxes * 10) / 10, '', totalNet, '', '']);
 
   // 2차원 배열(rows) → 시트 → xlsx 다운로드 (exportExcel()과 동일한 SheetJS 사용 방식)
   const ws = XLSX.utils.aoa_to_sheet(rows);
@@ -703,7 +703,7 @@ if (isTouchOnly) {
   document.addEventListener('touchend', e => {
     const now = Date.now();
     const el = e.target;
-    const isInput = el.tagName === 'INPUT' || el.tagName === 'TEXTAREA';
+    const isInput = /^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(el.tagName) || !!(el.closest && el.closest('button,label,select,.tab'));
     if (!isInput && now - lastTap < 300) e.preventDefault();
     lastTap = now;
   }, { passive: false });

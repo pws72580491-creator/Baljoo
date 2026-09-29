@@ -121,13 +121,15 @@ async function handleFiles(files) {
 
   const all = [];
   for (const f of files) {
-    if (f.name.endsWith('.zip')) {
+    if (/\.zip$/i.test(f.name)) {
       setStatus('ZIP 압축 해제 중...');
       const zip = await JSZip.loadAsync(f);
       for (const [n, e] of Object.entries(zip.files)) {
-        if (!e.dir && (n.endsWith('.pdf') || /\.(jpg|jpeg|png|webp)$/i.test(n))) {
+        if (!e.dir && !n.startsWith('__MACOSX') && !/(^|\/)\._/.test(n) && /\.(pdf|jpg|jpeg|png|webp)$/i.test(n)) {
           const blob = await e.async('blob');
-          all.push(new File([blob], n, { type: n.endsWith('.pdf') ? 'application/pdf' : 'image/jpeg' }));
+          const ext = n.split('.').pop().toLowerCase();
+          const mime = ext === 'pdf' ? 'application/pdf' : ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+          all.push(new File([blob], n, { type: mime }));
         }
       }
     } else {
@@ -158,7 +160,9 @@ async function handleFiles(files) {
     renderPreview();
     document.getElementById('prev-section').style.display = 'block';
     const failMsg = failedFiles.length ? ` (실패 ${failedFiles.length}건: ${failedFiles.join(', ')})` : '';
-    setStatus(`✅ ${pendingOrders.length}건 분석 완료. 확인 후 저장하세요.${failMsg}`);
+    const warnN = pendingOrders.filter(o => o._truncated || o._pagesCut).length;
+    const warnMsg = warnN ? ` ⚠️ ${warnN}건은 응답 잘림/페이지 초과로 품목이 빠졌을 수 있으니 원본과 대조하세요.` : '';
+    setStatus(`✅ ${pendingOrders.length}건 분석 완료. 확인 후 저장하세요.${failMsg}${warnMsg}`);
   } else {
     // v3.3.72: 예전엔 개별 파일의 실제 오류(한도 초과·요청 오류·응답 없음 등)가 이 일반 문구에
     // 덮여서 원인을 알 수 없었음 — 원인을 함께 표시한다.
@@ -216,9 +220,19 @@ unit 선택 기준(중요):
 - 그 외: kg/l/btl 중 해당하는 것`;
 
     const parts = [textPart(prompt)];
+    let pdfCut = 0;
     if (file.type === 'application/pdf') {
-      const pages = await pdfToImages(file);
-      pages.forEach(dataUrl => parts.push(imagePart(dataUrl)));
+      // v3.3.74: 텍스트 레이어가 있는 PDF는 글자를 직접 추출해 전달(숫자·번호 오독 방지, 이미지 토큰 감소로 더 빠름).
+      // 1페이지 이미지는 레이아웃 참고용으로만 함께 보냄. 스캔본(텍스트 없음)은 기존 이미지 방식.
+      const pdfTxt = await pdfToText(file).catch(() => '');
+      if (pdfTxt.replace(/[\s|\-]/g, '').length > 150) {
+        parts.push(textPart('아래는 PDF에서 직접 추출한 텍스트입니다(열 구분 " | "). 서류번호·수량·금액 등 숫자는 이 텍스트를 그대로 옮기세요. 첨부 이미지는 1페이지 레이아웃 참고용입니다:\n' + pdfTxt.slice(0, 30000)));
+        (await pdfToImages(file, IMAGE_MAX_PX, 1)).forEach(d => parts.push(imagePart(d)));
+      } else {
+        const pages = await pdfToImages(file);
+        pages.forEach(dataUrl => parts.push(imagePart(dataUrl)));
+        if (window._lastPdfPages > PDF_MAX_PAGES) pdfCut = window._lastPdfPages;
+      }
     } else {
       // 이미지 리사이즈 후 전송 (대용량 오류 방지)
       const dataUrl = await resizeImage(file, IMAGE_MAX_PX, IMAGE_QUALITY);
@@ -239,20 +253,24 @@ unit 선택 기준(중요):
       // JSON이 잘린 경우 복구 시도
       try {
         let fixed = txt;
-        // 열린 배열/객체 닫기
+        const cut = fixed.lastIndexOf('},');
+        if (cut > 0) fixed = fixed.slice(0, cut + 1);   // 마지막 불완전 품목 제거
+        fixed = fixed.replace(/,\s*$/, '');
         const opens = (fixed.match(/\[/g)||[]).length - (fixed.match(/\]/g)||[]).length;
         const openb = (fixed.match(/\{/g)||[]).length - (fixed.match(/\}/g)||[]).length;
-        // 마지막 불완전한 항목 제거 (쉼표로 끝나는 경우)
-        fixed = fixed.replace(/,\s*$/, '');
         for (let i = 0; i < opens; i++) fixed += ']';
         for (let i = 0; i < openb; i++) fixed += '}';
         parsed = JSON.parse(fixed);
-        console.warn('[analyzer] JSON 복구 성공');
+        parsed._truncated = true;   // 미리보기 안내문에 표시
+        console.warn('[analyzer] JSON 복구 성공(일부 품목 누락 가능)');
       } catch (e2) {
         console.warn('[analyzer] JSON 파싱 실패:', parseErr.message, '\n원본:', txt);
         throw new Error('AI 응답을 파싱할 수 없습니다. 다시 시도해주세요. (' + parseErr.message + ')');
       }
     }
+    // v3.3.74: 날짜 형식 검증(잘못된 값이 정렬·화면·HTML에 들어가지 않도록)
+    const _isoD = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '').trim()) ? String(v).trim() : '';
+    parsed.date = _isoD(parsed.date); parsed.delivery = _isoD(parsed.delivery);
     // 반품서 판별: AI가 isReturn 반환 OR total이 음수 OR 모든 items qty가 음수
     const aiIsReturn  = !!parsed.isReturn;
     const totalNeg    = (parsed.total || 0) < 0;
@@ -287,6 +305,7 @@ unit 선택 기준(중요):
       parsed.returnAmount   = 0;
     }
     parsed.source        = 'upload';
+    if (pdfCut) parsed._pagesCut = pdfCut;
     parsed.fileName      = file.name;
     parsed.category      = parsed.category || 'cargo';
     parsed.deliveredDate = '';
@@ -346,11 +365,12 @@ function resizeImage(file, maxPx, quality) {
   });
 }
 
-async function pdfToImages(file, maxPx = IMAGE_MAX_PX) {
+async function pdfToImages(file, maxPx = IMAGE_MAX_PX, maxPages = PDF_MAX_PAGES) {
   if (!window.pdfjsLib) throw new Error('PDF 렌더링 라이브러리 로드 실패');
   const buf    = await file.arrayBuffer();
   const pdf    = await pdfjsLib.getDocument({ data: buf }).promise;
-  const n      = Math.min(pdf.numPages, PDF_MAX_PAGES);
+  window._lastPdfPages = pdf.numPages;
+  const n = Math.min(pdf.numPages, maxPages);
   const images = [];
   for (let i = 1; i <= n; i++) {
     const page = await pdf.getPage(i);
@@ -370,6 +390,27 @@ async function pdfToImages(file, maxPx = IMAGE_MAX_PX) {
     images.push(canvas.toDataURL('image/jpeg', IMAGE_QUALITY));
   }
   return images;
+}
+
+// v3.3.74: PDF 텍스트 레이어 추출 — y좌표가 비슷한 조각을 한 줄로 묶고 x순으로 " | " 구분
+async function pdfToText(file) {
+  if (!window.pdfjsLib) return '';
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const out = [];
+  for (let p = 1; p <= Math.min(pdf.numPages, 10); p++) {
+    const tc = await (await pdf.getPage(p)).getTextContent();
+    const rows = [];
+    tc.items.forEach(it => {
+      if (!it.str || !it.str.trim()) return;
+      const y = it.transform[5], x = it.transform[4];
+      let r = rows.find(r => Math.abs(r.y - y) < 3);
+      if (!r) { r = { y, cells: [] }; rows.push(r); }
+      r.cells.push({ x, s: it.str.trim() });
+    });
+    rows.sort((a, b) => b.y - a.y);
+    out.push(`--- 페이지 ${p} ---\n` + rows.map(r => r.cells.sort((a, b) => a.x - b.x).map(c => c.s).join(' | ')).join('\n'));
+  }
+  return out.join('\n');
 }
 
 function renderPreview() {
@@ -562,6 +603,7 @@ function removePending(idx) {
 function saveAll() {
   let added = 0, updated = 0, returnAdded = 0;
   pendingOrders.forEach(newOrder => {
+    delete newOrder._truncated; delete newOrder._pagesCut;
     // 반품서: 항상 신규 추가 (기존 발주서 덮어쓰기 금지)
     if (newOrder.isReturn) {
       orders.push({ ...newOrder, updatedAt: Date.now() });

@@ -276,6 +276,7 @@ function renderDeliveryResult(result) {
   const undeliveredMatches = matchedOrders.filter(m => !['delivered', 'cancelled', 'returned'].includes(m.order.deliveryStatus));
   const cnt = getDeliveryCounts({ ...result, matched });  // v3.3.67: 전체/매칭/납품 대기/이미 납품완료/미매칭
   const todayVal = todayStr();
+  const usedDefaults = new Set();  // v3.3.74: 같은 선명 카드가 여러 장이면 서로 다른 발주를 기본 선택
   const chip = (txt, bg, fg) => `<span style="font-size:11px;font-weight:700;color:${fg};background:${bg};border-radius:6px;padding:3px 8px;">${txt}</span>`;
 
   sec.innerHTML = `
@@ -316,7 +317,8 @@ function renderDeliveryResult(result) {
         const isAmbiguous = candidates.length > 1;
         // 기본 선택값: 후보가 여러 건이면 그중 가장 오래된 것 — AI가 무엇을 골랐든
         // 여기서 한 번 더 "오래된 건 우선"으로 통일한다.
-        const defaultId = isAmbiguous ? candidates[0].id : m.order.id;
+        const defaultId = isAmbiguous ? (candidates.find(c => !usedDefaults.has(c.id)) || candidates[0]).id : m.order.id;
+        usedDefaults.add(defaultId);
         return `
         <div class="prev-card" style="border-left:3px solid ${m.order.deliveryStatus === 'delivered' ? '#86efac' : isAmbiguous ? '#f59e0b' : 'var(--success)'};">
           <div style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;">
@@ -344,10 +346,10 @@ function renderDeliveryResult(result) {
               <select onchange="delSwitchCandidate(this)" data-for="${escapeHtml(m.order.id)}"
                       style="margin-top:6px;width:100%;font-size:12px;font-weight:700;color:var(--navy);
                              border:1px solid #f59e0b;border-radius:6px;padding:6px 8px;background:#fffbeb;">
-                ${candidates.map((c, idx) => `<option value="${escapeHtml(c.id)}" ${c.id === defaultId ? 'selected' : ''}>${escapeHtml(c.docNo||'-')} · ${c.date} · ${fmt(c.total)}${idx===0?' (가장 오래됨)':''}</option>`).join('')}
+                ${candidates.map((c, idx) => `<option value="${escapeHtml(c.id)}" ${c.id === defaultId ? 'selected' : ''}>${escapeHtml(c.docNo||'-')} · ${escapeHtml(c.date || '')} · ${fmt(c.total)}${idx===0?' (가장 오래됨)':''}</option>`).join('')}
               </select>
               ` : `
-              <div style="font-size:11px;color:var(--muted);margin-top:1px;">${escapeHtml(m.order.docNo||'-')} · ${m.order.date} · ${fmt(m.order.total)}</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:1px;">${escapeHtml(m.order.docNo||'-')} · ${escapeHtml(m.order.date || '')} · ${fmt(m.order.total)}</div>
               `}
             </div>
           </div>

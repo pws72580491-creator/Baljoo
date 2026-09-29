@@ -63,7 +63,7 @@ function openModal(id) {
         <div class="db-row" style="align-items:center;">
           <span class="db-label">실제 납품일</span>
           <span class="db-val" style="display:flex;align-items:center;gap:6px;">
-            <input type="date" id="delivered-date-${o.id}" value="${o.deliveredDate || ''}"
+            <input type="date" id="delivered-date-${o.id}" value="${escapeHtml(o.deliveredDate || '')}"
                    style="font-size:12px;border:1px solid var(--border);border-radius:6px;padding:4px 6px;color:var(--navy);font-weight:700;">
             <button onclick="changeDeliveredDate('${o.id}')"
                     style="background:var(--navy);color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">변경</button>
@@ -197,7 +197,7 @@ function openPartialModal(id) {
     <div style="margin-top:6px;padding:14px;background:#f8fafc;border-radius:12px;">
       <div style="display:flex;align-items:center;gap:10px;">
         <span style="font-size:13px;font-weight:700;color:var(--navy);white-space:nowrap;">📅 납품 날짜</span>
-        <input id="partial-delivery-date" type="date" value="${o.deliveredDate || todayStr()}"
+        <input id="partial-delivery-date" type="date" value="${escapeHtml(o.deliveredDate || todayStr())}"
                style="flex:1;font-size:14px;font-weight:700;border:2px solid var(--border);
                       border-radius:8px;padding:6px 10px;color:var(--navy);background:#fff;">
       </div>
@@ -606,11 +606,11 @@ function openEditModal(id) {
     <div class="edit-row">
       <div class="edit-field">
         <label>발주일자</label>
-        <input id="ef-date" type="date" value="${o.date||''}" enterkeyhint="next">
+        <input id="ef-date" type="date" value="${escapeHtml(o.date||'')}" enterkeyhint="next">
       </div>
       <div class="edit-field">
         <label>납기일자</label>
-        <input id="ef-delivery" type="date" value="${o.delivery||''}" enterkeyhint="next">
+        <input id="ef-delivery" type="date" value="${escapeHtml(o.delivery||'')}" enterkeyhint="next">
       </div>
     </div>
     <div class="edit-row">
@@ -828,10 +828,12 @@ function saveEditOrder() {
     const qty   = parseFloat(document.getElementById(`ei-qty-${idx}`)?.value  || 0) || 0;
     const unit  = document.getElementById(`ei-unit-${idx}`)?.value   || 'pcs';
     const price = parseFloat((document.getElementById(`ei-price-${idx}`)?.value || '0').replace(/,/g, '')) || 0;
-    const amount = Math.round(qty * price * 100) / 100;
+    const oldItem = oldItems[Number(idx)];
+    let amount = Math.round(qty * price * 100) / 100;
+    // v3.3.74: 수량·단가를 안 건드린 품목은 원본 금액 유지(선명 오타만 고쳐도 금액이 바뀌던 문제)
+    if (oldItem && oldItem.amount != null && Number(oldItem.qty) === qty && Number(oldItem.price) === price) amount = Number(oldItem.amount);
     if (desc || qty) {
       const newItem = { desc, code, qty, unit, price, amount };
-      const oldItem = oldItems[Number(idx)];
       if (oldItem && oldItem.deliveredBoxes) newItem.deliveredBoxes = oldItem.deliveredBoxes;
       oldToNewIdxMap[Number(idx)] = o.items.length;
       o.items.push(newItem);
@@ -854,7 +856,9 @@ function saveEditOrder() {
 
   // 합계 재계산
   const oldTotal = o.total;
-  o.total = o.items.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+  const _sumNew = o.items.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+  const _sumOld = oldItems.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+  if (o.items.length !== oldItems.length || Math.abs(_sumNew - _sumOld) > 0.005 || !o.total) o.total = _sumNew;  // 품목 변화 없으면 원본 총액 유지
 
   // v3.3.32: 부분납품 진행 중이던 발주는 품목 수정 후 진행 상태를 다시 계산
   // (수량이 줄어 이미 전량 배송된 것으로 확인되거나, 품목이 삭제돼 진행량이

@@ -39,7 +39,7 @@ async function getDb() {
         ? Promise.resolve(auth.currentUser)
         : signInAnonymously(auth).then(cred => cred.user);
       await _authReady;
-    })();
+    })().catch(e => { _initPromise = null; _db = null; _authReady = null; throw e; });
   }
   await _initPromise;
   return _db;
@@ -147,6 +147,10 @@ function _clearLocalStockGoals() {
 }
 
 async function _mergeBackupTransaction(db) {
+  // v3.3.74: 로컬이 비었는데 이전에 동기화한 이력이 있으면 원격 백업을 비우지 않도록 차단(손상·초기화 사고 방지)
+  if (!orders.length && _getSyncedIds().size > 0 && !window._allowEmptySync) {
+    throw new Error('로컬 발주가 0건이라 동기화를 중단했습니다(원격 데이터 보호). 의도한 경우 수동 백업을 누르세요.');
+  }
   const { ref, runTransaction } = await import(FB_DB_URL);
   const localById = new Map(orders.filter(o => o.id).map(o => [o.id, o]));
   // 마지막 동기화 땐 있었는데 지금 로컬엔 없는 id = 이 기기에서 삭제된 것
@@ -225,6 +229,10 @@ function scheduleAutoSync() {
 // ── 백업: 로컬 → Firebase ──
 window.fbBackup = async function() {
   try {
+    if (!orders.length) {
+      if (!confirm('로컬 발주가 0건입니다. 클라우드 백업도 비워질 수 있습니다. 계속할까요?')) return;
+      window._allowEmptySync = true;
+    }
     setFbStatus('백업 중...');
     const db = await getDb();
     await _mergeBackupTransaction(db);
@@ -268,7 +276,9 @@ async function _fbSaveSnapshotCore(label, auto) {
 window.fbSaveSnapshotManual = async function() {
   try {
     setFbStatus('스냅샷 저장 중...');
-    const label = (prompt('스냅샷 이름(선택, 비워도 됩니다):', '') || '').trim();
+    const _p = prompt('스냅샷 이름(선택, 비워도 됩니다):', '');
+    if (_p === null) { setFbStatus(''); return; }
+    const label = _p.trim();
     await _fbSaveSnapshotCore(label, false);
     setFbStatus(`✅ 스냅샷 저장 완료 (${new Date().toLocaleString('ko-KR')})`, 'var(--success)');
     toast('📸 스냅샷 저장 완료');
@@ -326,6 +336,7 @@ window.fbRestoreSnapshot = async function(snapshotId, labelForConfirm) {
   if (!confirm(`"${labelForConfirm || snapshotId}" 시점으로 복원할까요?\n현재 데이터는 이 스냅샷 데이터로 교체됩니다.`)) return;
   try {
     setFbStatus('시점 복원 중...');
+    try { if (orders.length) await _fbSaveSnapshotCore('복원 전 자동 보관', true); } catch (e) { console.warn('[firebase] 복원 전 스냅샷 실패(계속 진행):', e); }
     const db = await getDb();
     const { ref, get } = await import(FB_DB_URL);
     const snap = await get(ref(db, 'baljoo/snapshots/' + snapshotId));
@@ -383,11 +394,11 @@ window.openSnapshotPicker = async function() {
     const labelText = s.label ? escapeHtml(s.label) : (s.auto ? '자동 저장' : '(이름 없음)');
     return `
     <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;">
-      <div style="min-width:0;flex:1;" onclick="fbRestoreSnapshot('${s.id}', '${escapeHtml(dt)}')">
+      <div style="min-width:0;flex:1;" data-sid="${escapeHtml(s.id)}" data-dt="${escapeHtml(dt)}" onclick="fbRestoreSnapshot(this.dataset.sid, this.dataset.dt)">
         <div style="font-weight:700;color:var(--navy);font-size:13px;">${dt} ${s.auto ? '<span style="font-size:10px;color:#6b7280;font-weight:400;">🤖자동</span>' : ''}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px;">${labelText} · 발주 ${s.count ?? (s.orders ? s.orders.length : 0)}건</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px;">${labelText} · 발주 ${Number(s.count ?? (s.orders ? s.orders.length : 0)) || 0}건</div>
       </div>
-      <button onclick="event.stopPropagation();fbDeleteSnapshot('${s.id}')" style="background:none;border:none;color:#dc2626;font-size:16px;cursor:pointer;padding:4px 6px;flex-shrink:0;">✕</button>
+      <button data-sid="${escapeHtml(s.id)}" onclick="event.stopPropagation();fbDeleteSnapshot(this.dataset.sid)" style="background:none;border:none;color:#dc2626;font-size:16px;cursor:pointer;padding:4px 6px;flex-shrink:0;">✕</button>
     </div>`;
   }).join('') : '<div style="padding:24px 14px;text-align:center;color:var(--muted);font-size:13px;">저장된 스냅샷이 없습니다</div>';
 
@@ -419,6 +430,7 @@ window.fbRestore = async function() {
   if (!confirm('Firebase에서 데이터를 복원할까요?\n현재 데이터는 백업 데이터로 교체됩니다.')) return;
   try {
     setFbStatus('복원 중...');
+    try { if (orders.length) await _fbSaveSnapshotCore('복원 전 자동 보관', true); } catch (e) { console.warn('[firebase] 복원 전 스냅샷 실패(계속 진행):', e); }
     const { ref, get } = await import(FB_DB_URL);
     const db   = await getDb();
     const snap = await get(ref(db, 'baljoo/backup'));
