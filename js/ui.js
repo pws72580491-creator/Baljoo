@@ -1055,9 +1055,10 @@ function renderDeliveryStatus() {
       // 사용(실사 보정 등) — 없으면 기존처럼 전날 closing을 그대로 이어받는다(carry).
       const hasOverride = g && g[openField] !== undefined && g[openField] !== null && g[openField] !== '';
       const opening   = hasOverride ? Number(g[openField]) : carry;
-      const delivered = byDateAll[d] || 0;
-      const returned  = byDateReturn[d] || 0;
-      const closing   = opening + stockIn - delivered - damaged + returned;
+      const _r1 = v => Math.round(v * 10) / 10;
+      const delivered = _r1(byDateAll[d] || 0);
+      const returned  = _r1(byDateReturn[d] || 0);
+      const closing   = _r1(opening + stockIn - delivered - damaged + returned);
       stockByDate[d] = { stockIn, damaged, opening, delivered, returned, closing, openingOverridden: !!hasOverride };
       carry = closing;
     });
@@ -1158,6 +1159,7 @@ function renderDeliveryStatus() {
       const goalBadgeHtml = (() => {
         const blocks = [];
         const addStockBlock = (label, stock) => {
+          const formatBoxCount = label === '깐메추리' ? formatBrineCount : window.formatBoxCount;  // v3.3.75
           const color = stock.closing < 0 ? '#dc2626' : stock.closing === 0 ? '#22c55e' : '#f59e0b';
           // v3.3.44: 전일재고를 직접 수정(override)한 날은 "전일재고 30박스✏️"처럼 연필
           // 아이콘을 붙여, 자동 이월값이 아니라 사람이 직접 입력한 값임을 표시
@@ -1373,7 +1375,7 @@ function openDelivGoal(dateStr, eggAutoOpen, quailAutoOpen, brineAutoOpen) {
           <button onclick="_adjustQty('goal-${id}',-1)"
                   style="width:36px;height:36px;flex-shrink:0;border-radius:50%;border:1px solid var(--border);
                          background:#f8fafc;font-size:20px;cursor:pointer;line-height:1;">−</button>
-          <input id="goal-${id}" type="number" min="0" inputmode="numeric"
+          <input id="goal-${id}" type="number" min="0" ${_qtyAttr(id)}
                  enterkeyhint="next"
                  value="${id==='egg'?goal.egg||0:id==='quail'?goal.quail||0:goal.brine||0}"
                  onkeydown="_goalInputKeydown(event,'${nextId}')"
@@ -1386,6 +1388,7 @@ function openDelivGoal(dateStr, eggAutoOpen, quailAutoOpen, brineAutoOpen) {
           <span style="font-size:12px;color:var(--muted);flex-shrink:0;">박스</span>
         </div>`;}).join('')}
       </div>
+      <div style="font-size:11px;color:var(--muted);margin:-8px 0 16px;">깐메추리는 0.1박스 = 1봉지 (예: 1.2 = 1박스 2봉지)</div>
 
       <!-- 품목별 파손(회수) 입력 -->
       <div style="font-size:12px;font-weight:800;color:#dc2626;margin-bottom:8px;">🔧 파손 회수 (전일재고에서 차감)</div>
@@ -1403,7 +1406,7 @@ function openDelivGoal(dateStr, eggAutoOpen, quailAutoOpen, brineAutoOpen) {
           <button onclick="_adjustQty('dmg-${id}',-1)"
                   style="width:36px;height:36px;flex-shrink:0;border-radius:50%;border:1px solid #fca5a5;
                          background:#fff5f5;font-size:20px;cursor:pointer;line-height:1;color:#dc2626;">−</button>
-          <input id="dmg-${id}" type="number" min="0" inputmode="numeric"
+          <input id="dmg-${id}" type="number" min="0" ${_qtyAttr(id)}
                  enterkeyhint="next"
                  value="${id==='egg'?goal.eggDmg||0:id==='quail'?goal.quailDmg||0:goal.brineDmg||0}"
                  onkeydown="_goalInputKeydown(event,'${nextId}')"
@@ -1432,7 +1435,7 @@ function openDelivGoal(dateStr, eggAutoOpen, quailAutoOpen, brineAutoOpen) {
           return `
         <div style="display:flex;align-items:center;gap:8px;">
           <div style="width:96px;font-size:12px;font-weight:700;color:#4f46e5;flex-shrink:0;white-space:nowrap;">${label}</div>
-          <input id="open-${id}" type="number" inputmode="numeric"
+          <input id="open-${id}" type="number" ${_qtyAttr(id)}
                  enterkeyhint="${isLast ? 'done' : 'next'}"
                  value="${curOverride}"
                  placeholder="자동:${autoOpen[id]}"
@@ -1483,21 +1486,29 @@ function _goalInputKeydown(e, nextId) {
 }
 
 // 입고(goal-*)·파손(dmg-*) 입력칸 공용 +/- 처리 (전달받은 id로 직접 조작)
+// v3.3.75: 깐메추리(brine)는 봉지 단위 입력을 위해 0.1박스(=1봉지) 단위·소수 1자리 지원
+function _isBrineId(id) { return /-brine$/.test(id); }
+function _qtyAttr(id) { return id === 'brine' ? 'step="0.1" inputmode="decimal"' : 'inputmode="numeric"'; }
+function _qtyRead(id) {
+  const v = document.getElementById(id)?.value;
+  return Math.max(0, _isBrineId(id) ? (Math.round(parseFloat(v) * 10) / 10 || 0) : (parseInt(v) || 0));
+}
 function _adjustQty(inputId, delta) {
   const input = document.getElementById(inputId);
   if (!input) return;
-  const newVal = Math.max(0, (parseInt(input.value) || 0) + delta);
-  input.value = newVal;
+  const brine = _isBrineId(inputId);
+  const cur = brine ? (parseFloat(input.value) || 0) : (parseInt(input.value) || 0);
+  input.value = Math.max(0, brine ? Math.round((cur + delta * 0.1) * 10) / 10 : cur + delta);
 }
 
 function saveDelivGoal(dateStr) {
   const goal = {
     egg:   Math.max(0, parseInt(document.getElementById('goal-egg')?.value)   || 0),
     quail: Math.max(0, parseInt(document.getElementById('goal-quail')?.value) || 0),
-    brine: Math.max(0, parseInt(document.getElementById('goal-brine')?.value) || 0),
+    brine: _qtyRead('goal-brine'),
     eggDmg:   Math.max(0, parseInt(document.getElementById('dmg-egg')?.value)   || 0),
     quailDmg: Math.max(0, parseInt(document.getElementById('dmg-quail')?.value) || 0),
-    brineDmg: Math.max(0, parseInt(document.getElementById('dmg-brine')?.value) || 0),
+    brineDmg: _qtyRead('dmg-brine'),
   };
   // v3.3.44: 전일재고 직접 수정(override) — 빈칸이면 저장하지 않음(=자동 계산 유지),
   // 숫자를 입력한 경우에만 그 값을 opening으로 강제 사용하도록 필드를 추가.
@@ -1505,7 +1516,7 @@ function saveDelivGoal(dateStr) {
     const raw = document.getElementById('open-' + id)?.value;
     if (raw !== undefined && raw !== null && String(raw).trim() !== '') {
       const n = Number(raw);
-      if (Number.isFinite(n)) goal[id + 'Open'] = n;
+      if (Number.isFinite(n)) goal[id + 'Open'] = id === 'brine' ? Math.round(n * 10) / 10 : n;
     }
   });
   const hasOverride = goal.eggOpen !== undefined || goal.quailOpen !== undefined || goal.brineOpen !== undefined;

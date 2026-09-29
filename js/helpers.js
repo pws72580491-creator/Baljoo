@@ -185,6 +185,9 @@ function formatBoxCount(bc) {
   return (bc % 1 === 0) ? `${bc}박스` : `${bc.toFixed(1)}박스`;
 }
 
+// v3.3.75: 깐메추리 재고 표시 — 박스(소수) → 'N박스 M봉지' (10봉지=1박스)
+function formatBrineCount(bc) { return formatPktCount(Math.round((Number(bc) || 0) * 10)); }
+
 // pkt(봉지) 단위 품목용 표시: 박스 + 나머지 봉지
 // 예) qty=25pkt → 2박스 5봉지 / qty=10pkt → 1박스 / qty=3pkt → 3봉지
 function formatPktCount(qty) {
