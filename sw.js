@@ -1,4 +1,4 @@
-const CACHE_NAME = '발주관리-cache-v3.3.73';
+const CACHE_NAME = '발주관리-cache-v3.3.74';
 const APP_SHELL = [
   './index.html',
   './manifest.json',
@@ -18,7 +18,7 @@ const APP_SHELL = [
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
+    caches.open(CACHE_NAME).then((cache) => Promise.all(APP_SHELL.map(u => cache.add(u).catch(() => console.warn('[SW] 캐시 실패:', u)))))
   );
   self.skipWaiting();
 });
