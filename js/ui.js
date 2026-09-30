@@ -511,12 +511,7 @@ function renderStats() {
           ? (() => { const [y, mo] = _statMonth.split('-'); return `📅 ${Number(y)}년 ${Number(mo)}월`; })()
           : '📅 년월검색';
         return `
-      <label class="chip${isCustomMonth ? ' active' : ''}" style="font-size:11px;position:relative;display:inline-flex;align-items:center;">
-        ${label}
-        <input type="month" value="${isCustomMonth ? _statMonth : ''}"
-               style="position:absolute;inset:0;opacity:0;width:100%;height:100%;border:0;padding:0;margin:0;cursor:pointer;"
-               onchange="if(this.value) selectStatMonth(this.value)">
-      </label>`;
+      <button class="chip${isCustomMonth ? ' active' : ''}" style="font-size:11px;" onclick="openMonthPicker('stat')">${label}</button>`;
       })()}
       <button class="chip${_statMonth==='all'?' active':''}" style="font-size:11px;"
               onclick="selectStatMonth('all')">전체</button>
@@ -826,6 +821,46 @@ function _calcOrderDiscount(o) {
   return { amount: diff, pct: Math.round((diff / Math.abs(itemsSum)) * 1000) / 10 };
 }
 
+// v3.3.76: 년월검색 — 투명 <input type="month"> 오버레이(기기·브라우저에 따라 안 열림) 대신 앱 자체 월 선택 시트
+function openMonthPicker(kind) {
+  const cur = kind === 'deliv' ? _delivMonth : _statMonth;
+  const avail = new Set(_getAvailableMonths());
+  let year = /^\d{4}-\d{2}$/.test(cur) ? Number(cur.slice(0, 4)) : new Date().getFullYear();
+  document.getElementById('month-picker-ov')?.remove();
+  const ov = document.createElement('div');
+  ov.id = 'month-picker-ov';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;display:flex;align-items:flex-end;justify-content:center;';
+  const arrow = 'width:44px;height:44px;border-radius:50%;border:1px solid var(--border);background:#f8fafc;font-size:18px;cursor:pointer;';
+  const draw = () => {
+    ov.innerHTML = `
+      <div style="background:#fff;width:100%;max-width:480px;border-radius:20px 20px 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom,0px));">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <button data-y="-1" style="${arrow}">◀</button>
+          <div style="font-size:18px;font-weight:800;color:var(--navy);">${year}년</div>
+          <button data-y="1" style="${arrow}">▶</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">
+          ${Array.from({ length: 12 }, (_, i) => {
+            const ym = `${year}-${String(i + 1).padStart(2, '0')}`;
+            const sel = ym === cur, has = avail.has(ym);
+            return `<button data-m="${ym}" style="padding:13px 0;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;
+              border:1.5px solid ${sel ? 'var(--navy)' : 'var(--border)'};background:${sel ? 'var(--navy)' : '#fff'};
+              color:${sel ? '#fff' : 'var(--navy)'};opacity:${has || sel ? 1 : 0.4};">${i + 1}월</button>`;
+          }).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:10px;text-align:center;">흐린 달은 내역이 없는 달입니다</div>
+      </div>`;
+  };
+  ov.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) { if (e.target === ov) ov.remove(); return; }
+    if (b.dataset.y) { year += Number(b.dataset.y); draw(); return; }
+    if (b.dataset.m) { ov.remove(); if (kind === 'deliv') selectDelivMonth(b.dataset.m); else selectStatMonth(b.dataset.m); }
+  });
+  draw();
+  document.body.appendChild(ov);
+}
+
 function selectDelivMonth(m) {
   _delivMonth = m;
   renderDeliveryStatus();
@@ -865,12 +900,7 @@ function renderDeliveryStatus() {
           ? (() => { const [y, mo] = _delivMonth.split('-'); return `📅 ${Number(y)}년 ${Number(mo)}월`; })()
           : '📅 년월검색';
         return `
-      <label class="chip${isCustomMonth ? ' active' : ''}" style="font-size:11px;position:relative;display:inline-flex;align-items:center;">
-        ${label}
-        <input type="month" value="${isCustomMonth ? _delivMonth : ''}"
-               style="position:absolute;inset:0;opacity:0;width:100%;height:100%;border:0;padding:0;margin:0;cursor:pointer;"
-               onchange="if(this.value) selectDelivMonth(this.value)">
-      </label>`;
+      <button class="chip${isCustomMonth ? ' active' : ''}" style="font-size:11px;" onclick="openMonthPicker('deliv')">${label}</button>`;
       })()}
       <button class="chip${_delivMonth==='all'?' active':''}" style="font-size:11px;"
               onclick="selectDelivMonth('all')">전체</button>
