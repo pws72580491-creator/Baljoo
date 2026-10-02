@@ -516,7 +516,11 @@ function restoreOrder(id) {
 function permanentlyDeleteOrder(id) {
   try {
     if (!confirm('완전히 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) return;
+    const _t = deletedOrders.find(o => o.id === id);
+    // v3.3.77: 기본은 통계에 계속 반영. 잘못 올린 중복·오류 건만 [확인]으로 통계에서도 제외
+    const _excl = _t ? confirm('통계에는 이 건이 계속 반영됩니다.\n잘못 올린 중복·오류 건이라 통계에서도 빼려면 [확인],\n통계에 남기려면 [취소]를 누르세요.') : false;
     deletedOrders = deletedOrders.filter(o => o.id !== id);
+    if (_t && !_excl) { _archiveForStats(_t); saveArchive(); }
     saveTrash();
     _pruneOrderChecks(id); // 영구삭제 시점에 더블체크/반품확인 표시 정리
     renderAll();

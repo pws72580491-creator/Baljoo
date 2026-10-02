@@ -56,7 +56,7 @@ function _renderDashMonthNav() {
 function renderAll() {
   // 대시보드 본문은 선택된 월(_dashMonth) 데이터만 사용
   _renderDashMonthNav();
-  const monthOrders = _filterByMonth(orders, _dashMonth);
+  const monthOrders = _filterByMonth(_statsOrders(), _dashMonth);
   const ships = new Set(monthOrders.map(o => o.ship)).size;
 
   // 납품 기준 통계 (해당 월) — 발주취소 건은 제외
@@ -152,7 +152,7 @@ function renderAll() {
 
   // 대시보드 최근 목록 — 납품완료 + 부분납품 + 반품 + 발주취소 표시 (보관건 제외, 해당 월)
   const dupIdSet = _computeDupOrderIdSet(); // 서류번호·발주번호 중복 (양쪽 목록에서 공용)
-  const recent = [...monthOrders]
+  const recent = [...monthOrders.filter(_isLive)]
     .filter(o => !o.archived && (o.deliveryStatus === 'delivered' || o.deliveryStatus === 'partial' || o.deliveryStatus === 'cancelled' || o.deliveryStatus === 'returned'))
     .sort((a, b) => (b.date||'').localeCompare(a.date||''))
     .slice(0, 10);
@@ -410,9 +410,9 @@ function _currentYM() {
 }
 let _statMonth = _currentYM(); // 'all' | 'YYYY-MM'
 
-function _getAvailableMonths() {
+function _getAvailableMonths(src = orders) {
   const monthSet = new Set();
-  orders.forEach(o => {
+  src.forEach(o => {
     const d = o.deliveredDate || o.date || '';
     if (d && d.length >= 7) monthSet.add(d.slice(0, 7));
   });
@@ -456,7 +456,7 @@ function _normShipKey(ship) {
 
 function _computeShipCycles() {
   const byShipDates = {};
-  orders.forEach(o => {
+  _statsOrders().forEach(o => {
     if (o.deliveryStatus !== 'delivered' && o.deliveryStatus !== 'partial') return; // v3.3.28: 부분납품도 "그 배가 그날 다녀간" 기록으로 포함
     const d = o.deliveredDate || o.date;
     if (!d || d === '미상') return;
@@ -486,7 +486,7 @@ function _computeShipCycles() {
 // ── 납품 통계 탭 렌더 ──
 function renderStats() {
   // ── 월 선택 칩 생성 ──
-  const availableMonths = _getAvailableMonths();
+  const availableMonths = _getAvailableMonths(_statsOrders());
   const today   = new Date();
   const thisYM  = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
   const lastDate = new Date(today.getFullYear(), today.getMonth()-1, 1);
@@ -524,7 +524,7 @@ function renderStats() {
     // 그래프용 데이터 계산
     const monthData = availableMonths.map(m => {
       const [y, mo] = m.split('-');
-      const mOrders = orders.filter(o => (o.deliveredDate || o.date || '').slice(0,7) === m);
+      const mOrders = _statsOrders().filter(o => (o.deliveredDate || o.date || '').slice(0,7) === m);
       const mDel     = mOrders.filter(o => o.deliveryStatus === 'delivered');
       const mPartial = mOrders.filter(o => o.deliveryStatus === 'partial'); // v3.3.28
       const mRet     = mOrders.filter(o => o.deliveryStatus === 'returned');
@@ -623,7 +623,7 @@ function renderStats() {
   }
 
   // ── 데이터 필터 ──
-  const scopeOrders = _filterByMonth(orders, _statMonth);
+  const scopeOrders = _filterByMonth(_statsOrders(), _statMonth);
 
   const delivered = scopeOrders.filter(o => o.deliveryStatus === 'delivered');
   const partial   = scopeOrders.filter(o => o.deliveryStatus === 'partial'); // v3.3.28
@@ -824,7 +824,7 @@ function _calcOrderDiscount(o) {
 // v3.3.76: 년월검색 — 투명 <input type="month"> 오버레이(기기·브라우저에 따라 안 열림) 대신 앱 자체 월 선택 시트
 function openMonthPicker(kind) {
   const cur = kind === 'deliv' ? _delivMonth : _statMonth;
-  const avail = new Set(_getAvailableMonths());
+  const avail = new Set(_getAvailableMonths(_statsOrders()));
   let year = /^\d{4}-\d{2}$/.test(cur) ? Number(cur.slice(0, 4)) : new Date().getFullYear();
   document.getElementById('month-picker-ov')?.remove();
   const ov = document.createElement('div');
@@ -874,7 +874,7 @@ function renderDeliveryStatus() {
   const _dblSet = _loadDblCheckSet();
 
   // ── 월 선택 칩 ──
-  const availableMonths = _getAvailableMonths();
+  const availableMonths = _getAvailableMonths(_statsOrders());
   const today   = new Date();
   const thisYM  = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
   const lastDate = new Date(today.getFullYear(), today.getMonth()-1, 1);
@@ -913,7 +913,7 @@ function renderDeliveryStatus() {
   // 금액·박스 집계는 보관건 포함, 카드 목록에서만 보관건 제외
   // v3.3.28: 부분납품(partial)도 실제 박스가 움직인 기록이므로 포함 — 박스 수는
   // calcItemDeliveredBoxes 등으로 "지금까지 배송된 만큼"만 반영됨
-  const allDone = orders.filter(o =>
+  const allDone = _statsOrders().filter(o =>
     o.deliveryStatus === 'delivered' ||
     o.deliveryStatus === 'partial' ||
     o.deliveryStatus === 'returned'
@@ -1266,25 +1266,27 @@ function renderDeliveryStatus() {
               const rowBdl = isAnyReturn ? 'border-left:3px solid #dc2626;' : '';
               const amtCol = isAnyReturn ? '#dc2626' : (o.deliveryStatus === 'partial' ? '#b45309' : 'var(--success)');
               const isChecked = _dblSet.has(o.id);
+              const isDel = !_isLive(o);  // v3.3.78: 삭제된 건(통계에만 반영) — 열기·체크 비활성
+              const _openAct = isDel ? "toast('🗑️ 삭제된 건입니다 (통계·합계에만 반영)')" : `openModal('${o.id}')`;
               // v3.3.33: 부분납품이 여러 날짜에 걸쳐 있으면(이력 2건 이상) 이 카드가
               // "그 날 배송된 몫"만 보여준다는 걸 알 수 있게 표시
               const isSplitRecord = Array.isArray(o.deliveryEvents) && o.deliveryEvents.length > 1;
               return `
             <tr id="dblrow-${o.id}-${day.date}" data-dbl-id="${o.id}"
                 style="border-top:1px solid var(--border);cursor:pointer;background:${rowBg};${rowBdl}opacity:${isChecked ? '.55' : '1'};"
-                onclick="openModal('${o.id}')">
+                onclick="${_openAct}">
               <td colspan="3" style="padding:10px 14px 0;">
                 <div style="display:flex;align-items:center;gap:6px;">
-                  <input type="checkbox" id="dblchk-${o.id}-${day.date}" data-dbl-id="${o.id}" ${isChecked ? 'checked' : ''}
+                  <input type="checkbox" id="dblchk-${o.id}-${day.date}" data-dbl-id="${o.id}" ${isChecked ? 'checked' : ''} ${isDel ? 'disabled' : ''}
                          onclick="toggleDblCheck('${o.id}', event)"
                          title="더블체크(확인 표시)"
                          style="width:16px;height:16px;flex-shrink:0;cursor:pointer;accent-color:var(--navy);">
-                  <div style="font-size:14px;font-weight:700;color:var(--navy);white-space:nowrap;">${escapeHtml(o.ship)}${isSplitRecord ? ' <span style="font-size:10px;font-weight:700;color:#b45309;">(분할)</span>' : ''}</div>
+                  <div style="font-size:14px;font-weight:700;color:var(--navy);white-space:nowrap;">${escapeHtml(o.ship)}${isDel ? ' <span style="font-size:10px;font-weight:700;color:#6b7280;">🗑️삭제됨</span>' : ''}${isSplitRecord ? ' <span style="font-size:10px;font-weight:700;color:#b45309;">(분할)</span>' : ''}</div>
                 </div>
               </td>
             </tr>
             <tr style="cursor:pointer;background:${rowBg};${rowBdl}opacity:${isChecked ? '.55' : '1'};"
-                onclick="openModal('${o.id}')">
+                onclick="${_openAct}">
               <td style="padding:2px 14px 10px 36px;">
                 <div style="min-width:0;">
                     <div style="font-size:10px;color:var(--muted);">${escapeHtml(o.docNo)}</div>
@@ -1733,7 +1735,7 @@ function renderDashByDate() {
   if (!el) return;
 
   // 날짜별 그룹핑 (선택된 월의 납품완료 + 부분납품 + 반품 전체, 발주취소는 제외)
-  const monthOrders = _filterByMonth(orders, _dashMonth);
+  const monthOrders = _filterByMonth(_statsOrders(), _dashMonth);
   const target = monthOrders.filter(o =>
     o.deliveryStatus === 'delivered' ||
     o.deliveryStatus === 'partial' ||

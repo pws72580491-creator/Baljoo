@@ -540,7 +540,7 @@ function exportMonthExcel(ym) {
   const [y, mo] = ym.split('-');
   const label   = `${y}년 ${Number(mo)}월`;
 
-  const scopeOrders = orders.filter(o => {
+  const scopeOrders = _statsOrders().filter(o => {
     const d = (o.deliveredDate || o.date || '');
     return d.slice(0, 7) === ym;
   }).sort((a, b) => (a.deliveredDate || a.date || '').localeCompare(b.deliveredDate || b.date || ''));

@@ -11,6 +11,33 @@ const TRASH_KEY = 'baljuDeletedOrders_v1';
 const TRASH_RETENTION_DAYS = 30;
 let deletedOrders = [];
 
+// v3.3.77: 통계 보존 보관함 — 휴지통 만료(자동)·완전삭제 시 발주를 여기로 옮겨 통계(월별 결산·반품차감 등)가 변하지 않게 한다.
+const ARCHIVE_KEY = 'baljuStatsArchive_v1';
+let statsArchive = [];
+function saveArchive() {
+  try { localStorage.setItem(ARCHIVE_KEY, JSON.stringify(statsArchive)); }
+  catch (e) { console.error('[storage] 통계 보관함 저장 실패:', e); if (typeof toast === 'function') toast('⚠️ 저장 공간 부족 — 통계 보관함 저장 실패'); }
+}
+function _archiveForStats(o) {
+  if (!o || !o.id) return;
+  const c = { ...o }; delete c.deletedAt;
+  const i = statsArchive.findIndex(x => x.id === o.id);
+  if (i >= 0) statsArchive[i] = c; else statsArchive.push(c);
+}
+// 통계 탭 전용 데이터 소스: 현재 발주 + 휴지통 + 보관함 (id 중복 시 현재 발주 우선)
+// v3.3.78: 통계·납품현황·대시보드·재고 이월 공통 기준. 삭제된 건은 '실제 납품/반품 기록'(납품완료·부분납품·반품)만 포함
+// (미납품·발주취소 상태로 삭제한 건은 원래 집계 대상이 아니므로 제외)
+const _STATS_DONE = ['delivered', 'partial', 'returned'];
+function _statsOrders() {
+  const ids = new Set(orders.map(o => o.id));
+  const out = orders.slice();
+  [deletedOrders, statsArchive].forEach(list => list.forEach(o => {
+    if (!ids.has(o.id) && _STATS_DONE.includes(o.deliveryStatus)) { ids.add(o.id); out.push(o); }
+  }));
+  return out;
+}
+function _isLive(o) { return !!o && orders.some(x => x.id === o.id); }
+
 let _loadInProgress = false;  // load() 중 save() 시 자동동기화 방지
 
 function save() {
@@ -127,6 +154,7 @@ function load() {
       const rawTrash    = localStorage.getItem(TRASH_KEY);
       const parsedTrash = rawTrash ? safeParse(rawTrash) : [];
       deletedOrders = Array.isArray(parsedTrash) ? parsedTrash : [];
+      try { const ra = safeParse(localStorage.getItem(ARCHIVE_KEY) || '[]'); statsArchive = Array.isArray(ra) ? ra : []; } catch (e) { statsArchive = []; }
 
       const cutoff    = Date.now() - TRASH_RETENTION_DAYS * 86400000;
       const isExpired = o => { if (!o.deletedAt) { o.deletedAt = new Date().toISOString(); return false; } return new Date(o.deletedAt).getTime() < cutoff; };
@@ -134,7 +162,8 @@ function load() {
       if (expired.length) {
         // 영구삭제 시점에만 더블체크/반품확인 표시 정리 (휴지통에 있는 동안은 복원 시
         // 그대로 되살아나야 하므로 건드리지 않음)
-        expired.forEach(o => { if (typeof _pruneOrderChecks === 'function') _pruneOrderChecks(o.id); });
+        expired.forEach(o => { _archiveForStats(o); if (typeof _pruneOrderChecks === 'function') _pruneOrderChecks(o.id); });
+        saveArchive();  // v3.3.77: 휴지통 만료분은 통계용으로 보존
         deletedOrders = deletedOrders.filter(o => !isExpired(o));
         _loadInProgress = true;
         saveTrash();
@@ -151,6 +180,7 @@ function load() {
 function resetOrders() {
   if (!confirm('발주 목록 전체를 초기화할까요?\n저장된 모든 내역이 삭제되며 클라우드 자동동기화에도 반영됩니다.\n(먼저 "스냅샷 지금 저장"을 권장합니다)')) return;
   window._allowEmptySync = true;
+  statsArchive = []; saveArchive();  // 전체 초기화는 통계 보관함도 비움
   orders = [];
   save();
   // v3.3.14: 전체 초기화 시 더블체크·반품확인 표시도 함께 정리 (모든 id가 사라지므로)
