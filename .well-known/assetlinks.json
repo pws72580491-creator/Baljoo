@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "app.vercel.baljoo.twa",
+        "sha256_cert_fingerprints": ["92:57:A8:C7:6F:32:06:BB:EA:8F:22:4F:2C:5E:B1:30:83:ED:BD:DA:3C:95:FE:6A:CF:96:F5:E8:4A:C4:86:59"]
+      }
+    }]
