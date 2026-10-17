@@ -395,17 +395,20 @@ function _deliveryRecordsFor(order) {
                     && Array.isArray(order.deliveryEvents) && order.deliveryEvents.length > 0;
 
   if (useHistory) {
+    const used = {};  // v3.3.80: 품목별로 이력 누적이 그 품목의 총 박스를 넘지 못하게 제한
     return order.deliveryEvents.map(ev => {
       const perItemBoxes = {};
       let boxes = 0, amt = 0;
       Object.keys(ev.perItem || {}).forEach(idx => {
         const it = items[Number(idx)];
         if (!it) return; // 수정으로 사라진 품목(방어적 처리)
-        const b = Number(ev.perItem[idx]) || 0;
+        const totalB = calcItemBoxCount(it);
+        let b = Number(ev.perItem[idx]) || 0;
+        if (totalB > 0) b = Math.min(b, Math.max(0, totalB - (used[idx] || 0)));
         if (!b) return;
+        used[idx] = (used[idx] || 0) + b;
         perItemBoxes[idx] = b;
         boxes += b;
-        const totalB = calcItemBoxCount(it);
         if (totalB > 0) amt += (Number(it.amount) || 0) * (b / totalB);
       });
       return { order, date: ev.date, perItemBoxes, boxes, amt: Math.round(amt) };
@@ -453,10 +456,17 @@ function _findDupMatch(o) {
     const xPo  = (x.poNo  || '').trim();
     // v3.3.79: 서류번호가 같아도 발주번호가 서로 다르면(양쪽 다 값이 있을 때) 별개의 발주 — 덮어쓰지 않음
     const poDiff = !!(oPo && xPo && _normNo(oPo) !== _normNo(xPo));
-    if (oDoc && xDoc && xDoc === oDoc && !poDiff) return { order: x, field: 'docNo' };
+    // v3.3.80: 발주번호가 한쪽에 없어 비교 불가한 경우, 내용(총액·수량)이 다르면 다른 발주일 가능성이 커서 덮어쓰지 않음
+    const contentDiffers = !(oPo && xPo) && !_sameContent(o, x);
+    if (oDoc && xDoc && xDoc === oDoc && !poDiff && !contentDiffers) return { order: x, field: 'docNo' };
     if (oPo  && xPo  && _normNo(xPo) === _normNo(oPo)) return { order: x, field: 'poNo' };
   }
   return null;
+}
+function _sameContent(a, b) {
+  if (Math.abs((Number(a.total) || 0) - (Number(b.total) || 0)) < 1) return true;
+  const q = o => (o.items || []).map(i => Number(i.qty) || 0).join(',');
+  return q(a) === q(b);
 }
 // v3.3.79: 발주번호 비교용 정규화(대소문자·공백·하이픈 차이 무시)
 function _normNo(s) { return String(s || '').toUpperCase().replace(/[\s\-_.]/g, ''); }
@@ -464,11 +474,13 @@ function _normNo(s) { return String(s || '').toUpperCase().replace(/[\s\-_.]/g, 
 function _findDocSamePoDiff(o) {
   if (o.isReturn) return null;
   const oDoc = (o.docNo || '').trim(), oPo = (o.poNo || '').trim();
-  if (!oDoc || !oPo) return null;
+  if (!oDoc) return null;
   for (const x of orders) {
     if (x.isReturn || x.date !== o.date) continue;
+    if ((x.docNo || '').trim() !== oDoc) continue;
     const xPo = (x.poNo || '').trim();
-    if ((x.docNo || '').trim() === oDoc && xPo && _normNo(xPo) !== _normNo(oPo)) return { order: x };
+    if (oPo && xPo && _normNo(xPo) !== _normNo(oPo)) return { order: x };          // 발주번호 다름
+    if (!(oPo && xPo) && !_sameContent(o, x)) return { order: x };                // 번호 비교 불가 + 내용(총액·수량) 다름
   }
   return null;
 }

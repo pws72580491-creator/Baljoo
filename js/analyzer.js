@@ -468,7 +468,7 @@ function renderPreview() {
           : isLooseDup
             ? `<div style="font-size:11px;color:#3730a3;background:#e0e7ff;border-radius:6px;padding:5px 8px;grid-column:1/-1;">🔎 <b>${escapeHtml(looseFieldLabel)}</b>(${escapeHtml(looseValue)})가 기존 발주 "<b>${escapeHtml(looseShip)}</b>"와 동일하지만 발주일자가 다릅니다(기존 ${escapeHtml(looseExistDate)} / 이번 ${escapeHtml(o.date||'미상')}). 같은 문서를 다시 올린 것이라면 발주일자를 확인해주세요 — 지금 저장하면 별개 발주로 새로 추가됩니다.</div>`
             : docOnly
-              ? `<div style="font-size:11px;color:#166534;background:#dcfce7;border-radius:6px;padding:5px 8px;grid-column:1/-1;">➕ 서류번호(${escapeHtml(o.docNo || '')})는 기존 발주 "<b>${escapeHtml(docOnly.order.ship || '선명없음')}</b>"와 같지만 <b>발주번호가 달라</b> 별도 발주로 추가됩니다. (기존 발주번호: ${escapeHtml(docOnly.order.poNo || '')})</div>`
+              ? `<div style="font-size:11px;color:#166534;background:#dcfce7;border-radius:6px;padding:5px 8px;grid-column:1/-1;">➕ 서류번호(${escapeHtml(o.docNo || '')})는 기존 발주 "<b>${escapeHtml(docOnly.order.ship || '선명없음')}</b>"와 같지만 <b>발주번호·내용이 달라</b> 별도 발주로 추가됩니다. (기존 발주번호: ${escapeHtml(docOnly.order.poNo || '없음')} · 기존 총액: \u20a9${Number(docOnly.order.total || 0).toLocaleString()})</div>`
               : '';
 
     const totalStyle = isReturnDoc ? 'color:#dc2626;font-weight:700;' : '';
@@ -603,6 +603,13 @@ function removePending(idx) {
   }
 }
 
+// v3.3.80: 재분석 병합 시 납품 진행량(deliveredBoxes·배송 이력)을 이어받아도 되는지 — 품명·수량·단위가 모두 같을 때만
+function _sameItemsForCarry(a, b) {
+  if (a.length !== b.length) return false;
+  const n = s => String(s || '').toUpperCase().replace(/\s+/g, '');
+  return a.every((it, i) => n(it.desc) === n(b[i].desc) && (Number(it.qty) || 0) === (Number(b[i].qty) || 0) && n(it.unit) === n(b[i].unit));
+}
+
 function saveAll() {
   let added = 0, updated = 0, returnAdded = 0;
   pendingOrders.forEach(newOrder => {
@@ -627,7 +634,7 @@ function saveAll() {
       // 대응된다고 보고 진행량을 이어받는다(개수가 바뀌면 안전하게 매칭할 기준이 없어
       // 이어받지 않되, 아래에서 deliveryStatus를 재계산해 모순을 방지).
       // v3.3.33: 같은 조건으로 날짜별 배송 이력(deliveryEvents)도 함께 이어받는다.
-      if (prev.items && newOrder.items && prev.items.length === newOrder.items.length) {
+      if (prev.items && newOrder.items && _sameItemsForCarry(prev.items, newOrder.items)) {  // v3.3.80: 품목 내용(품명·수량·단위)이 같을 때만 납품 진행량 이어받음
         newOrder.items.forEach((it, i) => {
           if (prev.items[i] && prev.items[i].deliveredBoxes) it.deliveredBoxes = prev.items[i].deliveredBoxes;
         });
