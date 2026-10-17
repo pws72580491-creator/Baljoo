@@ -451,8 +451,24 @@ function _findDupMatch(o) {
     if (x.date !== o.date) continue;  // 번호가 같아도 발주일자가 다르면 별개 건
     const xDoc = (x.docNo || '').trim();
     const xPo  = (x.poNo  || '').trim();
-    if (oDoc && xDoc && xDoc === oDoc) return { order: x, field: 'docNo' };
-    if (oPo  && xPo  && xPo  === oPo)  return { order: x, field: 'poNo'  };
+    // v3.3.79: 서류번호가 같아도 발주번호가 서로 다르면(양쪽 다 값이 있을 때) 별개의 발주 — 덮어쓰지 않음
+    const poDiff = !!(oPo && xPo && _normNo(oPo) !== _normNo(xPo));
+    if (oDoc && xDoc && xDoc === oDoc && !poDiff) return { order: x, field: 'docNo' };
+    if (oPo  && xPo  && _normNo(xPo) === _normNo(oPo)) return { order: x, field: 'poNo' };
+  }
+  return null;
+}
+// v3.3.79: 발주번호 비교용 정규화(대소문자·공백·하이픈 차이 무시)
+function _normNo(s) { return String(s || '').toUpperCase().replace(/[\s\-_.]/g, ''); }
+// 서류번호·발주일자는 같은데 발주번호만 달라 '별도 발주'로 추가되는 경우(미리보기 안내용)
+function _findDocSamePoDiff(o) {
+  if (o.isReturn) return null;
+  const oDoc = (o.docNo || '').trim(), oPo = (o.poNo || '').trim();
+  if (!oDoc || !oPo) return null;
+  for (const x of orders) {
+    if (x.isReturn || x.date !== o.date) continue;
+    const xPo = (x.poNo || '').trim();
+    if ((x.docNo || '').trim() === oDoc && xPo && _normNo(xPo) !== _normNo(oPo)) return { order: x };
   }
   return null;
 }
@@ -476,8 +492,9 @@ function _findNumberOnlyMatch(o) {
     if (x.date === o.date) continue; // 날짜까지 같으면 _findDupMatch가 이미 처리
     const xDoc = (x.docNo || '').trim();
     const xPo  = (x.poNo  || '').trim();
-    if (oDoc && xDoc && xDoc === oDoc) return { order: x, field: 'docNo' };
-    if (oPo  && xPo  && xPo  === oPo)  return { order: x, field: 'poNo'  };
+    const poDiff = !!(oPo && xPo && _normNo(oPo) !== _normNo(xPo));
+    if (oDoc && xDoc && xDoc === oDoc && !poDiff) return { order: x, field: 'docNo' };
+    if (oPo  && xPo  && _normNo(xPo) === _normNo(oPo)) return { order: x, field: 'poNo' };
   }
   return null;
 }
@@ -493,7 +510,7 @@ function _computeDupOrderIdSet() {
   const poMap  = new Map(); // "poNo|date"  -> [id, ...]
   orders.forEach(o => {
     if (o.isReturn) return;
-    if (o.docNo) { const k = o.docNo + '|' + (o.date || ''); if (!docMap.has(k)) docMap.set(k, []); docMap.get(k).push(o.id); }
+    if (o.docNo) { const k = o.docNo + '|' + (o.date || '') + '|' + _normNo(o.poNo); if (!docMap.has(k)) docMap.set(k, []); docMap.get(k).push(o.id); }
     if (o.poNo)  { const k = o.poNo  + '|' + (o.date || ''); if (!poMap.has(k))  poMap.set(k, []);  poMap.get(k).push(o.id); }
   });
   const dupIds = new Set();

@@ -425,6 +425,7 @@ function renderPreview() {
     // "같은 문서를 재스캔했는데 AI가 날짜를 다르게 읽었을 가능성"을 사용자에게 알려줌
     const looseMatch = (!isDup && !isReturnDoc) ? _findNumberOnlyMatch(o) : null;
     const isLooseDup = !!looseMatch;
+    const docOnly = (!isDup && !isReturnDoc) ? _findDocSamePoDiff(o) : null;  // v3.3.79
 
     // v3.3.16: 중복 사유(어느 필드가 기존 어떤 발주와 겹쳤는지)를 사람이 읽을 수 있게 구성
     const dupFieldLabel = dupMatch ? (dupMatch.field === 'docNo' ? '서류번호' : '거래처발주번호') : '';
@@ -466,7 +467,9 @@ function renderPreview() {
           ? `<div style="font-size:11px;color:#92400e;background:#fde68a;border-radius:6px;padding:5px 8px;grid-column:1/-1;">⚠️ <b>${escapeHtml(dupFieldLabel)}</b>(${escapeHtml(dupValue)})가 기존 발주 "<b>${escapeHtml(dupShip)}</b>"와 동일합니다. 제거하거나 저장 시 기존 데이터를 덮어씁니다.</div>`
           : isLooseDup
             ? `<div style="font-size:11px;color:#3730a3;background:#e0e7ff;border-radius:6px;padding:5px 8px;grid-column:1/-1;">🔎 <b>${escapeHtml(looseFieldLabel)}</b>(${escapeHtml(looseValue)})가 기존 발주 "<b>${escapeHtml(looseShip)}</b>"와 동일하지만 발주일자가 다릅니다(기존 ${escapeHtml(looseExistDate)} / 이번 ${escapeHtml(o.date||'미상')}). 같은 문서를 다시 올린 것이라면 발주일자를 확인해주세요 — 지금 저장하면 별개 발주로 새로 추가됩니다.</div>`
-            : '';
+            : docOnly
+              ? `<div style="font-size:11px;color:#166534;background:#dcfce7;border-radius:6px;padding:5px 8px;grid-column:1/-1;">➕ 서류번호(${escapeHtml(o.docNo || '')})는 기존 발주 "<b>${escapeHtml(docOnly.order.ship || '선명없음')}</b>"와 같지만 <b>발주번호가 달라</b> 별도 발주로 추가됩니다. (기존 발주번호: ${escapeHtml(docOnly.order.poNo || '')})</div>`
+              : '';
 
     const totalStyle = isReturnDoc ? 'color:#dc2626;font-weight:700;' : '';
     // 선명 입력창 — 선명 누락/오인식 시 이 자리에서 바로 수정 후 전체 저장 가능
@@ -657,7 +660,14 @@ function saveAll() {
       }
       updated++; return;
     }
-    if (!orders.find(x => x.id === newOrder.id)) { orders.push({ ...newOrder, updatedAt: Date.now() }); added++; }
+    // v3.3.79: id(서류번호_발주일자)가 기존 발주와 겹치지만 중복이 아닌 경우(발주번호만 다름) 조용히 버려지지 않도록 발주번호를 붙여 고유 id 생성
+    if (orders.find(x => x.id === newOrder.id)) {
+      const base = sanitizeId(newOrder.id + '_' + (newOrder.poNo || '').trim());
+      let nid = base, k = 2;
+      while (orders.find(x => x.id === nid)) nid = base + '-' + (k++);
+      newOrder.id = nid;
+    }
+    orders.push({ ...newOrder, updatedAt: Date.now() }); added++;
   });
   save();
   clearPrev();
