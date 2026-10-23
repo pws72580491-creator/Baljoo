@@ -95,6 +95,8 @@ function exportExcel() {
         '선명':          _stripShipParen(o.ship),
         '서류번호':       o.docNo || '',
         '거래처발주번호':  o.poNo || '',
+        '구매자':         o.buyer || '',
+        '구매자전화':      o.buyerTel || '',
         '구분':          o.category === 'cruise' ? '크루즈' : o.category === 'cargo' ? '카고' : o.category === 'return' ? '반품' : '직접입력',
         '납품상태':       o.deliveryStatus === 'delivered' ? '납품완료' : o.deliveryStatus === 'partial' ? '부분납품' : o.deliveryStatus === 'returned' ? '반품' : o.deliveryStatus === 'cancelled' ? '발주취소' : '미납품',
         '품목':          item.desc   || '',

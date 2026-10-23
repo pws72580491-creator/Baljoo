@@ -183,7 +183,7 @@ async function analyzeFile(file) {
       : '';
 
     const prompt = `이 문서를 분석해 아래 JSON 형식으로만 응답하세요. 코드블록 없이 순수 JSON만 출력:
-{"docNo":"","date":"YYYY-MM-DD","delivery":"YYYY-MM-DD","ship":"","poNo":"","category":"cruise","isReturn":false,"items":[{"desc":"","code":"","qty":0,"unit":"pcs","price":0,"amount":0}],"total":0}
+{"docNo":"","date":"YYYY-MM-DD","delivery":"YYYY-MM-DD","ship":"","poNo":"","buyer":"","buyerTel":"","category":"cruise","isReturn":false,"items":[{"desc":"","code":"","qty":0,"unit":"pcs","price":0,"amount":0}],"total":0}
 규칙:
 - date/delivery=YYYY-MM-DD, category=cruise또는cargo
 - isReturn: 문서가 반품서(RETURN, CREDIT NOTE, 반품, 수량/금액이 음수)이면 true, 일반 발주서이면 false
@@ -195,6 +195,11 @@ docNo·poNo 추출 규칙(중요 — 이 두 값은 발주 식별에 반드시 �
   "발주번호"·"P/O No."·"PO NO"·"Order No."·"주문번호" 등으로 표시됨. 문서 상단 또는 선명 근처에
   위치하는 경우가 많으며, 슬래시(/)나 하이픈(-)이 섞인 영숫자 조합인 경우가 많음.
 - docNo와 poNo는 서로 다른 값이니 절대 혼동하거나 같은 값을 넣지 말 것.
+구매자(buyer)·구매자 전화번호(buyerTel) 추출 규칙:
+- buyer: 문서(주로 하단)에서 "구매"·"구매담당"·"구매자"·"Buyer"·"Purchaser" 옆에 적힌 구매 담당자 이름.
+  직급·소속팀이 함께 적혀 있으면 그대로 포함(예: "배미지 대리 F&B2팀"). 상단의 "담당자", 하단의 "물류" 담당자와 혼동 금지.
+- buyerTel: 위 구매 담당자 줄에 함께 적힌 TEL/전화 번호(예: 051-712-8344). FAX 번호나 상단 "전화번호"(담당자 번호)로 대체 금지.
+- 문서에서 확실히 보이지 않으면 추측하지 말고 빈 문자열("")로 둘 것.
 - 문서에 이 라벨들이 명확하게 보이지 않으면, 절대로 다른 번호(예: 전화번호·팩스번호·페이지
   번호·품목 코드 등)로 대체하거나 추측해서 채우지 말고 반드시 빈 문자열("")로 둘 것.
   빈 값이 실제로 없는 것보다, 잘못 추측한 값이 훨씬 더 문제가 됨.
@@ -268,6 +273,9 @@ unit 선택 기준(중요):
         throw new Error('AI 응답을 파싱할 수 없습니다. 다시 시도해주세요. (' + parseErr.message + ')');
       }
     }
+    // v3.3.81: 구매자·전화번호 정리 (화면·tel 링크에 안전하게 쓰도록 허용 문자만 남김)
+    parsed.buyer    = String(parsed.buyer || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    parsed.buyerTel = String(parsed.buyerTel || '').replace(/[^\d\-+() ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 30);
     // v3.3.74: 날짜 형식 검증(잘못된 값이 정렬·화면·HTML에 들어가지 않도록)
     const _isoD = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || '').trim()) ? String(v).trim() : '';
     parsed.date = _isoD(parsed.date); parsed.delivery = _isoD(parsed.delivery);
@@ -523,6 +531,8 @@ function renderPreview() {
       <div class="prev-meta">
         <div><span class="pm-label">서류번호</span>${docNoInputHtml}</div>
         <div><span class="pm-label">발주번호</span>${poNoInputHtml}</div>
+        <div><span class="pm-label">구매자</span><input type="text" value="${escapeHtml(o.buyer || '')}" placeholder="없음" enterkeyhint="done" onchange="updatePendingField(${idx},'buyer',this.value)" style="border:1px dashed #cbd5e1;border-radius:4px;padding:1px 4px;margin:-1px -4px;width:100%;box-sizing:border-box;background:transparent;font-family:inherit;font-size:inherit;"></div>
+        <div><span class="pm-label">전화번호</span><input type="tel" value="${escapeHtml(o.buyerTel || '')}" placeholder="없음" enterkeyhint="done" onchange="updatePendingField(${idx},'buyerTel',this.value)" style="border:1px dashed #cbd5e1;border-radius:4px;padding:1px 4px;margin:-1px -4px;width:100%;box-sizing:border-box;background:transparent;font-family:inherit;font-size:inherit;"></div>
         <div><span class="pm-label">발주일자</span>${escapeHtml(o.date) || '-'}</div>
         <div><span class="pm-label">납기일자</span>${escapeHtml(o.delivery) || '-'}</div>
         <div><span class="pm-label">총액</span><strong style="${totalStyle}">${fmt(o.total)}</strong></div>
@@ -586,6 +596,13 @@ function updatePendingDocNo(idx, val) {
   renderPreview();
 }
 
+function updatePendingField(idx, key, val) {
+  if (!pendingOrders[idx] || (key !== 'buyer' && key !== 'buyerTel')) return;
+  const v = String(val || '').replace(/\s+/g, ' ').trim();
+  pendingOrders[idx][key] = key === 'buyerTel' ? v.replace(/[^\d\-+() ]/g, '').slice(0, 30) : v.slice(0, 60);
+  renderPreview();
+}
+
 function updatePendingPoNo(idx, val) {
   if (!pendingOrders[idx]) return;
   pendingOrders[idx].poNo = String(val || '').trim();
@@ -634,6 +651,8 @@ function saveAll() {
       // 대응된다고 보고 진행량을 이어받는다(개수가 바뀌면 안전하게 매칭할 기준이 없어
       // 이어받지 않되, 아래에서 deliveryStatus를 재계산해 모순을 방지).
       // v3.3.33: 같은 조건으로 날짜별 배송 이력(deliveryEvents)도 함께 이어받는다.
+      if (!newOrder.buyer && prev.buyer) newOrder.buyer = prev.buyer;
+      if (!newOrder.buyerTel && prev.buyerTel) newOrder.buyerTel = prev.buyerTel;
       if (prev.items && newOrder.items && _sameItemsForCarry(prev.items, newOrder.items)) {  // v3.3.80: 품목 내용(품명·수량·단위)이 같을 때만 납품 진행량 이어받음
         newOrder.items.forEach((it, i) => {
           if (prev.items[i] && prev.items[i].deliveredBoxes) it.deliveredBoxes = prev.items[i].deliveredBoxes;

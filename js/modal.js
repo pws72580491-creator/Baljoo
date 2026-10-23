@@ -28,6 +28,8 @@ function openModal(id) {
       <div><span class="ir-lbl">납품상태</span><span class="ir-val">${statusBadge(o.deliveryStatus || 'pending')}</span></div>
       <div><span class="ir-lbl">거래처발주번호</span><span class="ir-val" style="font-size:12px;">${escapeHtml(o.poNo) || '-'}</span></div>
       <div><span class="ir-lbl">발주총액</span><span class="ir-val" style="font-weight:700;">${fmt(o.total)}</span></div>
+      <div><span class="ir-lbl">구매자</span><span class="ir-val" style="font-size:13px;">${escapeHtml(o.buyer || '') || '-'}</span></div>
+      <div><span class="ir-lbl">전화번호</span><span class="ir-val" style="font-size:13px;">${o.buyerTel ? `<a href="tel:${escapeHtml(String(o.buyerTel).replace(/[^\d+]/g, ''))}" style="color:#2563eb;text-decoration:none;font-weight:700;">${escapeHtml(o.buyerTel)}</a>` : '-'}</span></div>
     </div>
 
     <div class="sdiv" style="margin-top:0;">품목 상세</div>
@@ -626,6 +628,14 @@ function openEditModal(id) {
         <label>거래처발주번호</label>
         <input id="ef-pono" type="text" value="${escapeHtml(o.poNo)}" enterkeyhint="next">
       </div>
+      <div class="edit-field">
+        <label>구매자</label>
+        <input id="ef-buyer" type="text" value="${escapeHtml(o.buyer || '')}" enterkeyhint="next">
+      </div>
+      <div class="edit-field">
+        <label>구매자 전화번호</label>
+        <input id="ef-buyertel" type="tel" value="${escapeHtml(o.buyerTel || '')}" enterkeyhint="next">
+      </div>
     </div>
 
     <div class="sdiv" style="margin-top:4px;">품목</div>
@@ -814,6 +824,8 @@ function saveEditOrder() {
   o.delivery = document.getElementById('ef-delivery').value;
   o.docNo    = document.getElementById('ef-docno').value.trim();
   o.poNo     = document.getElementById('ef-pono').value.trim();
+  o.buyer    = (document.getElementById('ef-buyer')?.value || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+  o.buyerTel = (document.getElementById('ef-buyertel')?.value || '').replace(/[^\d\-+() ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 30);
 
   // 품목 수집
   // v3.3.32: row의 idx는 openEditModal에서 기존 품목의 원래 배열 위치를 그대로 쓰고

@@ -540,7 +540,7 @@ function filtered() {
   if (statusMode === 'trash') {
     const dq = searchQ.toLowerCase();
     return [...deletedOrders]
-      .filter(o => !searchQ || [o.ship, o.docNo, o.poNo].join(' ').toLowerCase().includes(dq))
+      .filter(o => !searchQ || [o.ship, o.docNo, o.poNo, o.buyer].join(' ').toLowerCase().includes(dq))
       .sort((a, b) => (b.deletedAt || '').localeCompare(a.deletedAt || '')); // 최근 삭제한 것부터
   }
 
@@ -552,7 +552,7 @@ function filtered() {
     .filter(o => isArchiveMode ? !!o.archived : !o.archived)
     .filter(o => filterMode === 'all' || o.category === filterMode)
     .filter(o => isArchiveMode || statusMode === 'all' || o.deliveryStatus === statusMode)
-    .filter(o => !searchQ || [o.ship, o.docNo, o.poNo].join(' ').toLowerCase().includes(searchQ.toLowerCase()))
+    .filter(o => !searchQ || [o.ship, o.docNo, o.poNo, o.buyer].join(' ').toLowerCase().includes(searchQ.toLowerCase()))
     .filter(o => !from || o.date >= from)
     .filter(o => !to   || o.date <= to)
     .filter(o => !dupOnlyMode || dupIds.has(o.id));
