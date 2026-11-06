@@ -1000,6 +1000,7 @@ function renderDeliveryStatus() {
     const openField = goalField + 'Open'; // v3.3.44: 전일재고 직접 수정(override) 필드 — 예: 'egg' → 'eggOpen'
     const stockByDate = {};
     const byDateAll = {};    // 그 날짜의 "정상 납품" 박스 합계(반품 제외)
+    const allRecDates = new Set();  // v3.3.82: 이 품목이 아니어도 납품이 있었던 모든 날짜(이월 재고를 그날 카드에 보여주기 위함)
     const byDateReturn = {}; // 그 날짜에 "반품 확인"으로 재고에 되돌아온 박스 합계(항상 양수)
     // v3.3.42: 반품(확인됨)의 signed 기여분은 항상 음수이므로(_boxSign 참고), 부호만으로
     // 정상 납품과 반품을 구분해 따로 누적한다 — 미확인 반품은 여전히 양수로 정상 집계됨.
@@ -1017,6 +1018,7 @@ function renderDeliveryStatus() {
     // 납품일~확인일 사이엔 -N(실제로 나가있던 기간), 확인일 이후엔 순증감 0(상쇄)이 된다.
     allDone.forEach(o => {
       _deliveryRecordsFor(o).forEach(r => {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(r.date || '')) allRecDates.add(r.date);
         let sum = 0;
         (o.items || []).forEach((item, idx) => {
           if (!itemFilterFn(item)) return;
@@ -1056,6 +1058,7 @@ function renderDeliveryStatus() {
     Object.keys(byDateAll)
       .filter(d => d >= firstTrackedDate) // 추적 시작일 이전 납품 실적은 이월 계산에서 제외
       .forEach(d => stockDates.add(d));
+    allRecDates.forEach(d => { if (d >= firstTrackedDate) stockDates.add(d); });  // v3.3.82
     Object.keys(byDateReturn)
       .filter(d => d >= firstTrackedDate)
       .forEach(d => stockDates.add(d));
@@ -1097,7 +1100,8 @@ function renderDeliveryStatus() {
 
   const eggStockByDate   = _stockByDateFor('egg',   item => !_isQuailBrine(item) && !_isQuailEgg(item));
   const quailStockByDate = _stockByDateFor('quail', item => _isQuailEgg(item));
-  const brineStockByDate = _stockByDateFor('brine', item => _isQuailBrine(item) && !_isPktUnit(item.unit));
+  // v3.3.82: 봉지(pkt) 단위 납품도 재고에서 차감(10봉지=1박스). 예전엔 박스 단위만 집계해, 봉지로 입고(0.4박스)하면 납품해도 재고가 안 줄었음
+  const brineStockByDate = _stockByDateFor('brine', item => _isQuailBrine(item));
 
 
   // ── 합계 (납품/반품 분리) ──
