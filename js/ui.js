@@ -1193,6 +1193,8 @@ function renderDeliveryStatus() {
       const goalBadgeHtml = (() => {
         const blocks = [];
         const addStockBlock = (label, stock) => {
+          // v3.3.83: 입고·전일재고·출고·파손·반품·재고가 모두 0이면(전일재고 직접 수정 0 포함) 표시하지 않음
+          if (!stock.stockIn && !stock.opening && !stock.closing && !stock.damaged && !stock.returned && !stock.delivered) return;
           const formatBoxCount = label === '깐메추리' ? formatBrineCount : window.formatBoxCount;  // v3.3.75
           const color = stock.closing < 0 ? '#dc2626' : stock.closing === 0 ? '#22c55e' : '#f59e0b';
           // v3.3.44: 전일재고를 직접 수정(override)한 날은 "전일재고 30박스✏️"처럼 연필
