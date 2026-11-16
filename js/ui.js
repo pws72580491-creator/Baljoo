@@ -54,6 +54,7 @@ function _renderDashMonthNav() {
 
 // ── 전체 렌더 ──
 function renderAll() {
+  if (document.getElementById('due-cal-ov')?.style.display === 'flex') renderDueCalendar();  // v3.3.85: 달력이 열려 있으면 함께 갱신
   // 대시보드 본문은 선택된 월(_dashMonth) 데이터만 사용
   _renderDashMonthNav();
   const monthOrders = _filterByMonth(_statsOrders(), _dashMonth);
@@ -1902,4 +1903,118 @@ function checkDuplicateItems() {
 function _closeDupCheckOv() {
   const ov = document.getElementById('dupCheckOv');
   if (ov) ov.remove();
+}
+
+// ══════════════════════════════════════════════════════
+// v3.3.85: 납기일(o.delivery) 기준 월별 일정 달력 — 발주목록의 "📆 납기일 월별 일정 보기"
+// ══════════════════════════════════════════════════════
+var _dueCalMonth = null;  // 'YYYY-MM'
+var _dueCalSel = null;    // 'YYYY-MM-DD'
+const _DUE_ST = { pending: ['미납품', '#b45309', '#fef3c7'], partial: ['부분납품', '#c2410c', '#ffedd5'], delivered: ['납품완료', '#047857', '#d1fae5'], returned: ['반품', '#b91c1c', '#fee2e2'] };
+const _DUE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function _dueBase() { return orders.filter(o => !o.isReturn && !o.archived && o.deliveryStatus !== 'cancelled'); }
+
+function openDueCalendar() {
+  const t = todayStr();
+  if (!_dueCalMonth) _dueCalMonth = t.slice(0, 7);
+  if (!_dueCalSel) _dueCalSel = t;
+  let ov = document.getElementById('due-cal-ov');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'due-cal-ov';
+    ov.style.cssText = 'position:fixed;inset:0;z-index:250;background:#f5f7fb;display:none;flex-direction:column;';
+    document.body.appendChild(ov);
+  }
+  ov.style.display = 'flex';
+  renderDueCalendar();
+}
+function closeDueCalendar() { const ov = document.getElementById('due-cal-ov'); if (ov) ov.style.display = 'none'; }
+function dueCalMove(d) {
+  const [y, m] = _dueCalMonth.split('-').map(Number);
+  const dt = new Date(y, m - 1 + d, 1);
+  _dueCalMonth = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+  const t = todayStr();
+  _dueCalSel = _dueCalMonth === t.slice(0, 7) ? t : _dueCalMonth + '-01';
+  renderDueCalendar();
+}
+function dueCalToday() { const t = todayStr(); _dueCalMonth = t.slice(0, 7); _dueCalSel = t; renderDueCalendar(); }
+function dueCalSelect(ds) { _dueCalSel = ds; renderDueCalendar(); }
+
+function renderDueCalendar() {
+  const ov = document.getElementById('due-cal-ov');
+  if (!ov) return;
+  const today = todayStr();
+  const [y, m] = _dueCalMonth.split('-').map(Number);
+  const base = _dueBase();
+  const byDay = {};
+  base.forEach(o => { if (_DUE_RE.test(o.delivery || '') && o.delivery.slice(0, 7) === _dueCalMonth) (byDay[o.delivery] = byDay[o.delivery] || []).push(o); });
+  const monthList = Object.values(byDay).flat();
+  const notDone = o => o.deliveryStatus !== 'delivered';
+  const lateN = monthList.filter(o => notDone(o) && o.delivery < today).length;
+  const waitN = monthList.filter(o => notDone(o) && o.delivery >= today).length;
+  const doneN = monthList.length - lateN - waitN;
+  const boxes = monthList.reduce((s, o) => s + calcOrderBoxes(o), 0);
+  const noDueN = base.filter(o => !_DUE_RE.test(o.delivery || '')).length;
+
+  const first = new Date(y, m - 1, 1).getDay();
+  const days = new Date(y, m, 0).getDate();
+  let cells = '';
+  for (let i = 0; i < first; i++) cells += '<div></div>';
+  for (let d = 1; d <= days; d++) {
+    const ds = `${_dueCalMonth}-${String(d).padStart(2, '0')}`;
+    const list = byDay[ds] || [];
+    const late = list.some(o => notDone(o) && ds < today);
+    const open = list.some(notDone);
+    const col = late ? '#dc2626' : open ? '#f59e0b' : '#16a34a';
+    const wd = (first + d - 1) % 7;
+    cells += `<button onclick="dueCalSelect('${ds}')" style="height:54px;padding:0;border-radius:10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:13px;
+      border:1.5px solid ${ds === _dueCalSel ? 'var(--navy)' : 'transparent'};background:${ds === today ? '#e0e7ff' : '#fff'};">
+      <span style="font-weight:800;color:${wd === 0 ? '#dc2626' : wd === 6 ? '#2563eb' : 'var(--navy)'};">${d}</span>
+      ${list.length ? `<span style="background:${col};color:#fff;border-radius:9px;font-size:10px;font-weight:800;padding:1px 6px;">${list.length}건</span>` : '<span style="height:16px;"></span>'}
+    </button>`;
+  }
+
+  const [sy, sm, sd] = _dueCalSel.split('-').map(Number);
+  const wdName = '일월화수목금토'[new Date(sy, sm - 1, sd).getDay()];
+  const selList = (byDay[_dueCalSel] || []).slice().sort((a, b) => String(a.ship || '').localeCompare(String(b.ship || '')));
+  const rows = selList.map(o => {
+    const st = _DUE_ST[o.deliveryStatus] || _DUE_ST.pending;
+    const isLate = notDone(o) && o.delivery < today;
+    return `<div onclick="openModal('${o.id}')" style="display:flex;gap:10px;align-items:center;background:#fff;border-radius:12px;padding:11px 12px;margin-bottom:8px;cursor:pointer;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:800;color:var(--navy);font-size:14px;">${escapeHtml(o.ship || '선명 없음')}</div>
+        <div style="font-size:11px;color:var(--muted);">${escapeHtml(o.docNo || '')}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;">
+        <div style="font-weight:800;font-size:14px;">${formatBoxCount(calcOrderBoxes(o))}</div>
+        <span style="font-size:10px;font-weight:700;border-radius:6px;padding:2px 6px;color:${isLate ? '#b91c1c' : st[1]};background:${isLate ? '#fee2e2' : st[2]};">${isLate ? '⚠️ 지연 · ' : ''}${st[0]}</span>
+      </div></div>`;
+  }).join('');
+
+  const nav = 'width:42px;height:42px;border-radius:50%;border:1px solid var(--border);background:#fff;font-size:16px;cursor:pointer;';
+  ov.innerHTML = `
+    <div style="padding:calc(12px + env(safe-area-inset-top,0px)) 14px 12px;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:space-between;">
+      <div style="font-size:16px;font-weight:800;">📆 납기일 월별 일정</div>
+      <button onclick="closeDueCalendar()" style="background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:8px;font-size:15px;padding:6px 12px;cursor:pointer;">✕ 닫기</button>
+    </div>
+    <div style="flex:1;overflow-y:auto;padding:12px 14px calc(18px + env(safe-area-inset-bottom,0px));">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <button onclick="dueCalMove(-1)" style="${nav}">◀</button>
+        <div style="text-align:center;"><div style="font-size:18px;font-weight:800;color:var(--navy);">${y}년 ${m}월</div>
+          <button onclick="dueCalToday()" style="border:none;background:none;color:#2563eb;font-size:12px;font-weight:700;cursor:pointer;">오늘로 이동</button></div>
+        <button onclick="dueCalMove(1)" style="${nav}">▶</button>
+      </div>
+      <div style="background:#fff;border-radius:12px;padding:9px 12px;margin-bottom:10px;font-size:12px;color:var(--muted);line-height:1.6;">
+        이번 달 납기 <b style="color:var(--navy);">${monthList.length}건</b> · ${formatBoxCount(boxes)}
+        <br><span style="color:#16a34a;font-weight:700;">● 완료 ${doneN}</span> &nbsp;<span style="color:#d97706;font-weight:700;">● 예정 ${waitN}</span> &nbsp;<span style="color:#dc2626;font-weight:700;">● 지연 ${lateN}</span>
+        ${noDueN ? `<br><span>납기일 없는 발주 ${noDueN}건은 달력에 표시되지 않습니다</span>` : ''}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;">
+        <div style="color:#dc2626;">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div style="color:#2563eb;">토</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:14px;">${cells}</div>
+      <div style="font-size:13px;font-weight:800;color:var(--navy);margin-bottom:8px;">${sm}월 ${sd}일 (${wdName}) 납기 · ${selList.length}건</div>
+      ${rows || '<div style="text-align:center;color:var(--muted);font-size:13px;padding:18px 0;">이 날 납기인 발주가 없습니다</div>'}
+    </div>`;
 }
