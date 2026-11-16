@@ -1540,6 +1540,21 @@ function _adjustQty(inputId, delta) {
 }
 
 function saveDelivGoal(dateStr) {
+  // v3.3.84: 계란·메추리 칸은 정수 박스만 저장됨 — 소수(0.5 등)가 들어 있으면 깐메추리 칸과 착각한 것일 수 있어 확인
+  // (메추리 칸에 0.5를 넣고 저장하면 0으로 잘려 깐메추리 입고가 비어 '재고부족'이 뜨던 사례)
+  for (const [id, label] of [['goal-egg', '계란(입고)'], ['goal-quail', '메추리(입고)'], ['dmg-egg', '계란(파손)'], ['dmg-quail', '메추리(파손)']]) {
+    const raw = String(document.getElementById(id)?.value ?? '').trim();
+    const v = parseFloat(raw);
+    if (!raw || !Number.isFinite(v) || Number.isInteger(v)) continue;
+    const bid = id.startsWith('goal') ? 'goal-brine' : 'dmg-brine';
+    const bEl = document.getElementById(bid);
+    const kind = id.startsWith('goal') ? '입고' : '파손';
+    const bv = parseFloat(bEl?.value) || 0;
+    const moved = bEl && bv === 0 && confirm(`${label}에 소수(${raw})가 입력되어 있습니다.\n계란·메추리는 정수 박스만 저장됩니다.\n\n깐메추리(${kind})에 ${Math.round(v * 10) / 10}박스(${Math.round(v * 10)}봉지)로 입력하려던 게 맞나요?\n[확인] 깐메추리로 옮겨 저장  /  [취소] 돌아가서 수정`);
+    if (!moved) { toast(`⚠️ ${label}은(는) 정수 박스만 입력할 수 있습니다`); return; }
+    bEl.value = String(Math.round(v * 10) / 10);
+    document.getElementById(id).value = 0;
+  }
   const goal = {
     egg:   Math.max(0, parseInt(document.getElementById('goal-egg')?.value)   || 0),
     quail: Math.max(0, parseInt(document.getElementById('goal-quail')?.value) || 0),
