@@ -11,6 +11,12 @@ const GEMINI_MODEL_FB = 'gemini-3.5-flash-lite';   // 최종 폴백 — 가장 �
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
 
 // ── Gemini API 직접 호출 (이미지+텍스트 멀티모달) ──
+// v3.3.86: 시도별 모델·상태·소요시간 기록 — 인식이 느릴 때 원인(대기/재시도/응답지연)을 분리해서 보기 위함
+function _gemLogPush(model, status, t0) {
+  const ms = Math.round(performance.now() - t0);
+  if (Array.isArray(window._gemLog)) window._gemLog.push({ model, status, ms });
+  AppLog.add('api_end', { model, status, ms });
+}
 async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry = 0, _keyRetry = 0) {
   const apiKey = getGeminiKey();
   if (!apiKey) throw new Error('API_KEY_MISSING');
@@ -31,19 +37,35 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
     generationConfig: { maxOutputTokens: maxTokens, responseMimeType: 'application/json', thinkingConfig: { thinkingLevel: 'low' } }
   };
 
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('인터넷에 연결되어 있지 않습니다.');
   let resp;
+  const _t0 = performance.now();
+  const bodyStr = JSON.stringify(body);
+  AppLog.add('api_start', { model, key: _keyIndex + 1, retry: _retry, keyRetry: _keyRetry, reqKB: Math.round(bodyStr.length / 1024), maxTokens, parts: parts.length });
+  // 응답이 오래 걸릴 때 앱이 멈추거나 종료돼도 "몇 초째 기다리는 중이었는지" 남도록 10초마다 기록
+  const hb = setInterval(() => AppLog.add('api_wait', { model, sec: Math.round((performance.now() - _t0) / 1000) }), 10000);
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000); // 60초 타임아웃
+    const timeout = setTimeout(() => controller.abort(), 50000); // 50초 타임아웃
     resp = await fetch(
       `${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: controller.signal }
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyStr, signal: controller.signal }
     );
     clearTimeout(timeout);
+    clearInterval(hb);
   } catch (networkErr) {
+    clearInterval(hb);
+    AppLog.add('api_net', { model, name: networkErr.name, msg: String(networkErr.message || '').slice(0, 120), online: navigator.onLine });
     // Failed to fetch / 타임아웃 / 네트워크 오류 → 다음 키로 교체 후 재시도
     const isTimeout = networkErr.name === 'AbortError';
-    console.warn(`[Gemini] ${isTimeout ? '타임아웃(60초)' : '네트워크 오류'}: ${networkErr.message}`);
+    _gemLogPush(model, isTimeout ? '타임아웃' : '네트워크', _t0);
+    console.warn(`[Gemini] ${isTimeout ? '타임아웃(50초)' : '네트워크 오류'}: ${networkErr.message}`);
+    // v3.3.86: 타임아웃은 서버가 느린 것이라 키를 바꿔도 같은 증상이 반복되므로(키마다 50초씩 더 대기) 바로 다음 모델로 전환
+    if (isTimeout) {
+      if (model === GEMINI_MODEL)    return callGemini(parts, maxTokens, GEMINI_MODEL_F2, 0, 0);
+      if (model === GEMINI_MODEL_F2) return callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0);
+      throw new Error('AI 응답 시간 초과 — 서버가 느립니다. 잠시 후 다시 시도해주세요.');
+    }
     const keys = getGeminiKeys();
     if (_keyRetry < keys.length - 1) {
       rotateGeminiKey();
@@ -64,14 +86,33 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
     throw new Error('네트워크 오류 — 인터넷 연결을 확인하거나 잠시 후 다시 시도해주세요.');
   }
 
+  _gemLogPush(model, resp.status, _t0);
   // 429(한도초과) / 503(과부하) → 다음 키로 교체 후 재시도
   if ([429, 500, 502, 503, 504].includes(resp.status)) {
     const keys = getGeminiKeys();
-    if (_keyRetry < keys.length - 1) {
+    { const _eb = await resp.clone().json().catch(() => null);   // 429는 어떤 한도(분당/일일/프로젝트)에 걸렸는지 메시지에 나옴
+      AppLog.add('api_retry', { model, status: resp.status, retry: _retry, keyRetry: _keyRetry, msg: String((_eb && _eb.error && _eb.error.message) || '').slice(0, 240) }); }
+    // v3.3.86: 5xx(서버 과부하·오류)는 키 문제가 아니라 모델 쪽 문제 — 키를 돌려도 같은 결과라 같은 모델로 1회만 재시도하고 바로 다음 모델로 전환
+    if (resp.status !== 429) {
+      if (_retry < 1) {
+        console.warn(`[Gemini] ${resp.status} → 2초 후 같은 모델로 1회 재시도`);
+        await new Promise(r => setTimeout(r, 2000));
+        return callGemini(parts, maxTokens, model, _retry + 1, _keyRetry);
+      }
+      if (model === GEMINI_MODEL)    return callGemini(parts, maxTokens, GEMINI_MODEL_F2, 0, 0);
+      if (model === GEMINI_MODEL_F2) return callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0);
+    }
+    if (resp.status === 429 && _keyRetry < keys.length - 1) {
       rotateGeminiKey();
       console.warn(`[Gemini] ${resp.status} → 키 ${_keyIndex + 1}로 교체 후 재시도 (${_keyRetry + 1}회)`);
-      await new Promise(r => setTimeout(r, 2000));
+      await new Promise(r => setTimeout(r, resp.status === 429 ? 300 : 2000));  // 429는 즉시 응답하는 한도 오류라 길게 기다릴 필요 없음
       return callGemini(parts, maxTokens, model, _retry, _keyRetry + 1);
+    }
+    // v3.3.86: 모든 키가 429면 한도는 모델별로 따로 관리되므로 6초·12초 기다리지 말고 바로 다음 모델로
+    if (resp.status === 429 && model !== GEMINI_MODEL_FB) {
+      const next = model === GEMINI_MODEL ? GEMINI_MODEL_F2 : GEMINI_MODEL_FB;
+      console.warn(`[Gemini] 모든 키 429 → 대기 없이 ${next}로 즉시 전환`);
+      return callGemini(parts, maxTokens, next, 0, 0);
     }
     // 모든 키 소진 → 키1로 재시도.
     // 429(분당 한도초과)는 한도 리셋을 기다려야 하므로 6초/12초로 느리게,
@@ -101,6 +142,7 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
   if (!resp.ok) {
     const errBody = await resp.json().catch(() => ({}));
     const errMsg  = errBody?.error?.message || '';
+    AppLog.add('api_error', { model, status: resp.status, msg: errMsg.slice(0, 240) });
     const isFallbackable = resp.status === 404
       || errMsg.includes('not found')
       || errMsg.includes('deprecated');
@@ -138,6 +180,8 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
   // 나뉠 때 빈 문자열이 될 수 있어, thought가 아닌 텍스트 파트를 모두 이어 붙인다.
   const respParts = candidate?.content?.parts || [];
   const text = respParts.filter(p => p && !p.thought && typeof p.text === 'string').map(p => p.text).join('');
+  { const u = data.usageMetadata || {};   // thoughts = 생각(thinking) 토큰 — 많으면 그만큼 응답이 느려짐
+    AppLog.add('api_ok', { model, finish: candidate?.finishReason, promptTok: u.promptTokenCount, outTok: u.candidatesTokenCount, thoughtTok: u.thoughtsTokenCount, totalTok: u.totalTokenCount, textLen: text.length, respParts: respParts.length }); }
   if (!text) {
     const block = data?.promptFeedback?.blockReason;
     const fr = candidate?.finishReason;

@@ -111,6 +111,7 @@ function onDrop(e) {
 }
 
 async function handleFiles(files) {
+  const _tHF = performance.now();
   if (!files.length) return;
   if (!getGeminiKey()) { setStatus('⚠️ API 키를 먼저 입력해주세요.'); return; }
   pendingOrders = [];
@@ -138,20 +139,38 @@ async function handleFiles(files) {
   }
 
   // 백그라운드 처리 유지 시작 (화면 꺼짐·앱 전환 대응)
+  AppLog.newRun();
+  const _tRun = performance.now();
+  AppLog.add('run_start', Object.assign({ files: all.map(f => ({ name: f.name, type: f.type, kb: Math.round(f.size / 1024) })), expandMs: Math.round(_tRun - _tHF) }, AppLog.env()));
+  const _tBg = performance.now();
   await BG.start();
+  AppLog.add('bg_start', { ms: Math.round(performance.now() - _tBg) });
 
+  const timings = [];   // v3.3.86: 파일별 소요시간·시도 기록
   const failedFiles = [];
   const failReasons = [];   // v3.3.72: 실패 원인을 마지막 안내문에 남기기 위해 수집
   for (let i = 0; i < all.length; i++) {
     setProgress(Math.round(((i + 0.5) / all.length) * 100));
     setStatus(`분석 중 ${i + 1}/${all.length}: ${all[i].name} (백그라운드 처리 중)`);
+    window._gemLog = [];
+    const _tFile = performance.now();
+    let _ok = true, _errMsg = '';
+    window._lastPrepMs = 0;
     try { await analyzeFile(all[i]); }
     catch(e) {
+      _ok = false; _errMsg = String((e && e.message) || e).slice(0, 200);
       console.warn('[handleFiles] 파일 실패, 다음 파일로 계속:', all[i].name, e.message);
       failedFiles.push(all[i].name);
       failReasons.push(e.message === 'API_KEY_MISSING' ? 'API 키 없음' : (e.message || '알 수 없는 오류'));
     }
+    timings.push({ name: all[i].name, ms: Math.round(performance.now() - _tFile), log: (window._gemLog || []).slice() });
+    { const tm = timings[timings.length - 1], api = tm.log.reduce((s, x) => s + x.ms, 0), prep = window._lastPrepMs || 0;
+      AppLog.add('file_end', { name: all[i].name, ms: tm.ms, prepMs: prep, apiMs: api, otherMs: Math.max(0, tm.ms - prep - api), tries: tm.log.length, chain: tm.log.map(x => x.model.replace('gemini-', '') + ':' + x.status).join(' → '), ok: _ok, err: _errMsg }); }
   }
+  window._lastAnalyzeTimings = timings;
+  AppLog.add('run_end', { totalMs: Math.round(performance.now() - _tRun), files: all.length, failed: failedFiles.length });
+  AppLog.end();
+  try { console.table(timings.map(t => ({ 파일: t.name, 총ms: t.ms, AIms: t.log.reduce((s, x) => s + x.ms, 0), 시도: t.log.map(x => x.model + ':' + x.status).join(' → ') }))); } catch (e) {}
 
   await BG.end();
 
@@ -160,9 +179,10 @@ async function handleFiles(files) {
     renderPreview();
     document.getElementById('prev-section').style.display = 'block';
     const failMsg = failedFiles.length ? ` (실패 ${failedFiles.length}건: ${failedFiles.join(', ')})` : '';
+    const timeMsg = _fmtTimings(timings);
     const warnN = pendingOrders.filter(o => o._truncated || o._pagesCut).length;
     const warnMsg = warnN ? ` ⚠️ ${warnN}건은 응답 잘림/페이지 초과로 품목이 빠졌을 수 있으니 원본과 대조하세요.` : '';
-    setStatus(`✅ ${pendingOrders.length}건 분석 완료. 확인 후 저장하세요.${failMsg}${warnMsg}`);
+    setStatus(`✅ ${pendingOrders.length}건 분석 완료. 확인 후 저장하세요.${failMsg}${warnMsg}${timeMsg}`);
   } else {
     // v3.3.72: 예전엔 개별 파일의 실제 오류(한도 초과·요청 오류·응답 없음 등)가 이 일반 문구에
     // 덮여서 원인을 알 수 없었음 — 원인을 함께 표시한다.
@@ -176,6 +196,8 @@ async function analyzeFile(file) {
     // v3.3.35: 기존 발주 데이터에 실제로 쌓인 선명들을 AI 인식 참고 목록으로 제공
     // (선명 인식 실패·오인식 보완용). 하드코딩 없이 orders에서 매번 동적으로 구성.
     const shipMaster = _buildShipMasterList();
+    const _ta = performance.now();
+    AppLog.add('file_start', { name: file.name, type: file.type, kb: Math.round(file.size / 1024), ships: shipMaster.length });
     const shipHintText = shipMaster.length > 0
       ? `\n참고로 이 앱에 이미 등록된 선명 목록입니다. 글자가 흐릿하거나 애매하면 이 목록 중 가장
   유사한 것을 우선 참고하세요. 목록에 없는 새 선박이면 이 목록을 무시하고 문서에 보이는
@@ -229,22 +251,35 @@ unit 선택 기준(중요):
     if (file.type === 'application/pdf') {
       // v3.3.74: 텍스트 레이어가 있는 PDF는 글자를 직접 추출해 전달(숫자·번호 오독 방지, 이미지 토큰 감소로 더 빠름).
       // 1페이지 이미지는 레이아웃 참고용으로만 함께 보냄. 스캔본(텍스트 없음)은 기존 이미지 방식.
+      const _tp = performance.now();
       const pdfTxt = await pdfToText(file).catch(() => '');
+      AppLog.add('prep_pdf_text', { ms: Math.round(performance.now() - _tp), chars: pdfTxt.length, textMode: pdfTxt.replace(/[\s|\-]/g, '').length > 150 });
       if (pdfTxt.replace(/[\s|\-]/g, '').length > 150) {
         parts.push(textPart('아래는 PDF에서 직접 추출한 텍스트입니다(열 구분 " | "). 서류번호·수량·금액 등 숫자는 이 텍스트를 그대로 옮기세요. 첨부 이미지는 1페이지 레이아웃 참고용입니다:\n' + pdfTxt.slice(0, 30000)));
-        (await pdfToImages(file, IMAGE_MAX_PX, 1)).forEach(d => parts.push(imagePart(d)));
+        const _ti = performance.now();
+        const _im = await pdfToImages(file, IMAGE_MAX_PX, 1);
+        _im.forEach(d => parts.push(imagePart(d)));
+        AppLog.add('prep_pdf_image', { ms: Math.round(performance.now() - _ti), pages: window._lastPdfPages, imgKB: Math.round(_im.reduce((s, d) => s + d.length, 0) / 1024), mode: '텍스트+1페이지' });
       } else {
+        const _ti = performance.now();
         const pages = await pdfToImages(file);
         pages.forEach(dataUrl => parts.push(imagePart(dataUrl)));
+        AppLog.add('prep_pdf_image', { ms: Math.round(performance.now() - _ti), pages: window._lastPdfPages, sent: pages.length, imgKB: Math.round(pages.reduce((s, d) => s + d.length, 0) / 1024), mode: '이미지(텍스트 없음)' });
         if (window._lastPdfPages > PDF_MAX_PAGES) pdfCut = window._lastPdfPages;
       }
     } else {
       // 이미지 리사이즈 후 전송 (대용량 오류 방지)
+      const _ti = performance.now();
       const dataUrl = await resizeImage(file, IMAGE_MAX_PX, IMAGE_QUALITY);
+      AppLog.add('prep_image', { ms: Math.round(performance.now() - _ti), imgKB: Math.round(dataUrl.length / 1024) });
       parts.push(imagePart(dataUrl));
     }
 
-    let txt = await callGemini(parts, 8000);   // v3.3.72: 4000 → 8000 (품목이 많은 발주서에서 JSON이 잘리지 않도록 여유)
+    window._lastPrepMs = Math.round(performance.now() - _ta);
+    AppLog.add('prompt_ready', { prepMs: window._lastPrepMs, promptChars: prompt.length, parts: parts.length });
+    const _tg = performance.now();
+    let txt = await callGemini(parts, 8000);
+    AppLog.add('gemini_done', { ms: Math.round(performance.now() - _tg), textLen: txt.length, finish: window._geminiLastFinish });   // v3.3.72: 4000 → 8000 (품목이 많은 발주서에서 JSON이 잘리지 않도록 여유)
 
     // 코드블록 제거 후 { } 범위만 추출
     txt = txt.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
@@ -266,7 +301,8 @@ unit 선택 기준(중요):
         for (let i = 0; i < opens; i++) fixed += ']';
         for (let i = 0; i < openb; i++) fixed += '}';
         parsed = JSON.parse(fixed);
-        parsed._truncated = true;   // 미리보기 안내문에 표시
+        parsed._truncated = true;
+        AppLog.add('json_recovered', { items: (parsed.items || []).length });   // 미리보기 안내문에 표시
         console.warn('[analyzer] JSON 복구 성공(일부 품목 누락 가능)');
       } catch (e2) {
         console.warn('[analyzer] JSON 파싱 실패:', parseErr.message, '\n원본:', txt);
@@ -401,6 +437,22 @@ async function pdfToImages(file, maxPx = IMAGE_MAX_PX, maxPages = PDF_MAX_PAGES)
 }
 
 // v3.3.74: PDF 텍스트 레이어 추출 — y좌표가 비슷한 조각을 한 줄로 묶고 x순으로 " | " 구분
+// v3.3.86: 소요시간 요약 — 총 시간 중 AI 응답/기타(PDF 준비·재시도 대기)를 나눠 보여 느린 원인을 구분
+function _fmtTimings(ts) {
+  if (!ts || !ts.length) return '';
+  const sec = v => (v / 1000).toFixed(1) + '초';
+  const one = t => {
+    const ai = t.log.reduce((s, x) => s + x.ms, 0), n = t.log.length;
+    let s = `총 ${sec(t.ms)} (AI ${sec(ai)} · 기타 ${sec(Math.max(0, t.ms - ai))}`;
+    if (n > 1) s += ` · 시도 ${n}회 ${t.log.map(x => x.status).join('→')}`;
+    if (n) s += ` · ${t.log[n - 1].model}`;
+    return s + ')';
+  };
+  if (ts.length === 1) return `\n⏱ ${one(ts[0])}`;
+  const sum = ts.reduce((s, t) => s + t.ms, 0), slow = ts.slice().sort((a, b) => b.ms - a.ms)[0];
+  return `\n⏱ 총 ${sec(sum)} · 파일당 평균 ${sec(sum / ts.length)}\n가장 오래 걸린 파일 ${slow.name}: ${one(slow)}`;
+}
+
 async function pdfToText(file) {
   if (!window.pdfjsLib) return '';
   const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;

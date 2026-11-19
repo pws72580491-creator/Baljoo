@@ -577,3 +577,105 @@ function toast(msg, duration = 2500) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('show'), duration);
 }
+
+// ══════════════════════════════════════════════════════
+// v3.3.87: 분석 로그 — 인식이 느리거나 실패할 때 원인을 파일로 확인하기 위한 기록
+// 기록: 단계별 소요시간·모델·상태코드·토큰 수·재시도·화면 전환/네트워크 상태. (API 키·문서 내용은 기록하지 않음)
+// ══════════════════════════════════════════════════════
+const AppLog = (() => {
+  const KEY = 'baljuAnalyzeLog_v1', MAX_EVENTS = 600, MAX_BYTES = 350000;
+  let buf = [];
+  try { const p = JSON.parse(localStorage.getItem(KEY) || '[]'); if (Array.isArray(p)) buf = p; } catch (e) {}
+  let timer = null, run = 0, active = false;
+  const p2 = n => String(n).padStart(2, '0');
+
+  function flush() {
+    clearTimeout(timer); timer = null;
+    let s = JSON.stringify(buf);
+    while (s.length > MAX_BYTES && buf.length > 20) { buf.splice(0, Math.ceil(buf.length * 0.2)); s = JSON.stringify(buf); }
+    try { localStorage.setItem(KEY, s); }
+    catch (e) { try { buf.splice(0, Math.ceil(buf.length / 2)); localStorage.setItem(KEY, JSON.stringify(buf)); } catch (e2) {} }
+  }
+  function add(ev, data) {
+    buf.push(Object.assign({ t: new Date().toISOString(), run, ev }, data || {}));
+    if (buf.length > MAX_EVENTS) buf.splice(0, buf.length - MAX_EVENTS);
+    if (!timer) timer = setTimeout(flush, 400);   // 멈춘 경우에도 최근 기록이 남도록 짧게 저장
+  }
+  function env() {
+    const c = navigator.connection || {};
+    return {
+      ver: typeof APP_VERSION !== 'undefined' ? APP_VERSION : '',
+      ua: navigator.userAgent,
+      online: navigator.onLine,
+      net: c.effectiveType ? `${c.effectiveType}/${c.downlink}Mbps/rtt${c.rtt}ms/saveData:${!!c.saveData}` : '정보없음',
+      visible: document.visibilityState,
+      tz: (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone,
+      screen: `${screen.width}x${screen.height}@${window.devicePixelRatio}`,
+      mem: navigator.deviceMemory || '', cores: navigator.hardwareConcurrency || '',
+      standalone: !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+    };
+  }
+  function local(iso) { const d = new Date(iso); return `${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`; }
+  function report() {
+    const e = env(), L = [];
+    L.push('=== 발주관리 분석 로그 ===');
+    L.push(`생성: ${local(new Date().toISOString())} (기기 현지시각)   앱: ${e.ver}`);
+    L.push(`기기: ${e.ua}`);
+    L.push(`화면: ${e.screen}  메모리: ${e.mem}GB  코어: ${e.cores}  설치형(PWA): ${e.standalone}  시간대: ${e.tz}`);
+    L.push(`네트워크: ${e.net}  online: ${e.online}`);
+    L.push(`API 키 개수: ${typeof getGeminiKeys === 'function' ? getGeminiKeys().length : '?'}  모델: ${GEMINI_MODEL} → ${GEMINI_MODEL_F2} → ${GEMINI_MODEL_FB}`);
+    L.push('');
+    const ends = buf.filter(x => x.ev === 'file_end');
+    L.push(`── 파일별 요약 (${ends.length}건) · 총 = 준비(PDF/이미지) + API + 대기·기타 ──`);
+    ends.forEach(x => L.push(`${local(x.t).slice(0, 14)} | ${x.name} | 총 ${(x.ms / 1000).toFixed(1)}초 = 준비 ${(x.prepMs / 1000).toFixed(1)} + API ${(x.apiMs / 1000).toFixed(1)} + 대기·기타 ${(x.otherMs / 1000).toFixed(1)} | 시도 ${x.tries}회 ${x.chain || ''} | ${x.ok ? '성공' : '실패: ' + (x.err || '')}`));
+    L.push('');
+    L.push('── 상세 이벤트 (기기 현지시각, #는 실행 번호) ──');
+    buf.forEach(x => { const { t, ev, run: r, ...rest } = x; L.push(`${local(t)} #${String(r).slice(-5)} ${ev} ${JSON.stringify(rest)}`); });
+    return L.join('\n');
+  }
+  function makeFile() {
+    const d = new Date();
+    return new File([report()], `발주관리_분석로그_${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}.txt`, { type: 'text/plain' });
+  }
+  function download() {
+    flush();
+    const f = makeFile(), url = URL.createObjectURL(f), a = document.createElement('a');
+    a.href = url; a.download = f.name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+    return f.name;
+  }
+  async function share() {
+    flush();
+    const f = makeFile();
+    if (navigator.canShare && navigator.canShare({ files: [f] })) {
+      try { await navigator.share({ files: [f], title: '발주관리 분석 로그' }); return 'shared'; }
+      catch (e) { if (e && e.name === 'AbortError') return 'cancel'; }
+    }
+    download(); return 'downloaded';
+  }
+  function clear() { buf = []; flush(); }
+
+  // 분석 중 화면 전환(백그라운드)·네트워크 변화·자바스크립트 오류도 함께 기록 — 느림의 원인이 되는 경우가 많음
+  document.addEventListener('visibilitychange', () => { if (active) add('visibility', { state: document.visibilityState }); if (document.visibilityState === 'hidden') flush(); });
+  window.addEventListener('pagehide', flush);
+  window.addEventListener('online', () => { if (active) add('network', { online: true }); });
+  window.addEventListener('offline', () => { if (active) add('network', { online: false }); });
+  window.addEventListener('error', ev => add('js_error', { msg: String(ev.message || '').slice(0, 200), src: String(ev.filename || '').split('/').pop(), line: ev.lineno }));
+  window.addEventListener('unhandledrejection', ev => add('js_rejection', { msg: String((ev.reason && ev.reason.message) || ev.reason || '').slice(0, 200) }));
+
+  return { add, flush, env, report, download, share, clear, count: () => buf.length, newRun() { run = Date.now(); active = true; }, end() { active = false; flush(); } };
+})();
+
+function exportAnalyzeLog() {
+  if (!AppLog.count()) { toast('기록된 분석 로그가 아직 없습니다. 문서를 한 번 분석한 뒤 눌러주세요'); return; }
+  toast(`📄 ${AppLog.download()} 저장됨 (다운로드 폴더 확인)`);
+}
+async function shareAnalyzeLog() {
+  if (!AppLog.count()) { toast('기록된 분석 로그가 아직 없습니다. 문서를 한 번 분석한 뒤 눌러주세요'); return; }
+  const r = await AppLog.share();
+  if (r === 'downloaded') toast('공유가 지원되지 않아 파일로 저장했습니다 (다운로드 폴더)');
+}
+function clearAnalyzeLog() {
+  if (!confirm('분석 로그를 모두 지울까요?')) return;
+  AppLog.clear(); toast('분석 로그를 비웠습니다');
+}
