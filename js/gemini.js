@@ -17,7 +17,8 @@ function _gemLogPush(model, status, t0) {
   if (Array.isArray(window._gemLog)) window._gemLog.push({ model, status, ms });
   AppLog.add('api_end', { model, status, ms });
 }
-async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry = 0, _keyRetry = 0) {
+async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry = 0, _keyRetry = 0, _signal = null) {
+  if (_signal && _signal.aborted) throw new Error('HEDGE_ABORTED');   // v3.3.90: 동시 요청에서 상대가 먼저 끝난 경우
   const apiKey = getGeminiKey();
   if (!apiKey) throw new Error('API_KEY_MISSING');
 
@@ -46,7 +47,8 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
   const hb = setInterval(() => AppLog.add('api_wait', { model, sec: Math.round((performance.now() - _t0) / 1000) }), 10000);
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 50000); // 50초 타임아웃
+    if (_signal) _signal.addEventListener('abort', () => controller.abort(), { once: true });
+    const timeout = setTimeout(() => controller.abort(), 40000); // 40초 타임아웃
     resp = await fetch(
       `${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyStr, signal: controller.signal }
@@ -55,15 +57,16 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
     clearInterval(hb);
   } catch (networkErr) {
     clearInterval(hb);
+    if (_signal && _signal.aborted) throw new Error('HEDGE_ABORTED');
     AppLog.add('api_net', { model, name: networkErr.name, msg: String(networkErr.message || '').slice(0, 120), online: navigator.onLine });
     // Failed to fetch / 타임아웃 / 네트워크 오류 → 다음 키로 교체 후 재시도
     const isTimeout = networkErr.name === 'AbortError';
     _gemLogPush(model, isTimeout ? '타임아웃' : '네트워크', _t0);
-    console.warn(`[Gemini] ${isTimeout ? '타임아웃(50초)' : '네트워크 오류'}: ${networkErr.message}`);
+    console.warn(`[Gemini] ${isTimeout ? '타임아웃(40초)' : '네트워크 오류'}: ${networkErr.message}`);
     // v3.3.86: 타임아웃은 서버가 느린 것이라 키를 바꿔도 같은 증상이 반복되므로(키마다 50초씩 더 대기) 바로 다음 모델로 전환
     if (isTimeout) {
-      if (model === GEMINI_MODEL)    return callGemini(parts, maxTokens, GEMINI_MODEL_F2, 0, 0);
-      if (model === GEMINI_MODEL_F2) return callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0);
+      if (model === GEMINI_MODEL)    return callGemini(parts, maxTokens, GEMINI_MODEL_F2, 0, 0, _signal);
+      if (model === GEMINI_MODEL_F2) return callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0, _signal);
       throw new Error('AI 응답 시간 초과 — 서버가 느립니다. 잠시 후 다시 시도해주세요.');
     }
     const keys = getGeminiKeys();
@@ -71,18 +74,18 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
       rotateGeminiKey();
       console.warn(`[Gemini] 키 ${_keyRetry + 2}로 교체 후 재시도`);
       await new Promise(r => setTimeout(r, 2000));
-      return callGemini(parts, maxTokens, model, _retry, _keyRetry + 1);
+      return callGemini(parts, maxTokens, model, _retry, _keyRetry + 1, _signal);
     }
     // 모든 키 순환 완료 → 6초 대기 후 키1로 재시도
     if (_retry < 1) {
       _keyIndex = 0;
       console.warn('[Gemini] 모든 키 순환 완료 → 6초 대기 후 키1로 재시도');
       await new Promise(r => setTimeout(r, 6000));
-      return callGemini(parts, maxTokens, model, _retry + 1, 0);
+      return callGemini(parts, maxTokens, model, _retry + 1, 0, _signal);
     }
     // 모델 폴백
-    if (model === GEMINI_MODEL)    return callGemini(parts, maxTokens, GEMINI_MODEL_F2, 0, 0);
-    if (model === GEMINI_MODEL_F2) return callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0);
+    if (model === GEMINI_MODEL)    return callGemini(parts, maxTokens, GEMINI_MODEL_F2, 0, 0, _signal);
+    if (model === GEMINI_MODEL_F2) return callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0, _signal);
     throw new Error('네트워크 오류 — 인터넷 연결을 확인하거나 잠시 후 다시 시도해주세요.');
   }
 
@@ -97,22 +100,22 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
       if (_retry < 1) {
         console.warn(`[Gemini] ${resp.status} → 2초 후 같은 모델로 1회 재시도`);
         await new Promise(r => setTimeout(r, 2000));
-        return callGemini(parts, maxTokens, model, _retry + 1, _keyRetry);
+        return callGemini(parts, maxTokens, model, _retry + 1, _keyRetry, _signal);
       }
-      if (model === GEMINI_MODEL)    return callGemini(parts, maxTokens, GEMINI_MODEL_F2, 0, 0);
-      if (model === GEMINI_MODEL_F2) return callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0);
+      if (model === GEMINI_MODEL)    return callGemini(parts, maxTokens, GEMINI_MODEL_F2, 0, 0, _signal);
+      if (model === GEMINI_MODEL_F2) return callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0, _signal);
     }
     if (resp.status === 429 && _keyRetry < keys.length - 1) {
       rotateGeminiKey();
       console.warn(`[Gemini] ${resp.status} → 키 ${_keyIndex + 1}로 교체 후 재시도 (${_keyRetry + 1}회)`);
       await new Promise(r => setTimeout(r, resp.status === 429 ? 300 : 2000));  // 429는 즉시 응답하는 한도 오류라 길게 기다릴 필요 없음
-      return callGemini(parts, maxTokens, model, _retry, _keyRetry + 1);
+      return callGemini(parts, maxTokens, model, _retry, _keyRetry + 1, _signal);
     }
     // v3.3.86: 모든 키가 429면 한도는 모델별로 따로 관리되므로 6초·12초 기다리지 말고 바로 다음 모델로
     if (resp.status === 429 && model !== GEMINI_MODEL_FB) {
       const next = model === GEMINI_MODEL ? GEMINI_MODEL_F2 : GEMINI_MODEL_FB;
       console.warn(`[Gemini] 모든 키 429 → 대기 없이 ${next}로 즉시 전환`);
-      return callGemini(parts, maxTokens, next, 0, 0);
+      return callGemini(parts, maxTokens, next, 0, 0, _signal);
     }
     // 모든 키 소진 → 키1로 재시도.
     // 429(분당 한도초과)는 한도 리셋을 기다려야 하므로 6초/12초로 느리게,
@@ -122,18 +125,18 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
       const delay = resp.status === 429 ? (2 ** _retry) * 6000 : (2 ** _retry) * 2000;
       console.warn(`[Gemini] 모든 키 ${resp.status} → ${delay/1000}초 대기 후 키1로 재시도 (${_retry + 1}/2)`);
       await new Promise(r => setTimeout(r, delay));
-      return callGemini(parts, maxTokens, model, _retry + 1, 0);
+      return callGemini(parts, maxTokens, model, _retry + 1, 0, _signal);
     }
     // v3.3.73: [버그 수정] 재시도까지 다 썼는데도 429/503이면, 예전엔 여기서 바로 아래 공통
     // 오류 처리로 빠져 폴백 없이 실패 처리됐음 — 404 때와 똑같이 다음 모델로 넘어가야 함.
     // (한도는 모델별로 따로 관리되므로, 주 모델 한도가 찼어도 폴백 모델은 남아있을 수 있음)
     if (model === GEMINI_MODEL) {
       console.warn(`[Gemini] 주 모델 ${resp.status} 소진, 폴백1로 교체`);
-      return callGemini(parts, maxTokens, GEMINI_MODEL_F2, 0, 0);
+      return callGemini(parts, maxTokens, GEMINI_MODEL_F2, 0, 0, _signal);
     }
     if (model === GEMINI_MODEL_F2) {
       console.warn(`[Gemini] 폴백1 ${resp.status} 소진, 폴백2로 교체`);
-      return callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0);
+      return callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0, _signal);
     }
     // 최종 폴백 모델까지 소진 → 아래 공통 오류 처리로 진행해 안내 메시지 표시
   }
@@ -149,11 +152,11 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
 
     if (isFallbackable && model === GEMINI_MODEL) {
       console.warn('[Gemini] 주 모델 실패, 폴백1로 교체:', errMsg);
-      return callGemini(parts, maxTokens, GEMINI_MODEL_F2, 0, 0);
+      return callGemini(parts, maxTokens, GEMINI_MODEL_F2, 0, 0, _signal);
     }
     if (isFallbackable && model === GEMINI_MODEL_F2) {
       console.warn('[Gemini] 폴백1 실패, 폴백2로 교체:', errMsg);
-      return callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0);
+      return callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0, _signal);
     }
 
     const msg = errBody?.error?.message || resp.statusText;
@@ -269,4 +272,38 @@ function migrateOldKey() {
   }
 }
 
-
+// ══════════════════════════════════════════════════════
+// v3.3.90: 동시(헤지) 요청 — 주 모델이 GEMINI_HEDGE_MS 안에 응답하지 않으면 경량 모델에 같은 요청을 동시에 보내
+// 먼저 오는 쪽을 사용하고 나머지는 취소한다. (주 모델이 과부하로 40~50초씩 멈추는 구간에서 대기시간을 크게 줄임)
+// ══════════════════════════════════════════════════════
+const GEMINI_HEDGE_MS = 8000;
+function callGeminiHedged(parts, maxTokens = 2000) {
+  const cA = new AbortController(), cB = new AbortController();
+  return new Promise((resolve, reject) => {
+    let settled = false, running = 1, started = false, lastErr = null, timer = null;
+    const win = (who, text) => {
+      if (settled) return;
+      settled = true; clearTimeout(timer);
+      (who === 'A' ? cB : cA).abort();
+      const model = who === 'A' ? GEMINI_MODEL : GEMINI_MODEL_FB;
+      window._gemWinner = model + (started ? ' (동시 요청)' : '');
+      AppLog.add('hedge_win', { who, model, hedged: started });
+      resolve(text);
+    };
+    const lose = (who, e) => {
+      if (settled) return;
+      running--; lastErr = e;
+      if (e && e.message === 'API_KEY_MISSING') { settled = true; clearTimeout(timer); cA.abort(); cB.abort(); return reject(e); }
+      if (who === 'A' && !started) { clearTimeout(timer); startB(); return; }   // 주 모델이 먼저 실패하면 기다리지 않고 바로 경량 모델 시도
+      if (running <= 0) { settled = true; reject(lastErr); }
+    };
+    const startB = () => {
+      if (started || settled) return;
+      started = true; running++;
+      AppLog.add('hedge_start', { afterMs: GEMINI_HEDGE_MS, model: GEMINI_MODEL_FB });
+      callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0, cB.signal).then(t => win('B', t), e => lose('B', e));
+    };
+    callGemini(parts, maxTokens, GEMINI_MODEL, 0, 0, cA.signal).then(t => win('A', t), e => lose('A', e));
+    timer = setTimeout(startB, GEMINI_HEDGE_MS);
+  });
+}

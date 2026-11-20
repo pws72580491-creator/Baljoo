@@ -179,7 +179,7 @@ ${orderSummary}
 
     window._geminiLastFinish = '';
     // v3.3.68: 4000 → 8000 (gemini-2.5-flash는 생각 토큰도 출력 한도에 포함돼 긴 리스트에서 응답이 잘릴 수 있음)
-    let txt = await callGemini(parts, 8000);
+    let txt = await callGeminiHedged(parts, 8000);
     const truncated = window._geminiLastFinish === 'MAX_TOKENS';
 
     // 1단계: 코드블록 제거 (```json ... ``` 또는 ``` ... ```)

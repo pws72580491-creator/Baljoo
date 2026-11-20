@@ -151,8 +151,9 @@ async function handleFiles(files) {
   const failReasons = [];   // v3.3.72: 실패 원인을 마지막 안내문에 남기기 위해 수집
   for (let i = 0; i < all.length; i++) {
     setProgress(Math.round(((i + 0.5) / all.length) * 100));
-    setStatus(`분석 중 ${i + 1}/${all.length}: ${all[i].name} (백그라운드 처리 중)`);
+    setStatus(`분석 중 ${i + 1}/${all.length}: ${all[i].name} (분석 중에는 다른 앱으로 나가지 마세요)`);
     window._gemLog = [];
+    window._gemWinner = null;
     const _tFile = performance.now();
     let _ok = true, _errMsg = '';
     window._lastPrepMs = 0;
@@ -163,9 +164,9 @@ async function handleFiles(files) {
       failedFiles.push(all[i].name);
       failReasons.push(e.message === 'API_KEY_MISSING' ? 'API 키 없음' : (e.message || '알 수 없는 오류'));
     }
-    timings.push({ name: all[i].name, ms: Math.round(performance.now() - _tFile), log: (window._gemLog || []).slice() });
+    timings.push({ name: all[i].name, ms: Math.round(performance.now() - _tFile), log: (window._gemLog || []).slice(), winner: window._gemWinner || null });
     { const tm = timings[timings.length - 1], api = tm.log.reduce((s, x) => s + x.ms, 0), prep = window._lastPrepMs || 0;
-      AppLog.add('file_end', { name: all[i].name, ms: tm.ms, prepMs: prep, apiMs: api, otherMs: Math.max(0, tm.ms - prep - api), tries: tm.log.length, chain: tm.log.map(x => x.model.replace('gemini-', '') + ':' + x.status).join(' → '), ok: _ok, err: _errMsg }); }
+      AppLog.add('file_end', { name: all[i].name, ms: tm.ms, prepMs: prep, apiMs: api, otherMs: Math.max(0, tm.ms - prep - api), tries: tm.log.length, chain: tm.log.map(x => x.model.replace('gemini-', '') + ':' + x.status).join(' → '), ok: _ok, err: _errMsg, winner: window._gemWinner || null }); }
   }
   window._lastAnalyzeTimings = timings;
   AppLog.add('run_end', { totalMs: Math.round(performance.now() - _tRun), files: all.length, failed: failedFiles.length });
@@ -278,7 +279,7 @@ unit 선택 기준(중요):
     window._lastPrepMs = Math.round(performance.now() - _ta);
     AppLog.add('prompt_ready', { prepMs: window._lastPrepMs, promptChars: prompt.length, parts: parts.length });
     const _tg = performance.now();
-    let txt = await callGemini(parts, 8000);
+    let txt = await callGeminiHedged(parts, 8000);
     AppLog.add('gemini_done', { ms: Math.round(performance.now() - _tg), textLen: txt.length, finish: window._geminiLastFinish });   // v3.3.72: 4000 → 8000 (품목이 많은 발주서에서 JSON이 잘리지 않도록 여유)
 
     // 코드블록 제거 후 { } 범위만 추출
@@ -442,10 +443,10 @@ function _fmtTimings(ts) {
   if (!ts || !ts.length) return '';
   const sec = v => (v / 1000).toFixed(1) + '초';
   const one = t => {
-    const ai = t.log.reduce((s, x) => s + x.ms, 0), n = t.log.length;
+    const ai = Math.min(t.ms, t.log.reduce((s, x) => s + x.ms, 0)), n = t.log.length;   // 동시 요청이면 합이 총 시간보다 클 수 있어 상한 처리
     let s = `총 ${sec(t.ms)} (AI ${sec(ai)} · 기타 ${sec(Math.max(0, t.ms - ai))}`;
     if (n > 1) s += ` · 시도 ${n}회 ${t.log.map(x => x.status).join('→')}`;
-    if (n) s += ` · ${t.log[n - 1].model}`;
+    if (t.winner) s += ` · 결과: ${t.winner}`; else if (n) s += ` · ${t.log[n - 1].model}`;
     return s + ')';
   };
   if (ts.length === 1) return `\n⏱ ${one(ts[0])}`;

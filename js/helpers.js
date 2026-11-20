@@ -627,7 +627,7 @@ const AppLog = (() => {
     L.push('');
     const ends = buf.filter(x => x.ev === 'file_end');
     L.push(`── 파일별 요약 (${ends.length}건) · 총 = 준비(PDF/이미지) + API + 대기·기타 ──`);
-    ends.forEach(x => L.push(`${local(x.t).slice(0, 14)} | ${x.name} | 총 ${(x.ms / 1000).toFixed(1)}초 = 준비 ${(x.prepMs / 1000).toFixed(1)} + API ${(x.apiMs / 1000).toFixed(1)} + 대기·기타 ${(x.otherMs / 1000).toFixed(1)} | 시도 ${x.tries}회 ${x.chain || ''} | ${x.ok ? '성공' : '실패: ' + (x.err || '')}`));
+    ends.forEach(x => L.push(`${local(x.t).slice(0, 14)} | ${x.name} | 총 ${(x.ms / 1000).toFixed(1)}초 = 준비 ${(x.prepMs / 1000).toFixed(1)} + API ${(x.apiMs / 1000).toFixed(1)} + 대기·기타 ${(x.otherMs / 1000).toFixed(1)} | 시도 ${x.tries}회 ${x.chain || ''}${x.winner ? ' · 결과:' + x.winner : ''} | ${x.ok ? '성공' : '실패: ' + (x.err || '')}`));
     L.push('');
     L.push('── 상세 이벤트 (기기 현지시각, #는 실행 번호) ──');
     buf.forEach(x => { const { t, ev, run: r, ...rest } = x; L.push(`${local(t)} #${String(r).slice(-5)} ${ev} ${JSON.stringify(rest)}`); });
@@ -656,7 +656,15 @@ const AppLog = (() => {
   function clear() { buf = []; flush(); }
 
   // 분석 중 화면 전환(백그라운드)·네트워크 변화·자바스크립트 오류도 함께 기록 — 느림의 원인이 되는 경우가 많음
-  document.addEventListener('visibilitychange', () => { if (active) add('visibility', { state: document.visibilityState }); if (document.visibilityState === 'hidden') flush(); });
+  let hiddenAt = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (active) add('visibility', { state: document.visibilityState });
+    if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); flush(); }
+    else if (active && hiddenAt) {   // v3.3.90: 분석 중 앱을 벗어났다 돌아오면 멈춰 있던 시간을 알려줌(앱이 백그라운드에 있는 동안은 통신이 멈춤)
+      const sec = Math.round((Date.now() - hiddenAt) / 1000); hiddenAt = 0;
+      if (sec >= 15 && typeof toast === 'function') toast(`⏸ 앱을 벗어나 분석이 ${sec}초 멈춰 있었어요. 분석 중에는 이 화면을 유지해 주세요`, 5000);
+    }
+  });
   window.addEventListener('pagehide', flush);
   window.addEventListener('online', () => { if (active) add('network', { online: true }); });
   window.addEventListener('offline', () => { if (active) add('network', { online: false }); });
