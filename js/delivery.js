@@ -37,16 +37,28 @@ function normalizeDeliveryMatches(result) {
   // v3.3.91: AI가 돌려준 id가 실제 발주 id와 달라도 조용히 버리지 않는다.
   //  ① 대소문자·기호만 다른 id는 보정  ② 그래도 없으면 그 선명을 unmatched로 넘겨 선명 대조(보완 매칭/이미 납품완료/미매칭)에 태운다
   const idKey = s => String(s || '').toUpperCase().replace(/[^A-Z0-9가-힣]/g, '');
-  const dropped = [];
+  const dropped = [], badIds = [];
+  const taken = new Set((result.matched || []).filter(m => m && m.id && byId(m.id)).map(m => m.id));   // 이미 유효한 id로 선택된 발주
   const fixed = (result.matched || []).filter(m => m && typeof m === 'object').map(m => {
     if (m.id && byId(m.id)) return m;
+    badIds.push({ id: String(m.id || '').slice(0, 60), ship: String(m.ship || '').slice(0, 40) });   // 진단용: AI가 실제로 어떤 id를 줬는지
     const k = idKey(m.id);
-    const hit = k ? orders.find(o => idKey(o.id) === k) : null;
-    if (hit) return { ...m, id: hit.id, reason: (m.reason ? m.reason + ' ' : '') + '(ID 표기 보정)' };
+    // ① 표기만 다른 id → 보정  ② 서류번호·발주번호를 id 자리에 적은 경우 → 그 미납품 발주
+    let hit = k ? orders.find(o => idKey(o.id) === k) : null;
+    if (!hit && k) hit = orders.find(o => _delIsPending(o.deliveryStatus) && !taken.has(o.id) && (idKey(o.docNo) === k || idKey(o.poNo) === k));
+    let why = hit ? '(ID 표기 보정)' : '';
+    // ③ 그래도 없으면 선명으로: AI가 이 배를 매칭하려던 것이므로 같은 선명의 미납품 발주 중 가장 오래된 건을 지정(AI 지시와 동일)
+    if (!hit && m.ship) {
+      const nk = _delNameKey(m.ship);
+      hit = nk ? orders.filter(o => _delIsPending(o.deliveryStatus) && !taken.has(o.id) && _delNameKey(o.ship) === nk)
+                      .sort((a, b) => (a.date || '').localeCompare(b.date || ''))[0] : null;
+      if (hit) why = '(AI가 준 ID가 달라 선명으로 매칭)';
+    }
+    if (hit) { taken.add(hit.id); return { ...m, id: hit.id, reason: (m.reason ? m.reason + ' ' : '') + why }; }
     if (m.ship) dropped.push(String(m.ship));
     return null;
   }).filter(Boolean);
-  result._dropped = dropped;
+  result._dropped = dropped; result._badIds = badIds;
   const raw = fixed.filter(m => m && m.id && byId(m.id));
   const claimed = new Set(raw.filter(m => _delIsPending(byId(m.id).deliveryStatus)).map(m => m.id));
   const emitted = new Set();
@@ -149,6 +161,9 @@ async function handleDeliveryFiles(files) {
 
   // 백그라운드 처리 유지 시작
   await BG.start();
+  AppLog.newRun();   // v3.3.92: 납품 리스트 분석도 로그에 기록(앱 전환·네트워크 끊김 포함)
+  const _tDel = performance.now();
+  AppLog.add('del_start', Object.assign({ files: Array.from(files).map(f => ({ name: f.name, type: f.type, kb: Math.round(f.size / 1024) })) }, AppLog.env()));
 
   try {
     // v3.3.66: 납품 리스트는 발주서 사진(보통 품목 1~3줄)과 달리 여러 척이
@@ -245,7 +260,7 @@ ${orderSummary}
     try {   // v3.3.91: 매칭 결과 진단 로그 — 같은 선명 발주가 있는지/상태가 무엇인지까지 기록
       const nm = n => { const k = _delNameKey(n); const os = orders.filter(o => _delNameKey(o.ship) === k); return { name: n, ordersWithSameName: os.length, statuses: os.slice(0, 4).map(o => (o.deliveryStatus || '') + ':' + (o.deliveredDate || o.date || '')) }; };
       const pend = orders.filter(o => _delIsPending(o.deliveryStatus)).length;
-      AppLog.add('del_match', { aiTotal: result.totalCount, aiMatched: _aiMatched, kept: result.matched.length, idMismatchShips: result._dropped || [], rescued: result.matched.filter(m => m.rescued).length, alreadyDelivered: result.alreadyDelivered.length, unmatched: result.unmatched.map(nm), pendingTotal: pend, sentToAI: Math.min(60, pend) });
+      AppLog.add('del_match', { aiTotal: result.totalCount, aiMatched: _aiMatched, kept: result.matched.length, idMismatchShips: result._dropped || [], badIds: result._badIds || [], autoByName: result.matched.filter(m => /선명으로 매칭/.test(m.reason || '')).length, rescued: result.matched.filter(m => m.rescued).length, alreadyDelivered: result.alreadyDelivered.length, unmatched: result.unmatched.map(nm), pendingTotal: pend, sentToAI: Math.min(60, pend) });
     } catch (e) {}
     renderDeliveryResult(result);
     setDelProgress(100);
@@ -253,9 +268,13 @@ ${orderSummary}
     setDelStatus(`✅ 분석 완료 — 전체 ${c.total}척 중 ${c.matchedCnt}척 매칭 (납품 대기 ${c.pending} · 이미 납품완료 ${c.delivered}${c.unmatched > 0 ? ` · 미매칭 ${c.unmatched}` : ''})${result._truncated ? ' ⚠️ 응답 잘림 — 일부 누락 가능' : ''}`);
     const delInput = document.getElementById('deliveryInput');
     if (delInput) delInput.value = '';  // 같은 파일 재선택 가능하도록 초기화
+    AppLog.add('del_end', { ms: Math.round(performance.now() - _tDel), ok: true });
+    AppLog.end();
     await BG.end();
 
   } catch(err) {
+    AppLog.add('del_end', { ms: Math.round(performance.now() - _tDel), ok: false, err: String((err && err.message) || err).slice(0, 160) });
+    AppLog.end();
     await BG.end();
     console.error('[delivery] 오류:', err);
     const msg = err.message === 'API_KEY_MISSING' ? '⚠️ API 키를 먼저 입력해주세요.' : '❌ ' + (err.message || '분석 실패');

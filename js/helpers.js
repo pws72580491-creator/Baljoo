@@ -628,6 +628,8 @@ const AppLog = (() => {
     const ends = buf.filter(x => x.ev === 'file_end');
     L.push(`── 파일별 요약 (${ends.length}건) · 총 = 준비(PDF/이미지) + API + 대기·기타 ──`);
     ends.forEach(x => L.push(`${local(x.t).slice(0, 14)} | ${x.name} | 총 ${(x.ms / 1000).toFixed(1)}초 = 준비 ${(x.prepMs / 1000).toFixed(1)} + API ${(x.apiMs / 1000).toFixed(1)} + 대기·기타 ${(x.otherMs / 1000).toFixed(1)} | 시도 ${x.tries}회 ${x.chain || ''}${x.winner ? ' · 결과:' + x.winner : ''} | ${x.ok ? '성공' : '실패: ' + (x.err || '')}`));
+    const dels = buf.filter(x => x.ev === 'del_end');
+    if (dels.length) { L.push(''); L.push(`── 납품 리스트 분석 (${dels.length}건) ──`); dels.forEach(x => L.push(`${local(x.t).slice(0, 14)} | 총 ${(x.ms / 1000).toFixed(1)}초 | ${x.ok ? '성공' : '실패: ' + (x.err || '')}`)); }
     L.push('');
     L.push('── 상세 이벤트 (기기 현지시각, #는 실행 번호) ──');
     buf.forEach(x => { const { t, ev, run: r, ...rest } = x; L.push(`${local(t)} #${String(r).slice(-5)} ${ev} ${JSON.stringify(rest)}`); });

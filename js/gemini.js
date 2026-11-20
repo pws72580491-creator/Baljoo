@@ -276,9 +276,22 @@ function migrateOldKey() {
 // v3.3.90: 동시(헤지) 요청 — 주 모델이 GEMINI_HEDGE_MS 안에 응답하지 않으면 경량 모델에 같은 요청을 동시에 보내
 // 먼저 오는 쪽을 사용하고 나머지는 취소한다. (주 모델이 과부하로 40~50초씩 멈추는 구간에서 대기시간을 크게 줄임)
 // ══════════════════════════════════════════════════════
-const GEMINI_HEDGE_MS = 8000;
+const GEMINI_HEDGE_MS = 5000;   // v3.3.92: 8→5초 (주 모델이 정상일 때 응답이 2.4~3.9초였고, 느린 시간대엔 17~50초 — 로그 기준)
+// 최근 동시 요청에서 주 모델이 연속 2번 졌다면 느린 시간대로 보고, 10분 동안은 기다리지 않고 처음부터 둘 다 보낸다(10분 뒤 다시 확인)
+const GEMINI_HEDGE_STATE_KEY = 'baljuGemHedge_v1';
+function _gemHedgeState() { try { return JSON.parse(localStorage.getItem(GEMINI_HEDGE_STATE_KEY) || '{}') || {}; } catch (e) { return {}; } }
+function _gemHedgeDelay() { const s = _gemHedgeState(); return (s.until && Date.now() < s.until) ? 0 : GEMINI_HEDGE_MS; }
+function _gemHedgeNote(primaryLost) {
+  const s = _gemHedgeState();
+  if (s.until && Date.now() >= s.until) { s.until = 0; s.streak = 0; }
+  if (s.until) return;   // 즉시 동시 모드 중에는 상태 유지
+  s.streak = primaryLost ? (s.streak || 0) + 1 : 0;
+  if (s.streak >= 2) { s.until = Date.now() + 10 * 60000; s.streak = 0; }
+  try { localStorage.setItem(GEMINI_HEDGE_STATE_KEY, JSON.stringify(s)); } catch (e) {}
+}
 function callGeminiHedged(parts, maxTokens = 2000) {
   const cA = new AbortController(), cB = new AbortController();
+  const _hDelay = _gemHedgeDelay();
   return new Promise((resolve, reject) => {
     let settled = false, running = 1, started = false, lastErr = null, timer = null;
     const win = (who, text) => {
@@ -288,6 +301,7 @@ function callGeminiHedged(parts, maxTokens = 2000) {
       const model = who === 'A' ? GEMINI_MODEL : GEMINI_MODEL_FB;
       window._gemWinner = model + (started ? ' (동시 요청)' : '');
       AppLog.add('hedge_win', { who, model, hedged: started });
+      _gemHedgeNote(who === 'B' && started);
       resolve(text);
     };
     const lose = (who, e) => {
@@ -300,10 +314,10 @@ function callGeminiHedged(parts, maxTokens = 2000) {
     const startB = () => {
       if (started || settled) return;
       started = true; running++;
-      AppLog.add('hedge_start', { afterMs: GEMINI_HEDGE_MS, model: GEMINI_MODEL_FB });
+      AppLog.add('hedge_start', { afterMs: _hDelay, mode: _hDelay === 0 ? '즉시(최근 주 모델 지연)' : '대기 후', model: GEMINI_MODEL_FB });
       callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0, cB.signal).then(t => win('B', t), e => lose('B', e));
     };
     callGemini(parts, maxTokens, GEMINI_MODEL, 0, 0, cA.signal).then(t => win('A', t), e => lose('A', e));
-    timer = setTimeout(startB, GEMINI_HEDGE_MS);
+    if (_hDelay === 0) startB(); else timer = setTimeout(startB, _hDelay);
   });
 }
