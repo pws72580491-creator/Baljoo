@@ -1907,13 +1907,29 @@ function _closeDupCheckOv() {
 
 // ══════════════════════════════════════════════════════
 // v3.3.85: 납기일(o.delivery) 기준 월별 일정 달력 — 발주목록의 "📆 납기일 월별 일정 보기"
+// v3.3.89: 상태를 완료 / 예정 / 미납품(지연) / 반품 / 취소로 구분
 // ══════════════════════════════════════════════════════
 var _dueCalMonth = null;  // 'YYYY-MM'
 var _dueCalSel = null;    // 'YYYY-MM-DD'
-const _DUE_ST = { pending: ['미납품', '#b45309', '#fef3c7'], partial: ['부분납품', '#c2410c', '#ffedd5'], delivered: ['납품완료', '#047857', '#d1fae5'], returned: ['반품', '#b91c1c', '#fee2e2'] };
+const _DUE_ST = {
+  pending:   ['미납품',   '#b45309', '#fef3c7'],
+  partial:   ['부분납품', '#c2410c', '#ffedd5'],
+  delivered: ['납품완료', '#047857', '#d1fae5'],
+  returned:  ['반품',     '#6d28d9', '#ede9fe'],
+  cancelled: ['취소',     '#4b5563', '#e5e7eb']
+};
 const _DUE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-function _dueBase() { return orders.filter(o => !o.isReturn && !o.archived && o.deliveryStatus !== 'cancelled'); }
+// 반품서(isReturn)·보관함 발주 제외. 취소 발주는 별도 구분으로 포함
+function _dueAll() { return orders.filter(o => !o.isReturn && !o.archived); }
+// 분류: done 완료 / wait 예정 / late 미납품(납기 지남) / return 반품 / cancel 취소
+function _dueCat(o, today) {
+  const s = o.deliveryStatus;
+  if (s === 'cancelled') return 'cancel';
+  if (s === 'returned')  return 'return';
+  if (s === 'delivered') return 'done';
+  return (o.delivery || '') < today ? 'late' : 'wait';
+}
 
 function openDueCalendar() {
   const t = todayStr();
@@ -1946,16 +1962,15 @@ function renderDueCalendar() {
   if (!ov) return;
   const today = todayStr();
   const [y, m] = _dueCalMonth.split('-').map(Number);
-  const base = _dueBase();
+  const all = _dueAll();
   const byDay = {};
-  base.forEach(o => { if (_DUE_RE.test(o.delivery || '') && o.delivery.slice(0, 7) === _dueCalMonth) (byDay[o.delivery] = byDay[o.delivery] || []).push(o); });
-  const monthList = Object.values(byDay).flat();
-  const notDone = o => o.deliveryStatus !== 'delivered';
-  const lateN = monthList.filter(o => notDone(o) && o.delivery < today).length;
-  const waitN = monthList.filter(o => notDone(o) && o.delivery >= today).length;
-  const doneN = monthList.length - lateN - waitN;
-  const boxes = monthList.reduce((s, o) => s + calcOrderBoxes(o), 0);
-  const noDueN = base.filter(o => !_DUE_RE.test(o.delivery || '')).length;
+  all.forEach(o => { if (_DUE_RE.test(o.delivery || '') && o.delivery.slice(0, 7) === _dueCalMonth) (byDay[o.delivery] = byDay[o.delivery] || []).push(o); });
+  const monthAll = Object.values(byDay).flat();
+  const cnt = { done: 0, wait: 0, late: 0, return: 0, cancel: 0 };
+  monthAll.forEach(o => cnt[_dueCat(o, today)]++);
+  const monthActive = monthAll.filter(o => o.deliveryStatus !== 'cancelled');   // 건수·박스 합계는 취소 제외(기존과 동일)
+  const boxes = monthActive.reduce((s, o) => s + calcOrderBoxes(o), 0);
+  const noDueN = all.filter(o => o.deliveryStatus !== 'cancelled' && !_DUE_RE.test(o.delivery || '')).length;
 
   const first = new Date(y, m - 1, 1).getDay();
   const days = new Date(y, m, 0).getDate();
@@ -1964,9 +1979,9 @@ function renderDueCalendar() {
   for (let d = 1; d <= days; d++) {
     const ds = `${_dueCalMonth}-${String(d).padStart(2, '0')}`;
     const list = byDay[ds] || [];
-    const late = list.some(o => notDone(o) && ds < today);
-    const open = list.some(notDone);
-    const col = late ? '#dc2626' : open ? '#f59e0b' : '#16a34a';
+    const cats = list.map(o => _dueCat(o, today));
+    // 색 우선순위: 미납품(지연) 빨강 > 예정 주황 > 반품 보라 > 취소만 회색 > 완료 초록
+    const col = cats.includes('late') ? '#dc2626' : cats.includes('wait') ? '#f59e0b' : cats.includes('return') ? '#7c3aed' : (cats.length && cats.every(c => c === 'cancel')) ? '#9ca3af' : '#16a34a';
     const wd = (first + d - 1) % 7;
     cells += `<button onclick="dueCalSelect('${ds}')" style="height:54px;padding:0;border-radius:10px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:13px;
       border:1.5px solid ${ds === _dueCalSel ? 'var(--navy)' : 'transparent'};background:${ds === today ? '#e0e7ff' : '#fff'};">
@@ -1979,25 +1994,33 @@ function renderDueCalendar() {
   const wdName = '일월화수목금토'[new Date(sy, sm - 1, sd).getDay()];
   const selList = (byDay[_dueCalSel] || []).slice().sort((a, b) => String(a.ship || '').localeCompare(String(b.ship || '')));
   const rows = selList.map(o => {
+    const cat = _dueCat(o, today);
     const st = _DUE_ST[o.deliveryStatus] || _DUE_ST.pending;
-    const isLate = notDone(o) && o.delivery < today;
-    return `<div onclick="openModal('${o.id}')" style="display:flex;gap:10px;align-items:center;background:#fff;border-radius:12px;padding:11px 12px;margin-bottom:8px;cursor:pointer;">
+    const isLate = cat === 'late';
+    const gray = cat === 'cancel';
+    return `<div onclick="openModal('${o.id}')" style="display:flex;gap:10px;align-items:center;background:#fff;border-radius:12px;padding:11px 12px;margin-bottom:8px;cursor:pointer;${gray ? 'opacity:.7;' : ''}">
       <div style="flex:1;min-width:0;">
         <div style="font-weight:800;color:var(--navy);font-size:14px;">${escapeHtml(o.ship || '선명 없음')}</div>
         <div style="font-size:11px;color:var(--muted);">${escapeHtml(o.docNo || '')}</div>
       </div>
       <div style="text-align:right;flex-shrink:0;">
-        <div style="font-weight:800;font-size:14px;">${formatBoxCount(calcOrderBoxes(o))}</div>
+        <div style="font-weight:800;font-size:14px;${gray ? 'text-decoration:line-through;color:var(--muted);' : ''}">${formatBoxCount(calcOrderBoxes(o))}</div>
         <span style="font-size:10px;font-weight:700;border-radius:6px;padding:2px 6px;color:${isLate ? '#b91c1c' : st[1]};background:${isLate ? '#fee2e2' : st[2]};">${isLate ? '⚠️ 지연 · ' : ''}${st[0]}</span>
       </div></div>`;
   }).join('');
 
-  // v3.3.88: 선택한 날짜의 납품 박스 / 미납품 박스 (부분납품은 이미 배송된 박스만 납품으로, 나머지는 미납품으로 계산)
+  // 선택한 날짜의 박스 집계 — 납품 / 미납품(반품·취소 제외) / 반품 / 취소
   const _r1 = v => Math.round(v * 10) / 10;
+  const live = selList.filter(o => o.deliveryStatus !== 'returned' && o.deliveryStatus !== 'cancelled');
   const _delOf = o => o.deliveryStatus === 'delivered' ? calcOrderBoxes(o) : o.deliveryStatus === 'partial' ? calcOrderDeliveredBoxes(o) : 0;
-  const selDel = _r1(selList.reduce((s, o) => s + _delOf(o), 0));
-  const selPend = _r1(selList.reduce((s, o) => s + Math.max(0, calcOrderBoxes(o) - _delOf(o)), 0));
+  const selDel  = _r1(live.reduce((s, o) => s + _delOf(o), 0));
+  const selPend = _r1(live.reduce((s, o) => s + Math.max(0, calcOrderBoxes(o) - _delOf(o)), 0));
+  const retList = selList.filter(o => o.deliveryStatus === 'returned');
+  const canList = selList.filter(o => o.deliveryStatus === 'cancelled');
+  const selRet = _r1(retList.reduce((s, o) => s + calcOrderBoxes(o), 0));
+  const selCan = _r1(canList.reduce((s, o) => s + calcOrderBoxes(o), 0));
   const nav = 'width:42px;height:42px;border-radius:50%;border:1px solid var(--border);background:#fff;font-size:16px;cursor:pointer;';
+  const dot = (c, label, n) => `<span style="color:${c};font-weight:700;white-space:nowrap;">● ${label} ${n}</span>`;
   ov.innerHTML = `
     <div style="padding:calc(12px + env(safe-area-inset-top,0px)) 14px 12px;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:space-between;">
       <div style="font-size:16px;font-weight:800;">📆 납기일 월별 일정</div>
@@ -2010,9 +2033,11 @@ function renderDueCalendar() {
           <button onclick="dueCalToday()" style="border:none;background:none;color:#2563eb;font-size:12px;font-weight:700;cursor:pointer;">오늘로 이동</button></div>
         <button onclick="dueCalMove(1)" style="${nav}">▶</button>
       </div>
-      <div style="background:#fff;border-radius:12px;padding:9px 12px;margin-bottom:10px;font-size:12px;color:var(--muted);line-height:1.6;">
-        이번 달 납기 <b style="color:var(--navy);">${monthList.length}건</b> · ${formatBoxCount(boxes)}
-        <br><span style="color:#16a34a;font-weight:700;">● 완료 ${doneN}</span> &nbsp;<span style="color:#d97706;font-weight:700;">● 예정 ${waitN}</span> &nbsp;<span style="color:#dc2626;font-weight:700;">● 지연 ${lateN}</span>
+      <div style="background:#fff;border-radius:12px;padding:9px 12px;margin-bottom:10px;font-size:12px;color:var(--muted);line-height:1.7;">
+        이번 달 납기 <b style="color:var(--navy);">${monthActive.length}건</b> · ${formatBoxCount(boxes)}
+        <br>${dot('#16a34a', '완료', cnt.done)} &nbsp;${dot('#d97706', '예정', cnt.wait)} &nbsp;${dot('#dc2626', '미납품(지연)', cnt.late)}
+        ${cnt.return ? `&nbsp;${dot('#7c3aed', '반품', cnt.return)}` : ''}
+        ${cnt.cancel ? `<br>${dot('#6b7280', '취소', cnt.cancel)} <span>(위 건수·박스에는 포함되지 않음)</span>` : ''}
         ${noDueN ? `<br><span>납기일 없는 발주 ${noDueN}건은 달력에 표시되지 않습니다</span>` : ''}
       </div>
       <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;">
@@ -2023,6 +2048,8 @@ function renderDueCalendar() {
         <span style="font-size:13px;font-weight:800;color:var(--navy);">${sm}월 ${sd}일 (${wdName}) 납기 · ${selList.length}건</span>
         <span style="font-size:12px;font-weight:700;color:#047857;">납품 ${formatBoxCount(selDel)}</span>
         <span style="font-size:12px;font-weight:700;color:${selPend > 0 && _dueCalSel < today ? '#dc2626' : '#d97706'};">미납품 ${formatBoxCount(selPend)}</span>
+        ${retList.length ? `<span style="font-size:12px;font-weight:700;color:#6d28d9;">반품 ${retList.length}건 ${formatBoxCount(selRet)}</span>` : ''}
+        ${canList.length ? `<span style="font-size:12px;font-weight:700;color:#4b5563;">취소 ${canList.length}건 ${formatBoxCount(selCan)}</span>` : ''}
       </div>
       ${rows || '<div style="text-align:center;color:var(--muted);font-size:13px;padding:18px 0;">이 날 납기인 발주가 없습니다</div>'}
     </div>`;
