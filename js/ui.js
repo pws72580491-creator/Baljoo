@@ -1992,6 +1992,11 @@ function renderDueCalendar() {
       </div></div>`;
   }).join('');
 
+  // v3.3.88: 선택한 날짜의 납품 박스 / 미납품 박스 (부분납품은 이미 배송된 박스만 납품으로, 나머지는 미납품으로 계산)
+  const _r1 = v => Math.round(v * 10) / 10;
+  const _delOf = o => o.deliveryStatus === 'delivered' ? calcOrderBoxes(o) : o.deliveryStatus === 'partial' ? calcOrderDeliveredBoxes(o) : 0;
+  const selDel = _r1(selList.reduce((s, o) => s + _delOf(o), 0));
+  const selPend = _r1(selList.reduce((s, o) => s + Math.max(0, calcOrderBoxes(o) - _delOf(o)), 0));
   const nav = 'width:42px;height:42px;border-radius:50%;border:1px solid var(--border);background:#fff;font-size:16px;cursor:pointer;';
   ov.innerHTML = `
     <div style="padding:calc(12px + env(safe-area-inset-top,0px)) 14px 12px;background:var(--navy);color:#fff;display:flex;align-items:center;justify-content:space-between;">
@@ -2014,7 +2019,11 @@ function renderDueCalendar() {
         <div style="color:#dc2626;">일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div style="color:#2563eb;">토</div>
       </div>
       <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:14px;">${cells}</div>
-      <div style="font-size:13px;font-weight:800;color:var(--navy);margin-bottom:8px;">${sm}월 ${sd}일 (${wdName}) 납기 · ${selList.length}건</div>
+      <div style="display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;margin-bottom:8px;">
+        <span style="font-size:13px;font-weight:800;color:var(--navy);">${sm}월 ${sd}일 (${wdName}) 납기 · ${selList.length}건</span>
+        <span style="font-size:12px;font-weight:700;color:#047857;">납품 ${formatBoxCount(selDel)}</span>
+        <span style="font-size:12px;font-weight:700;color:${selPend > 0 && _dueCalSel < today ? '#dc2626' : '#d97706'};">미납품 ${formatBoxCount(selPend)}</span>
+      </div>
       ${rows || '<div style="text-align:center;color:var(--muted);font-size:13px;padding:18px 0;">이 날 납기인 발주가 없습니다</div>'}
     </div>`;
 }
