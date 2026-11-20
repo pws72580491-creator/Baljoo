@@ -34,7 +34,20 @@ function _delDaysAgoStr(n) {
 // 의존하지 않고 코드에서도 한 번 더 보장한다.
 function normalizeDeliveryMatches(result) {
   const byId = id => orders.find(o => o.id === id);
-  const raw = (result.matched || []).filter(m => m && m.id && byId(m.id));
+  // v3.3.91: AI가 돌려준 id가 실제 발주 id와 달라도 조용히 버리지 않는다.
+  //  ① 대소문자·기호만 다른 id는 보정  ② 그래도 없으면 그 선명을 unmatched로 넘겨 선명 대조(보완 매칭/이미 납품완료/미매칭)에 태운다
+  const idKey = s => String(s || '').toUpperCase().replace(/[^A-Z0-9가-힣]/g, '');
+  const dropped = [];
+  const fixed = (result.matched || []).filter(m => m && typeof m === 'object').map(m => {
+    if (m.id && byId(m.id)) return m;
+    const k = idKey(m.id);
+    const hit = k ? orders.find(o => idKey(o.id) === k) : null;
+    if (hit) return { ...m, id: hit.id, reason: (m.reason ? m.reason + ' ' : '') + '(ID 표기 보정)' };
+    if (m.ship) dropped.push(String(m.ship));
+    return null;
+  }).filter(Boolean);
+  result._dropped = dropped;
+  const raw = fixed.filter(m => m && m.id && byId(m.id));
   const claimed = new Set(raw.filter(m => _delIsPending(byId(m.id).deliveryStatus)).map(m => m.id));
   const emitted = new Set();
   const out = [];
@@ -56,6 +69,10 @@ function normalizeDeliveryMatches(result) {
     if (emitted.has(id)) continue;
     emitted.add(id);
     out.push({ ...m, id, reason });
+  }
+  if (dropped.length) {
+    const have = (result.unmatched || []).map(u => _delNameKey(u));
+    result.unmatched = [...(result.unmatched || []), ...dropped.filter(d => !have.includes(_delNameKey(d)))];
   }
   return out;
 }
@@ -115,7 +132,8 @@ function getDeliveryCounts(result) {
   const delivered  = matchedOrders.filter(o => o.deliveryStatus === 'delivered').length + alreadyDel;
   const other      = matchedCnt - pending - delivered;  // 취소·반품
   const aiTotal    = Number(result.totalCount);
-  const total      = Math.max(Number.isFinite(aiTotal) ? aiTotal : 0, matchedCnt);
+  // v3.3.91: AI가 센 총 척수보다 실제로 이름이 확인된 척(매칭 + 미매칭 목록)이 많으면 그쪽을 기준으로 — 건수와 목록이 어긋나지 않게
+  const total      = Math.max(Number.isFinite(aiTotal) ? aiTotal : 0, matchedCnt + (result.unmatched || []).length);
   return { total, matchedCnt, pending, delivered, other, unmatched: total - matchedCnt };
 }
 
@@ -218,11 +236,17 @@ ${orderSummary}
 
     setDelProgress(90);
     if (truncated) result._truncated = true;
+    const _aiMatched = (result.matched || []).length;
     result.matched = normalizeDeliveryMatches(result);
     const cls = classifyDeliveryUnmatched(result);   // 보완 매칭 / 이미 납품완료 / 진짜 미매칭 분류
     result.matched = cls.matched;
     result.alreadyDelivered = cls.alreadyDelivered;
     result.unmatched = cls.unmatched;
+    try {   // v3.3.91: 매칭 결과 진단 로그 — 같은 선명 발주가 있는지/상태가 무엇인지까지 기록
+      const nm = n => { const k = _delNameKey(n); const os = orders.filter(o => _delNameKey(o.ship) === k); return { name: n, ordersWithSameName: os.length, statuses: os.slice(0, 4).map(o => (o.deliveryStatus || '') + ':' + (o.deliveredDate || o.date || '')) }; };
+      const pend = orders.filter(o => _delIsPending(o.deliveryStatus)).length;
+      AppLog.add('del_match', { aiTotal: result.totalCount, aiMatched: _aiMatched, kept: result.matched.length, idMismatchShips: result._dropped || [], rescued: result.matched.filter(m => m.rescued).length, alreadyDelivered: result.alreadyDelivered.length, unmatched: result.unmatched.map(nm), pendingTotal: pend, sentToAI: Math.min(60, pend) });
+    } catch (e) {}
     renderDeliveryResult(result);
     setDelProgress(100);
     const c = getDeliveryCounts(result);
@@ -293,7 +317,7 @@ function renderDeliveryResult(result) {
       </div>
     </div>
     ${result._truncated ? `<div style="font-size:12px;font-weight:700;color:#b45309;margin-bottom:10px;padding:8px 10px;background:#fffbeb;border-radius:8px;">⚠️ AI 응답이 중간에 잘렸습니다 — 아래보다 더 많은 척이 있을 수 있어요. 같은 리스트를 다시 올려 주세요.</div>` : ''}
-    ${result.summary ? `<div style="font-size:12px;color:var(--muted);margin-bottom:10px;padding:8px 10px;background:var(--bg);border-radius:8px;">📋 ${escapeHtml(result.summary)}</div>` : ''}
+    ${result.summary && !(/매칭/.test(result.summary) && cnt.unmatched > 0) ? `<div style="font-size:12px;color:var(--muted);margin-bottom:10px;padding:8px 10px;background:var(--bg);border-radius:8px;">📋 ${escapeHtml(result.summary)}</div>` : ''}
 
     ${matchedOrders.length ? `
       <div class="sdiv" style="margin-top:0;">이른아침 매칭된 발주 (${matchedOrders.length}건)</div>
@@ -382,6 +406,7 @@ function renderDeliveryResult(result) {
       <div class="sdiv">발주 내역과 매칭 못한 척 (${unmatched.length}척)</div>
       ${unmatched.map(u => `<div style="font-size:12px;color:var(--muted);padding:4px 0;">• ${escapeHtml(u)}</div>`).join('')}
     ` : ''}
+    ${cnt.unmatched > unmatched.length ? `<div style="font-size:12px;color:#b45309;padding:6px 0;">❓ 선명을 확인하지 못한 ${cnt.unmatched - unmatched.length}척 — AI가 선명을 돌려주지 않았습니다. 같은 사진을 다시 올려 보세요</div>` : ''}
   `;
 }
 
