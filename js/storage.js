@@ -40,27 +40,81 @@ function _isLive(o) { return !!o && orders.some(x => x.id === o.id); }
 
 let _loadInProgress = false;  // load() 중 save() 시 자동동기화 방지
 
-function save() {
-  try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(orders));
-    // Firebase 자동 동기화 (3초 debounce) — 앱 초기 로드 중엔 건너뜀
-    if (!_loadInProgress && typeof scheduleAutoSync === 'function') scheduleAutoSync();
-  } catch(e) {
-    console.error('[storage] 저장 실패:', e);
-    if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
-      if (typeof toast === 'function') toast('⚠️ 저장 공간이 부족합니다. 오래된 데이터를 정리해주세요.');
-    }
+// v3.3.95: 저장 실패 알림은 연속 호출 시 토스트가 도배되지 않도록 간격을 둔다
+let _lastSaveFailToastAt = 0;
+function _notifySaveFail(what, e) {
+  console.error('[storage] ' + what + ' 저장 실패:', e);
+  window._saveFailed = true;
+  const now = Date.now();
+  if (now - _lastSaveFailToastAt < 8000) return;
+  _lastSaveFailToastAt = now;
+  const quota = e && (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED');
+  if (typeof toast === 'function') {
+    toast(quota
+      ? '⚠️ 저장 공간 부족 — ' + what + ' 변경분이 이 기기에 저장되지 않았습니다. 지금 ☁️ 백업을 눌러주세요.'
+      : '⚠️ ' + what + ' 저장 실패 — 앱을 닫으면 방금 변경이 사라질 수 있습니다. ☁️ 백업을 눌러주세요.');
   }
+}
+
+// v3.3.95: 성공 여부(true/false)를 반환한다. 이전엔 실패해도 반환값이 없어 호출부가 저장 성공으로
+// 착각했고, 예외가 자동동기화 호출보다 앞에서 던져져 클라우드에도 올라가지 않았다.
+// 이제는 (1) 용량 부족이면 손상 데이터 백업본을 지워 공간을 확보한 뒤 1회 재시도하고,
+// (2) 끝내 실패해도 메모리상 최신 데이터를 클라우드 동기화로 보존한다(로컬 저장만 실패한 것이므로).
+function save() {
+  let ok = false;
+  if (!_loadInProgress) { try { _stampChangedOrders(); } catch (e) { console.warn('[storage] 수정시각 기록 실패(무시):', e); } }
+  try {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify(orders));
+    } catch (e1) {
+      if (e1 && (e1.name === 'QuotaExceededError' || e1.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+        // 쓸모없는 손상 백업본이 공간을 차지하고 있을 수 있음 — 지우고 한 번 더 시도
+        try { localStorage.removeItem('baljuOrders_corrupt_backup'); } catch (e) {}
+        localStorage.setItem(STORE_KEY, JSON.stringify(orders));
+      } else {
+        throw e1;
+      }
+    }
+    ok = true;
+    window._saveFailed = false;
+  } catch(e) {
+    _notifySaveFail('발주 데이터', e);
+  }
+  // Firebase 자동 동기화 (3초 debounce) — 앱 초기 로드 중엔 건너뜀
+  if (!_loadInProgress && typeof scheduleAutoSync === 'function') scheduleAutoSync();
+  return ok;
 }
 
 // v3.3.53: 휴지통 저장 (orders와 별도 localStorage 키 — 자동동기화 debounce는 동일하게 재사용)
 function saveTrash() {
+  let ok = false;
   try {
     localStorage.setItem(TRASH_KEY, JSON.stringify(deletedOrders));
-    if (!_loadInProgress && typeof scheduleAutoSync === 'function') scheduleAutoSync();
+    ok = true;
   } catch(e) {
-    console.error('[storage] 휴지통 저장 실패:', e);
+    _notifySaveFail('휴지통', e);
   }
+  if (!_loadInProgress && typeof scheduleAutoSync === 'function') scheduleAutoSync();
+  return ok;
+}
+
+// v3.3.95: 로컬 변경 감지용 — 발주별 마지막 저장 직렬화 값. 바뀐 발주에만 수정시각(_upd)을 찍어
+// 여러 기기 동기화 때 "오래된 기기가 최신 수정을 덮어쓰는" 일을 막는 데 쓴다(firebase.js 병합 참고).
+let _orderSnap = new Map();
+function _seedOrderSnap() {
+  _orderSnap = new Map();
+  orders.forEach(o => { if (o && o.id) _orderSnap.set(o.id, _orderSig(o)); });
+}
+function _orderSig(o) {
+  return JSON.stringify(o, (k, v) => (k === '_upd' ? undefined : v));
+}
+function _stampChangedOrders() {
+  const now = Date.now();
+  orders.forEach(o => {
+    if (!o || !o.id) return;
+    const sig = _orderSig(o);
+    if (_orderSnap.get(o.id) !== sig) { o._upd = now; _orderSnap.set(o.id, sig); }
+  });
 }
 
 function load() {
@@ -77,8 +131,10 @@ function load() {
         try { localStorage.setItem('baljuOrders_corrupt_backup', raw); } catch (e) {}
         console.warn('[storage] 저장 데이터 형식 오류 — 원본을 baljuOrders_corrupt_backup에 보관 후 초기화합니다.');
         orders = [];
-        return;
-      }
+        // v3.3.95: 이전엔 여기서 return 해서 아래 휴지통·통계보관함 로딩이 통째로 건너뛰어졌고,
+        // 그 상태에서 다음 saveTrash()/saveArchive()가 메모리의 빈 목록으로 저장분을 덮어썼다.
+        setTimeout(() => { if (typeof toast === 'function') toast('⚠️ 발주 데이터가 손상돼 초기화했습니다. 원본은 보관돼 있으니 ☁️ 복원을 시도해보세요.'); }, 800);
+      } else {
       orders = parsed;
       // 기존 데이터 필드 초기화 (하위 호환)
       orders.forEach(o => {
@@ -90,6 +146,8 @@ function load() {
         // _stripShipParen()은 이미 깨끗한 값엔 그대로(변화 없음)라 매 로드마다 적용해도 안전.
         o.ship = _stripShipParen(o.ship);
         if (o._shipOriginal) o._shipOriginal = _stripShipParen(o._shipOriginal);
+        // v3.3.95: id·날짜 필드의 위험 문자 정리 (인라인 onclick 주입 방어 — helpers.js sanitizeOrderFields 참고)
+        sanitizeOrderFields(o);
         // 반품(카테고리='return' 또는 업로드 반품서 isReturn=true) 건은
         // 이 발주를 최초로 만나는 딱 1번만 미처리(pending) 상태를 'returned'로 보정한다.
         // 한 번 마이그레이션된 뒤로는 사용자가 발주취소/미납품 등 어떤 상태로 바꾸든
@@ -116,14 +174,19 @@ function load() {
           o.cancelledDate = (o.deliveryStatus === 'cancelled') ? (o.date || '') : '';
         }
         // unit=cs 인데 실제 단위가 doz인 경우 자동 보정
-        (o.items || []).forEach(item => {
-          if (item.unit === 'cs') {
-            const desc = String(item.desc || '').toUpperCase();
-            if (/DOZ|DOZEN/.test(desc)) {
-              item.unit = 'doz';
+        // v3.3.95: 발주당 딱 1번만 적용(_dozFix). 이전엔 매 로드마다 적용돼, 사용자가 일부러
+        // 단위를 cs로 고쳐도 다음 실행 때 doz로 되돌려졌다.
+        if (!o._dozFix) {
+          (o.items || []).forEach(item => {
+            if (item.unit === 'cs') {
+              const desc = String(item.desc || '').toUpperCase();
+              if (/DOZ|DOZEN/.test(desc)) {
+                item.unit = 'doz';
+              }
             }
-          }
-        });
+          });
+          o._dozFix = true;
+        }
       });
       // v3.3.41: "반품 확인" 체크가 재고 반영 여부를 좌우하도록 바뀌면서, 이 업데이트
       // 이전에 이미 '반품' 처리돼 있던 기존 건들까지 갑자기 미확인 취급되면 과거에 이미
@@ -143,9 +206,11 @@ function load() {
         } catch (e) { console.warn('[storage] 반품확인 마이그레이션 실패:', e); }
         localStorage.setItem('retChkMigrated_v341', '1');
       }
+      _seedOrderSnap();   // v3.3.95: 로드 시 마이그레이션 변경분은 '사용자 수정'이 아니므로 수정시각을 찍지 않는다
       _loadInProgress = true;
       save();
       _loadInProgress = false;
+      }
     }
 
     // v3.3.53: 휴지통 불러오기 + 보관기간(TRASH_RETENTION_DAYS) 지난 항목 자동 영구삭제.
@@ -155,6 +220,9 @@ function load() {
       const parsedTrash = rawTrash ? safeParse(rawTrash) : [];
       deletedOrders = Array.isArray(parsedTrash) ? parsedTrash : [];
       try { const ra = safeParse(localStorage.getItem(ARCHIVE_KEY) || '[]'); statsArchive = Array.isArray(ra) ? ra : []; } catch (e) { statsArchive = []; }
+      // v3.3.95: 휴지통·보관함도 id·날짜 정리 (trashCard의 onclick에 id가 그대로 들어감)
+      deletedOrders.forEach(o => sanitizeOrderFields(o));
+      statsArchive.forEach(o => sanitizeOrderFields(o));
 
       const cutoff    = Date.now() - TRASH_RETENTION_DAYS * 86400000;
       const isExpired = o => { if (!o.deletedAt) { o.deletedAt = new Date().toISOString(); return false; } return new Date(o.deletedAt).getTime() < cutoff; };
@@ -190,6 +258,7 @@ function resetOrders() {
   try {
     localStorage.removeItem('deliveryDblCheck');
     localStorage.removeItem('orderReturnCheck');
+    localStorage.removeItem('orderReturnCheckDate');   // v3.3.95: 반품확인 날짜 맵도 함께 정리(그동안 남아있었음)
     localStorage.removeItem('retChkMigrated_v341');
   } catch(e) {}
   renderAll();

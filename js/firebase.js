@@ -146,6 +146,59 @@ function _clearLocalStockGoals() {
   keysToRemove.forEach(k => localStorage.removeItem(k));
 }
 
+// v3.3.95: 통계 보관함·반품확인·더블체크도 백업에 포함.
+// 그동안 orders/휴지통/재고이력만 백업돼서, 새 기기(또는 사이트 데이터 삭제 후)에서 복원하면
+// 통계 보관함(삭제·만료분의 월별 결산)과 반품 '확인' 체크(재고 반영 여부를 좌우)가 사라져 수치가 달라졌다.
+// 복원 때만 로컬에 반영한다(다른 기기의 체크가 실시간으로 덮어쓰지 않음 — 반품확인은 기기별 저장이라는
+// 기존 설계 유지). 체크 목록은 orders와 같은 id-diff 방식: (원격 ∪ 로컬) − (내가 지운 것).
+const SYNCED_ARCHIVE_IDS_KEY = 'fbSyncedArchiveIds';
+const SYNCED_RETCHK_KEY      = 'fbSyncedReturnChk';
+const SYNCED_DBLCHK_KEY      = 'fbSyncedDblChk';
+function _getKeySet(k) { try { return new Set(JSON.parse(localStorage.getItem(k) || '[]')); } catch (e) { return new Set(); } }
+function _setKeySet(k, set) { try { localStorage.setItem(k, JSON.stringify([...set])); } catch (e) {} }
+function _lsJson(k, fb) { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v == null ? fb : v; } catch (e) { return fb; } }
+// Firebase 키에는 . / # $ [ ] 를 쓸 수 없어 id를 키로 못 쓰므로 반품확인 날짜는 [{id,d}] 배열로 저장
+function _collectExtraBackup() {
+  const dateMap = _lsJson('orderReturnCheckDate', {});
+  return {
+    statsArchive:     (typeof statsArchive !== 'undefined' && Array.isArray(statsArchive)) ? statsArchive : [],
+    returnChecks:     _lsJson('orderReturnCheck', []),
+    returnCheckDates: Object.entries(dateMap).map(([id, d]) => ({ id, d })),
+    dblChecks:        _lsJson('deliveryDblCheck', [])
+  };
+}
+// 백업 데이터(스냅샷 포함)의 추가 항목을 로컬에 반영 — load() 호출 전에 실행해야 보관함이 읽힘.
+// Firebase는 빈 배열을 저장하지 않고 필드를 생략하므로 "필드 없음"만으로는 구버전 백업과 구분할 수 없다.
+// → 백업에 기록된 version(v3.3.95 이상)으로 판별하고, 구버전 백업이면 로컬 값을 건드리지 않는다.
+function _backupHasExtra(data) {
+  const m = /(\d+)\.(\d+)\.(\d+)/.exec(String(data && data.version || ''));
+  if (!m) return false;
+  const v = [Number(m[1]), Number(m[2]), Number(m[3])], t = [3, 3, 95];
+  for (let i = 0; i < 3; i++) { if (v[i] !== t[i]) return v[i] > t[i]; }
+  return true;
+}
+function _applyExtraBackup(data) {
+  if (!_backupHasExtra(data)) return;
+  const arr = x => Array.isArray(x) ? x : [];
+  try {
+    localStorage.setItem(ARCHIVE_KEY, JSON.stringify(arr(data.statsArchive).filter(o => o && o.id)));
+    localStorage.setItem('orderReturnCheck', JSON.stringify(arr(data.returnChecks)));
+    const m = {};
+    arr(data.returnCheckDates).forEach(x => { if (x && x.id) m[x.id] = x.d; });
+    localStorage.setItem('orderReturnCheckDate', JSON.stringify(m));
+    localStorage.setItem('deliveryDblCheck', JSON.stringify(arr(data.dblChecks)));
+    // 백업에 확인 체크가 포함돼 있으므로 '기존 반품 자동 확인' 1회 마이그레이션이 복원값을 덮지 않게 함
+    localStorage.setItem('retChkMigrated_v341', '1');
+  } catch (e) { console.warn('[firebase] 확인 체크·통계 보관함 복원 실패:', e); }
+}
+
+// 복원 직후를 '마지막 동기화 시점'으로 재설정(보관함·체크 목록) — 다음 동기화가 복원분을 삭제로 오판하지 않도록
+function _afterRestoreSyncMarks() {
+  _setKeySet(SYNCED_ARCHIVE_IDS_KEY, new Set((statsArchive || []).map(o => o.id).filter(Boolean)));
+  _setKeySet(SYNCED_RETCHK_KEY, new Set(_lsJson('orderReturnCheck', [])));
+  _setKeySet(SYNCED_DBLCHK_KEY, new Set(_lsJson('deliveryDblCheck', [])));
+}
+
 async function _mergeBackupTransaction(db) {
   // v3.3.74: 로컬이 비었는데 이전에 동기화한 이력이 있으면 원격 백업을 비우지 않도록 차단(손상·초기화 사고 방지)
   if (!orders.length && _getSyncedIds().size > 0 && !window._allowEmptySync) {
@@ -167,11 +220,29 @@ async function _mergeBackupTransaction(db) {
   const deletedTrashIds = _getSyncedTrashIds();
   localTrashById.forEach((_, id) => deletedTrashIds.delete(id));
 
+  // v3.3.95: 통계 보관함·반품확인·더블체크 병합 준비
+  const extra = _collectExtraBackup();
+  const localArchById = new Map(extra.statsArchive.filter(o => o && o.id).map(o => [o.id, o]));
+  const deletedArchIds = _getKeySet(SYNCED_ARCHIVE_IDS_KEY);
+  localArchById.forEach((_, id) => deletedArchIds.delete(id));
+  const localRet = new Set(extra.returnChecks);
+  const deletedRet = _getKeySet(SYNCED_RETCHK_KEY); localRet.forEach(id => deletedRet.delete(id));
+  const localDbl = new Set(extra.dblChecks);
+  const deletedDbl = _getKeySet(SYNCED_DBLCHK_KEY); localDbl.forEach(id => deletedDbl.delete(id));
+  const localRetDates = new Map(extra.returnCheckDates.map(x => [x.id, x.d]));
+
   const result = await runTransaction(ref(db, 'baljoo/backup'), (current) => {
     const remoteOrders = Array.isArray(current?.orders) ? current.orders : [];
     const merged = new Map(remoteOrders.filter(o => o && o.id).map(o => [o.id, o]));
     deletedIds.forEach(id => merged.delete(id));      // 내가 지운 것만 반영
-    localById.forEach((o, id) => merged.set(id, o));  // 내가 아는 최신 값으로 덮어씀
+    // v3.3.95: 같은 id를 원격이 더 늦게 수정했다면(_upd 비교) 오래된 로컬본으로 덮지 않는다.
+    // 이전엔 무조건 로컬이 이겨서, 한동안 안 켠 기기가 동기화되며 다른 기기의 최신 수정을 되돌렸다.
+    // 수정시각(_upd)이 한쪽이라도 없으면(구버전 데이터) 기존대로 로컬 우선.
+    localById.forEach((o, id) => {
+      const r = merged.get(id);
+      if (r && r._upd && o._upd && Number(r._upd) > Number(o._upd)) return;
+      merged.set(id, o);
+    });
 
     const remoteStockGoals = (current?.stockGoals && typeof current.stockGoals === 'object') ? current.stockGoals : {};
     const mergedStockGoals = { ...remoteStockGoals };
@@ -183,10 +254,32 @@ async function _mergeBackupTransaction(db) {
     deletedTrashIds.forEach(id => mergedTrash.delete(id));     // 내가 복원/완전삭제한 것만 반영
     localTrashById.forEach((o, id) => mergedTrash.set(id, o)); // 내가 아는 최신 값으로 덮어씀
 
+    // v3.3.95: 통계 보관함 / 반품확인 / 더블체크
+    const remoteArch = Array.isArray(current?.statsArchive) ? current.statsArchive : [];
+    const mergedArch = new Map(remoteArch.filter(o => o && o.id).map(o => [o.id, o]));
+    deletedArchIds.forEach(id => mergedArch.delete(id));
+    localArchById.forEach((o, id) => mergedArch.set(id, o));
+    const mergeSet = (remote, local, deleted) => {
+      const out = new Set(Array.isArray(remote) ? remote : []);
+      deleted.forEach(id => out.delete(id));
+      local.forEach(id => out.add(id));
+      return [...out];
+    };
+    const mergedRet = mergeSet(current?.returnChecks, localRet, deletedRet);
+    const mergedDbl = mergeSet(current?.dblChecks, localDbl, deletedDbl);
+    const dm = new Map((Array.isArray(current?.returnCheckDates) ? current.returnCheckDates : []).filter(x => x && x.id).map(x => [x.id, x.d]));
+    deletedRet.forEach(id => dm.delete(id));
+    localRetDates.forEach((d, id) => dm.set(id, d));
+    const retSet = new Set(mergedRet);
+
     return {
       orders:        [...merged.values()],
       stockGoals:    mergedStockGoals,
       deletedOrders: [...mergedTrash.values()],
+      statsArchive:     [...mergedArch.values()],
+      returnChecks:     mergedRet,
+      returnCheckDates: [...dm.entries()].filter(([id]) => retSet.has(id)).map(([id, d]) => ({ id, d })),
+      dblChecks:        mergedDbl,
       backedAt:      new Date().toISOString(),
       count:         merged.size,
       version:       (typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown')
@@ -196,6 +289,10 @@ async function _mergeBackupTransaction(db) {
     _setSyncedIds(new Set(localById.keys()));
     _setSyncedStockDates(new Set(Object.keys(localStockGoals)));
     _setSyncedTrashIds(new Set(localTrashById.keys()));
+    _setKeySet(SYNCED_ARCHIVE_IDS_KEY, new Set(localArchById.keys()));
+    _setKeySet(SYNCED_RETCHK_KEY, localRet);
+    _setKeySet(SYNCED_DBLCHK_KEY, localDbl);
+    window._allowEmptySync = false;   // v3.3.95: 일회용 허용 — 이전엔 한 번 켜지면 새로고침 전까지 '빈 로컬 보호'가 계속 꺼져 있었다
   }
   return result;
 }
@@ -255,21 +352,50 @@ window.fbBackup = async function() {
 // 스냅샷 저장 공통 로직 (수동/자동 공용) — auto=true면 실패해도 조용히 무시(호출부에서 처리)
 async function _fbSaveSnapshotCore(label, auto) {
   const db = await getDb();
-  const { ref, set } = await import(FB_DB_URL);
+  const { ref, update } = await import(FB_DB_URL);
   // Firebase 키 금지문자(. # $ [ ] /) 제거 — ISO 문자열은 시간순 정렬이 그대로 유지됨
   const snapshotId = new Date().toISOString().replace(/[.:]/g, '-');
   const payload = {
     orders:        orders,
     deletedOrders: deletedOrders || [],
     stockGoals:    _collectLocalStockGoals(),
+    ..._collectExtraBackup(),   // v3.3.95: 통계 보관함·반품확인·더블체크
     backedAt:      new Date().toISOString(),
     count:         orders.length,
     version:       (typeof APP_VERSION !== 'undefined' ? APP_VERSION : 'unknown'),
     label:         label || '',
     auto:          !!auto
   };
-  await set(ref(db, 'baljoo/snapshots/' + snapshotId), payload);
+  // v3.3.95: 목록 조회용 경량 인덱스(snapshotIndex)를 같은 요청으로 함께 기록 — 목록을 볼 때마다
+  // 스냅샷 전체(발주 데이터 포함)를 내려받던 것을 방지. 두 경로를 한 번에 써서 불일치도 없다.
+  const meta = { backedAt: payload.backedAt, count: payload.count, label: payload.label, auto: payload.auto, version: payload.version };
+  try {
+    await update(ref(db, 'baljoo'), {
+      ['snapshots/' + snapshotId]: payload,
+      ['snapshotIndex/' + snapshotId]: meta
+    });
+  } catch (e) {
+    // DB 보안규칙이 snapshotIndex 경로를 허용하지 않는 경우(PERMISSION_DENIED)에도 스냅샷 저장 자체는 되도록
+    // 기존 방식(snapshots 경로만 쓰기)으로 폴백한다. 이 경우 목록은 예전처럼 전체 조회로 동작.
+    console.warn('[firebase] 인덱스 포함 저장 실패 — 기존 방식으로 재시도:', e && e.message);
+    const { set } = await import(FB_DB_URL);
+    await set(ref(db, 'baljoo/snapshots/' + snapshotId), payload);
+  }
+  if (auto) { _pruneAutoSnapshots(db, snapshotId).catch(e => console.warn('[firebase] 스냅샷 정리 실패(무시):', e)); }
   return snapshotId;
+}
+
+// v3.3.95: 자동 스냅샷은 매일 쌓이기만 했다 — 최근 N개만 남기고 오래된 자동분을 삭제(수동 저장분은 보존).
+const AUTO_SNAPSHOT_KEEP = 40;
+async function _pruneAutoSnapshots(db, justSavedId) {
+  const list = await fbListSnapshots();
+  const autos = list.filter(s => s.auto && s.id !== justSavedId && !/^복원 전/.test(s.label || ''));   // 최신순 ('복원 전 자동 보관'은 안전망이라 제외)
+  const extra = autos.slice(Math.max(0, AUTO_SNAPSHOT_KEEP - 1));  // 방금 저장분 포함 KEEP개 유지
+  if (!extra.length) return;
+  const { ref, update } = await import(FB_DB_URL);
+  const patch = {};
+  extra.forEach(s => { patch['snapshots/' + s.id] = null; patch['snapshotIndex/' + s.id] = null; });
+  await update(ref(db, 'baljoo'), patch);
 }
 
 // 수동 스냅샷 저장 (버튼)
@@ -304,15 +430,34 @@ async function maybeAutoSnapshot() {
 }
 
 // 저장된 스냅샷 목록 조회 — 최신순 정렬
+// v3.3.95: 경량 인덱스(snapshotIndex)에서 읽는다. 인덱스가 없는 구버전 스냅샷은 1회만 전체를 읽어
+// 인덱스를 채워둔다(이후로는 가벼운 조회).
 async function fbListSnapshots() {
   const db = await getDb();
-  const { ref, get } = await import(FB_DB_URL);
-  const snap = await get(ref(db, 'baljoo/snapshots'));
-  if (!snap.exists()) return [];
-  const data = snap.val();
-  return Object.entries(data)
-    .map(([id, v]) => ({ id, ...v }))
-    .sort((a, b) => String(b.backedAt || b.id).localeCompare(String(a.backedAt || a.id)));
+  const { ref, get, update } = await import(FB_DB_URL);
+  let idx = {};
+  try {
+    const idxSnap = await get(ref(db, 'baljoo/snapshotIndex'));
+    idx = idxSnap.exists() ? idxSnap.val() : {};
+  } catch (e) { console.warn('[firebase] 스냅샷 인덱스 조회 실패 — 전체 조회로 대체:', e && e.message); }
+  let rows;
+  if (Object.keys(idx).length) {
+    rows = Object.entries(idx).map(([id, v]) => ({ id, ...v }));
+  } else {
+    const snap = await get(ref(db, 'baljoo/snapshots'));
+    if (!snap.exists()) return [];
+    const data = snap.val();
+    rows = Object.entries(data).map(([id, v]) => ({
+      id, backedAt: v.backedAt || '', count: v.count ?? (Array.isArray(v.orders) ? v.orders.length : 0),
+      label: v.label || '', auto: !!v.auto, version: v.version || ''
+    }));
+    try {
+      const patch = {};
+      rows.forEach(r => { const { id, ...m } = r; patch['snapshotIndex/' + id] = m; });
+      await update(ref(db, 'baljoo'), patch);
+    } catch (e) { console.warn('[firebase] 스냅샷 인덱스 생성 실패(무시):', e); }
+  }
+  return rows.sort((a, b) => String(b.backedAt || b.id).localeCompare(String(a.backedAt || a.id)));
 }
 
 // 특정 스냅샷 1건 삭제
@@ -320,8 +465,13 @@ window.fbDeleteSnapshot = async function(snapshotId) {
   if (!confirm('이 스냅샷을 삭제할까요? (되돌릴 수 없습니다)')) return;
   try {
     const db = await getDb();
-    const { ref, remove } = await import(FB_DB_URL);
-    await remove(ref(db, 'baljoo/snapshots/' + snapshotId));
+    const { ref, update } = await import(FB_DB_URL);
+    try {
+      await update(ref(db, 'baljoo'), { ['snapshots/' + snapshotId]: null, ['snapshotIndex/' + snapshotId]: null });
+    } catch (e1) {
+      const { remove } = await import(FB_DB_URL);
+      await remove(ref(db, 'baljoo/snapshots/' + snapshotId));
+    }
     toast('스냅샷을 삭제했습니다.');
     openSnapshotPicker(); // 목록 새로고침
   } catch (e) {
@@ -349,9 +499,11 @@ window.fbRestoreSnapshot = async function(snapshotId, labelForConfirm) {
     if (data.deletedOrders && Array.isArray(data.deletedOrders)) {
       localStorage.setItem(TRASH_KEY, JSON.stringify(data.deletedOrders));
     }
+    _applyExtraBackup(data);   // v3.3.95: 통계 보관함·반품확인·더블체크 (load()가 보관함을 읽기 전에)
     load();
     _setSyncedIds(new Set(orders.map(o => o.id).filter(Boolean)));
     _setSyncedTrashIds(new Set(deletedOrders.map(o => o.id).filter(Boolean)));
+    _afterRestoreSyncMarks();
     let restoredStockDates = 0;
     if (data.stockGoals && typeof data.stockGoals === 'object') {
       _clearLocalStockGoals();
@@ -395,7 +547,7 @@ window.openSnapshotPicker = async function() {
     return `
     <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;">
       <div style="min-width:0;flex:1;" data-sid="${escapeHtml(s.id)}" data-dt="${escapeHtml(dt)}" onclick="fbRestoreSnapshot(this.dataset.sid, this.dataset.dt)">
-        <div style="font-weight:700;color:var(--navy);font-size:13px;">${dt} ${s.auto ? '<span style="font-size:10px;color:#6b7280;font-weight:400;">🤖자동</span>' : ''}</div>
+        <div style="font-weight:700;color:var(--navy);font-size:13px;">${escapeHtml(dt)} ${s.auto ? '<span style="font-size:10px;color:#6b7280;font-weight:400;">🤖자동</span>' : ''}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px;">${labelText} · 발주 ${Number(s.count ?? (s.orders ? s.orders.length : 0)) || 0}건</div>
       </div>
       <button data-sid="${escapeHtml(s.id)}" onclick="event.stopPropagation();fbDeleteSnapshot(this.dataset.sid)" style="background:none;border:none;color:#dc2626;font-size:16px;cursor:pointer;padding:4px 6px;flex-shrink:0;">✕</button>
@@ -453,11 +605,13 @@ window.fbRestore = async function() {
     if (data.deletedOrders && Array.isArray(data.deletedOrders)) {
       localStorage.setItem(TRASH_KEY, JSON.stringify(data.deletedOrders));
     }
+    _applyExtraBackup(data);   // v3.3.95: 통계 보관함·반품확인·더블체크 (load()가 보관함을 읽기 전에)
     load();
     // v3.3.14: 복원 직후를 "이 기기의 마지막 동기화 시점"으로 재설정해야
     // 다음 자동동기화가 복원된 항목을 엉뚱하게 삭제 대상으로 오판하지 않음
     _setSyncedIds(new Set(orders.map(o => o.id).filter(Boolean)));
     _setSyncedTrashIds(new Set(deletedOrders.map(o => o.id).filter(Boolean))); // v3.3.53
+    _afterRestoreSyncMarks();
     // v3.3.25: 재고 이력(입고·파손)도 백업 데이터에 있으면 함께 복원
     let restoredStockDates = 0;
     if (data.stockGoals && typeof data.stockGoals === 'object') {

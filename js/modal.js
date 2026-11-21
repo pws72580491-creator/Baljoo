@@ -81,7 +81,7 @@ function openModal(id) {
       ` : ''}
       ${isReturned ? `
         <div class="db-row"><span class="db-label">발주금액</span><span class="db-val">${fmt(o.total)}</span></div>
-        <div class="db-row"><span class="db-label">반품금액</span><span class="db-val minus">-${fmt(o.returnAmount ?? o.total)}</span></div>
+        <div class="db-row"><span class="db-label">반품금액</span><span class="db-val minus">-${fmt(calcReturnAmount(o))}</span></div>
         <div class="db-divider"></div>
         <div class="db-row"><span class="db-label">실 납품금액</span><span class="db-val net">${fmt(netAmt)}</span></div>
         <div class="db-divider"></div>
@@ -579,7 +579,7 @@ function openEditModal(id) {
     <div class="edit-item-row" id="eitem-${idx}">
       <input type="text" id="ei-desc-${idx}"  value="${escapeHtml(item.desc)}" placeholder="품목명" enterkeyhint="next">
       <input type="text" id="ei-code-${idx}"  value="${escapeHtml(item.code)}" placeholder="CODE" enterkeyhint="next">
-      <input type="number" id="ei-qty-${idx}" value="${item.qty||0}" step="any" min="0" inputmode="decimal" enterkeyhint="next" oninput="recalcEditItem(${idx})">
+      <input type="number" id="ei-qty-${idx}" value="${escapeHtml(Number(item.qty)||0)}" step="any" min="0" inputmode="decimal" enterkeyhint="next" oninput="recalcEditItem(${idx})">
       <select id="ei-unit-${idx}">
         ${_unitOptions(item.unit)}
       </select>

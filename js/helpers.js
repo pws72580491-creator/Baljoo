@@ -19,7 +19,47 @@ function escapeHtml(str) {
 // 인라인 이벤트 핸들러 문자열을 깨뜨릴 수 있는 문자(따옴표/꺾쇠괄호/백슬래시/개행)를
 // 포함할 수 있다. id 생성 시점에 한 번만 제거해 모든 사용처를 원천적으로 보호한다.
 function sanitizeId(str) {
-  return String(str || '').replace(/[<>"'`\\\r\n]/g, '');
+  // v3.3.95: '&' 도 제거 — onclick="f('x&#39;);...')" 처럼 HTML 엔티티가 속성 파싱 단계에서
+  // 따옴표로 디코딩되어 JS 문자열을 탈출하는 경로를 막는다.
+  return String(str || '').replace(/[<>"'`\\\r\n&]/g, '');
+}
+
+// v3.3.95: 이미 저장돼 있거나 Firebase/백업에서 복원된 id·날짜는 sanitizeId()를 거치지 않았을 수 있다.
+// 인라인 onclick="...('${id}')" 에 그대로 들어가는 값이라, 로드 시점(storage.js load())에 한 번 정리해
+// 수십 곳의 출력 지점을 일일이 고치지 않고도 원천 차단한다. 정상 id(영숫자·_-. 등)는 그대로 둔다.
+const _UNSAFE_ID_RE = /[<>"'`\\\r\n]|&(?:#|[a-z]+;)/i;
+function _hash36(s) {
+  let h = 5381; s = String(s);
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+function _safeLoadedId(id) {
+  if (typeof id !== 'string' || !_UNSAFE_ID_RE.test(id)) return id;
+  // 같은 원본 id는 항상 같은 결과(목록 간 일관성) + 서로 다른 원본끼리 충돌하지 않도록 해시 접미사
+  return (sanitizeId(id) || 'ID') + '~' + _hash36(id);
+}
+function _cleanDateStr(s) {
+  if (typeof s !== 'string') return s;
+  return s.replace(/[^0-9A-Za-z\-\/.: ]/g, '');
+}
+// 발주 1건의 id·날짜 계열 필드를 정리(제자리 수정). 변경이 있었으면 true.
+function sanitizeOrderFields(o) {
+  if (!o || typeof o !== 'object') return false;
+  let changed = false;
+  const setIf = (k, v) => { if (o[k] !== v) { o[k] = v; changed = true; } };
+  if (typeof o.id === 'string') setIf('id', _safeLoadedId(o.id));
+  ['date', 'deliveredDate', 'returnedDate', 'cancelledDate'].forEach(k => {
+    if (typeof o[k] === 'string') setIf(k, _cleanDateStr(o[k]));
+  });
+  if (Array.isArray(o.deliveryEvents)) {
+    o.deliveryEvents.forEach(ev => {
+      if (ev && typeof ev.date === 'string') {
+        const c = _cleanDateStr(ev.date);
+        if (c !== ev.date) { ev.date = c; changed = true; }
+      }
+    });
+  }
+  return changed;
 }
 
 // ── 안전한 JSON 파싱 ──
@@ -43,7 +83,8 @@ function todayStr() {
 
 // ── 포맷 ──
 const fmt  = n => (n != null && n !== '') ? '₩' + Number(n).toLocaleString() : '-';
-const fmtQ = i => i.qty ? `${Number(i.qty).toLocaleString()} ${displayUnit(i.unit) || ''}` : '-';
+// v3.3.95: fmtQ는 HTML 템플릿 전용이므로 단위를 이스케이프한다 (AI·복원 데이터의 unit이 태그를 포함해도 안전)
+const fmtQ = i => i.qty ? `${Number(i.qty).toLocaleString()} ${escapeHtml(displayUnit(i.unit)) || ''}` : '-';
 
 // ── 배지 HTML ──
 const badge = c => {
@@ -132,14 +173,15 @@ function calcItemBoxCount(item) {
                         || unitNorm === 'ea' || unitNorm === 'each' || unitNorm === 'piece' || unitNorm === 'pieces';
     const isDozLikeUnit = unitNorm.startsWith('doz') || unitNorm === 'dozen';
 
-    const mPcs = String(item.desc).match(/(\d+)\s*(?:PCS|EA)[\s\/]*(?:BOX|CTN|CS|CASE)/i);
+    // v3.3.95: "1,200EA/BOX" 같은 천단위 쉼표 표기를 200이 아닌 1200으로 읽도록 쉼표 허용
+    const mPcs = String(item.desc).match(/(\d[\d,]*)\s*(?:PCS|EA)[\s\/]*(?:BOX|CTN|CS|CASE)/i);
     if (mPcs && isEaLikeUnit) {
-      const perBox = Number(mPcs[1]);
+      const perBox = Number(String(mPcs[1]).replace(/,/g, ''));
       if (perBox > 0 && item.qty) return Number(item.qty) / perBox;
     }
-    const mDoz = String(item.desc).match(/(\d+)\s*(?:DOZ|DOZEN)[\s\/]*(?:BOX|CTN|CS|CASE)/i);
+    const mDoz = String(item.desc).match(/(\d[\d,]*)\s*(?:DOZ|DOZEN)[\s\/]*(?:BOX|CTN|CS|CASE)/i);
     if (mDoz && isDozLikeUnit) {
-      const perBox = Number(mDoz[1]);
+      const perBox = Number(String(mDoz[1]).replace(/,/g, ''));
       if (perBox > 0 && item.qty) return Number(item.qty) / perBox;
     }
   }
@@ -328,6 +370,14 @@ function _itemImpactBoxes(item, order) {
   return bc * _boxSign(order);
 }
 
+// v3.3.95: 반품금액(양수) 단일 기준 — 화면(통계·납품현황·반품목록)과 엑셀 내보내기가 서로 다른 식
+// (`returnAmount ?? total` / `isReturn ? |total| : ...`)을 따로 쓰던 것을 하나로 통일.
+function calcReturnAmount(o) {
+  if (!o) return 0;
+  if (o.isReturn) return Math.abs(Number(o.total) || 0);                 // 업로드 반품서: total이 음수
+  return o.returnAmount ?? Math.abs(Number(o.total) || 0);              // 수동 반품: returnAmount는 양수
+}
+
 // ── 실납품금액 계산 ──
 function calcNetDelivery(order) {
   const total = order.total || 0;
@@ -337,7 +387,9 @@ function calcNetDelivery(order) {
     // 업로드된 반품서(isReturn=true): total이 이미 음수
     if (order.isReturn) return total;
     // 수동 반품 처리: returnAmount는 양수, 음수로 반환
-    return -(order.returnAmount ?? Math.abs(total));
+    // v3.3.95: -0 이 '₩-0'으로 표시되지 않게 0으로 정규화
+    const v = -(order.returnAmount ?? Math.abs(total));
+    return v === 0 ? 0 : v;
   }
   // 발주취소(cancelled) 건은 항상 0 — 모든 집계에서 제외
   return 0;
@@ -481,6 +533,23 @@ function _findDocSamePoDiff(o) {
     const xPo = (x.poNo || '').trim();
     if (oPo && xPo && _normNo(xPo) !== _normNo(oPo)) return { order: x };          // 발주번호 다름
     if (!(oPo && xPo) && !_sameContent(o, x)) return { order: x };                // 번호 비교 불가 + 내용(총액·수량) 다름
+  }
+  return null;
+}
+// v3.3.95: 반품서 중복 업로드 감지 — 반품서는 id에 Date.now()가 들어가고 saveAll()이 항상 신규 추가해서,
+// 같은 반품서를 두 번 올리면 반품(차감)이 이중으로 잡혔다. 서류번호·발주일자·총액·품목 수량이 모두 같으면
+// '같은 문서 재업로드'로 본다(같은 서류번호의 서로 다른 반품서는 내용이 다르므로 영향 없음).
+function _findDupReturn(o) {
+  if (!o || !o.isReturn) return null;
+  const oDoc = (o.docNo || '').trim();
+  if (!oDoc) return null;
+  const sig = r => (r.items || []).map(i => Number(i.qty) || 0).join(',');
+  for (const x of orders) {
+    if (!x.isReturn) continue;
+    if ((x.docNo || '').trim() !== oDoc || x.date !== o.date) continue;
+    if (Math.abs((Number(x.total) || 0) - (Number(o.total) || 0)) >= 1) continue;
+    if (sig(x) !== sig(o)) continue;
+    return { order: x };
   }
   return null;
 }

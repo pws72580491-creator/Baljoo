@@ -17,6 +17,11 @@ function _gemLogPush(model, status, t0) {
   if (Array.isArray(window._gemLog)) window._gemLog.push({ model, status, ms });
   AppLog.add('api_end', { model, status, ms });
 }
+// v3.3.95: 재시도/폴백해도 결과가 같은 오류(잘못된 요청·키 오류·이미지 초과)는 fatal 표시 —
+// 동시(헤지) 요청이 이런 오류에서 불필요하게 두 번째 모델을 또 호출하지 않도록 한다.
+function _gemFatal(msg) { const e = new Error(msg); e.fatal = true; return e; }
+// v3.3.95: 모델이 thinkingConfig(thinkingLevel)를 지원하지 않아 400을 돌려주면 그 모델은 이후 생각 설정 없이 호출
+const _gemNoThinking = new Set();
 async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry = 0, _keyRetry = 0, _signal = null) {
   if (_signal && _signal.aborted) throw new Error('HEDGE_ABORTED');   // v3.3.90: 동시 요청에서 상대가 먼저 끝난 경우
   const apiKey = getGeminiKey();
@@ -25,7 +30,7 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
   // 이미지 파트 크기 검증 (4MB base64 ≈ 3MB 실제)
   for (const p of parts) {
     if (p.inline_data && p.inline_data.data.length > 5_000_000) {
-      throw new Error('이미지 크기 초과 (5MB 이하로 줄여주세요)');
+      throw _gemFatal('이미지 크기 초과 (5MB 이하로 줄여주세요)');
     }
   }
 
@@ -35,8 +40,9 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
   // 구세대 샘플링 파라미터는 Gemini 3 계열에서 권장하지 않아 제거.
   const body = {
     contents: [{ parts }],
-    generationConfig: { maxOutputTokens: maxTokens, responseMimeType: 'application/json', thinkingConfig: { thinkingLevel: 'low' } }
+    generationConfig: { maxOutputTokens: maxTokens, responseMimeType: 'application/json' }
   };
+  if (!_gemNoThinking.has(model)) body.generationConfig.thinkingConfig = { thinkingLevel: 'low' };
 
   if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('인터넷에 연결되어 있지 않습니다.');
   let resp;
@@ -49,9 +55,10 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
     const controller = new AbortController();
     if (_signal) _signal.addEventListener('abort', () => controller.abort(), { once: true });
     const timeout = setTimeout(() => controller.abort(), 40000); // 40초 타임아웃
+    // v3.3.95: API 키를 URL 쿼리(?key=) 대신 헤더로 전달 — 주소창·확장 프로그램·프록시/브라우저 로그·리퍼러에 키가 남지 않게 함
     resp = await fetch(
-      `${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: bodyStr, signal: controller.signal }
+      `${GEMINI_API_BASE}/${model}:generateContent`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: bodyStr, signal: controller.signal }
     );
     clearTimeout(timeout);
     clearInterval(hb);
@@ -146,9 +153,26 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
     const errBody = await resp.json().catch(() => ({}));
     const errMsg  = errBody?.error?.message || '';
     AppLog.add('api_error', { model, status: resp.status, msg: errMsg.slice(0, 240) });
+    // v3.3.95: 400 중 "이 모델은 thinkingLevel을 지원하지 않음"이면 생각 설정만 빼고 같은 모델로 재시도
+    if (resp.status === 400 && /thinking/i.test(errMsg) && !_gemNoThinking.has(model)) {
+      _gemNoThinking.add(model);
+      console.warn(`[Gemini] ${model}: thinkingConfig 미지원 → 생각 설정 없이 재시도:`, errMsg);
+      return callGemini(parts, maxTokens, model, _retry, _keyRetry, _signal);
+    }
+    // v3.3.95: 키 자체가 잘못된 경우(400 'API key not valid' / 401 / 403)는 다른 키가 있으면 교체해서 재시도
+    const _badKey = (resp.status === 400 && /api key not valid|api_key_invalid/i.test(errMsg)) || resp.status === 401 || resp.status === 403;
+    if (_badKey) {
+      const keys = getGeminiKeys();
+      if (_keyRetry < keys.length - 1) {
+        rotateGeminiKey();
+        console.warn(`[Gemini] 키 오류(${resp.status}) → 키 ${_keyIndex + 1}로 교체 후 재시도`);
+        return callGemini(parts, maxTokens, model, _retry, _keyRetry + 1, _signal);
+      }
+    }
+    // v3.3.95: 예전엔 메시지에 'not found'만 들어 있어도 모델 오류로 간주해 폴백했다(예: 'Requested entity was not found'류
+    // 다른 오류까지 포함). 상태 404 이거나 모델·지원 여부를 직접 가리키는 메시지일 때만 폴백한다.
     const isFallbackable = resp.status === 404
-      || errMsg.includes('not found')
-      || errMsg.includes('deprecated');
+      || /models?\/[^\s]+ (?:is )?not found|model[^.]{0,60}not found|not supported for generateContent|deprecated/i.test(errMsg);
 
     if (isFallbackable && model === GEMINI_MODEL) {
       console.warn('[Gemini] 주 모델 실패, 폴백1로 교체:', errMsg);
@@ -159,12 +183,13 @@ async function callGemini(parts, maxTokens = 2000, model = GEMINI_MODEL, _retry 
       return callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0, _signal);
     }
 
+    if (_badKey) throw _gemFatal('API 키가 올바르지 않습니다. 설정에서 확인해주세요.');   // v3.3.95: 400 'API key not valid'도 동일 안내
     const msg = errBody?.error?.message || resp.statusText;
     // v3.3.70: 최종 폴백 모델까지 404/not found면 Google이 모델을 또 교체했을 가능성이 큼 —
     // 원본 오류를 감추지 않되, 원인을 바로 알 수 있게 안내를 덧붙인다.
     if (isFallbackable) throw new Error(`AI 모델을 찾을 수 없습니다 — Google이 모델을 변경했을 수 있어요, js/gemini.js의 모델명 확인 필요. (${msg})`);
-    if (resp.status === 400) throw new Error('요청 오류: ' + msg);
-    if (resp.status === 401 || resp.status === 403) throw new Error('API 키가 올바르지 않습니다. 설정에서 확인해주세요.');
+    if (resp.status === 400) throw _gemFatal('요청 오류: ' + msg);
+    if (resp.status === 401 || resp.status === 403) throw _gemFatal('API 키가 올바르지 않습니다. 설정에서 확인해주세요.');
     if (resp.status === 429) throw new Error('모든 키 한도 초과. 잠시 후 다시 시도하세요.');
     if (resp.status === 503) throw new Error('Gemini 서버 혼잡. 잠시 후 다시 시도해주세요.');
     throw new Error(`[${resp.status}] ${msg}`);
@@ -277,44 +302,58 @@ function migrateOldKey() {
 // 먼저 오는 쪽을 사용하고 나머지는 취소한다. (주 모델이 과부하로 40~50초씩 멈추는 구간에서 대기시간을 크게 줄임)
 // ══════════════════════════════════════════════════════
 const GEMINI_HEDGE_MS = 5000;   // v3.3.92: 8→5초 (주 모델이 정상일 때 응답이 2.4~3.9초였고, 느린 시간대엔 17~50초 — 로그 기준)
+// v3.3.94: 작업 종류별 설정. 납품 리스트 매칭은 이미지가 크고 출력도 길어 정상 응답도 5초를 넘기 쉽고,
+// 경량 모델이 먼저 이기면 잘못된 발주 id를 돌려주는 일이 반복돼(v3.3.91~92) 대기를 길게 잡고 "즉시 동시 모드"는 쓰지 않는다.
+// 발주서 인식(doc)과 납품 리스트(del)는 연속 패배 기록도 따로 관리해 서로의 모드를 바꾸지 않게 한다.
+const GEMINI_HEDGE_KINDS = {
+  doc: { delayMs: GEMINI_HEDGE_MS, immediate: true,  stateKey: 'baljuGemHedge_v1' },
+  del: { delayMs: 15000,           immediate: false, stateKey: 'baljuGemHedge_del_v1' }
+};
+function _gemHedgeCfg(kind) { return GEMINI_HEDGE_KINDS[kind] || GEMINI_HEDGE_KINDS.doc; }
 // 최근 동시 요청에서 주 모델이 연속 2번 졌다면 느린 시간대로 보고, 10분 동안은 기다리지 않고 처음부터 둘 다 보낸다(10분 뒤 다시 확인)
-const GEMINI_HEDGE_STATE_KEY = 'baljuGemHedge_v1';
-function _gemHedgeState() { try { return JSON.parse(localStorage.getItem(GEMINI_HEDGE_STATE_KEY) || '{}') || {}; } catch (e) { return {}; } }
-function _gemHedgeDelay() { const s = _gemHedgeState(); return (s.until && Date.now() < s.until) ? 0 : GEMINI_HEDGE_MS; }
-function _gemHedgeNote(primaryLost) {
-  const s = _gemHedgeState();
+function _gemHedgeState(cfg) { try { return JSON.parse(localStorage.getItem(cfg.stateKey) || '{}') || {}; } catch (e) { return {}; } }
+function _gemHedgeDelay(cfg) { cfg = cfg || _gemHedgeCfg('doc'); if (!cfg.immediate) return cfg.delayMs; const s = _gemHedgeState(cfg); return (s.until && Date.now() < s.until) ? 0 : cfg.delayMs; }
+function _gemHedgeNote(primaryLost, cfg) {
+  cfg = cfg || _gemHedgeCfg('doc');
+  if (!cfg.immediate) return;   // 즉시 동시 모드를 쓰지 않는 작업은 기록할 상태가 없음
+  const s = _gemHedgeState(cfg);
   if (s.until && Date.now() >= s.until) { s.until = 0; s.streak = 0; }
   if (s.until) return;   // 즉시 동시 모드 중에는 상태 유지
   s.streak = primaryLost ? (s.streak || 0) + 1 : 0;
   if (s.streak >= 2) { s.until = Date.now() + 10 * 60000; s.streak = 0; }
-  try { localStorage.setItem(GEMINI_HEDGE_STATE_KEY, JSON.stringify(s)); } catch (e) {}
+  try { localStorage.setItem(cfg.stateKey, JSON.stringify(s)); } catch (e) {}
 }
-function callGeminiHedged(parts, maxTokens = 2000) {
+// opts.kind: 'doc'(기본, 발주서 인식) | 'del'(납품 리스트 매칭). opts.delayMs는 테스트용 덮어쓰기.
+function callGeminiHedged(parts, maxTokens = 2000, opts = {}) {
+  const cfg = _gemHedgeCfg(opts.kind);
   const cA = new AbortController(), cB = new AbortController();
-  const _hDelay = _gemHedgeDelay();
+  const _hDelay = (typeof opts.delayMs === 'number' && cfg.immediate === false) ? opts.delayMs : _gemHedgeDelay(cfg);
   return new Promise((resolve, reject) => {
-    let settled = false, running = 1, started = false, lastErr = null, timer = null;
+    let settled = false, running = 1, started = false, lastErr = null, timer = null, aFailed = false;
     const win = (who, text) => {
       if (settled) return;
       settled = true; clearTimeout(timer);
       (who === 'A' ? cB : cA).abort();
       const model = who === 'A' ? GEMINI_MODEL : GEMINI_MODEL_FB;
       window._gemWinner = model + (started ? ' (동시 요청)' : '');
-      AppLog.add('hedge_win', { who, model, hedged: started });
-      _gemHedgeNote(who === 'B' && started);
+      AppLog.add('hedge_win', { kind: opts.kind || 'doc', who, model, hedged: started, aFailed });
+      // v3.3.94: 주 모델이 "에러로 실패"해서 B가 이긴 경우는 느림이 아니므로 연속 패배로 세지 않는다
+      // (429 한도 상황에서 즉시 동시 모드가 켜져 호출량이 두 배가 되는 것을 막음)
+      if (!aFailed) _gemHedgeNote(who === 'B' && started, cfg);
       resolve(text);
     };
     const lose = (who, e) => {
       if (settled) return;
       running--; lastErr = e;
-      if (e && e.message === 'API_KEY_MISSING') { settled = true; clearTimeout(timer); cA.abort(); cB.abort(); return reject(e); }
+      if (who === 'A') aFailed = true;
+      if (e && (e.message === 'API_KEY_MISSING' || e.fatal)) { settled = true; clearTimeout(timer); cA.abort(); cB.abort(); return reject(e); }
       if (who === 'A' && !started) { clearTimeout(timer); startB(); return; }   // 주 모델이 먼저 실패하면 기다리지 않고 바로 경량 모델 시도
       if (running <= 0) { settled = true; reject(lastErr); }
     };
     const startB = () => {
       if (started || settled) return;
       started = true; running++;
-      AppLog.add('hedge_start', { afterMs: _hDelay, mode: _hDelay === 0 ? '즉시(최근 주 모델 지연)' : '대기 후', model: GEMINI_MODEL_FB });
+      AppLog.add('hedge_start', { kind: opts.kind || 'doc', afterMs: _hDelay, mode: _hDelay === 0 ? '즉시(최근 주 모델 지연)' : (aFailed ? '주 모델 실패 후' : '대기 후'), model: GEMINI_MODEL_FB });
       callGemini(parts, maxTokens, GEMINI_MODEL_FB, 0, 0, cB.signal).then(t => win('B', t), e => lose('B', e));
     };
     callGemini(parts, maxTokens, GEMINI_MODEL, 0, 0, cA.signal).then(t => win('A', t), e => lose('A', e));

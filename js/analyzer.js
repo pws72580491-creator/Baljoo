@@ -478,6 +478,7 @@ function renderPreview() {
   document.getElementById('prev-cards').innerHTML = pendingOrders.map((o, idx) => {
     // 반품서는 중복 판별 대상에서 완전히 제외
     const isReturnDoc  = !!o.isReturn;
+    const dupReturn    = isReturnDoc ? _findDupReturn(o) : null;   // v3.3.95: 같은 반품서 재업로드 감지
     const shipMissing  = !!o._shipMissing;
     const shipCorrected = !!o._shipAutoCorrected; // v3.3.35: 기존 선박명으로 자동 보정됐는지
     const dupMatch = _findDupMatch(o);
@@ -520,7 +521,9 @@ function renderPreview() {
             : '';
 
     // 안내 메시지 — 중복인 경우 어느 필드가 어떤 기존 발주와 겹쳤는지 구체적으로 표시
-    const infoMsg = isReturnDoc
+    const infoMsg = (isReturnDoc && dupReturn)
+      ? `<div style="font-size:11px;color:#92400e;background:#fde68a;border-radius:6px;padding:5px 8px;grid-column:1/-1;">⚠️ 이미 등록된 반품서와 서류번호·날짜·금액·수량이 모두 같습니다("${escapeHtml(dupReturn.order.ship || '선명없음')}"). 저장 시 <b>중복 등록은 건너뜁니다</b> — 별개의 반품이라면 제거 후 서류번호나 날짜를 확인하세요.</div>`
+      : isReturnDoc
       ? `<div style="font-size:11px;color:#991b1b;background:#fee2e2;border-radius:6px;padding:5px 8px;grid-column:1/-1;">↩️ 반품서로 인식되었습니다. 기존 발주서는 유지되고 반품 내역으로 별도 추가됩니다.</div>`
       : shipMissing
         ? `<div style="font-size:11px;color:#9a3412;background:#ffedd5;border-radius:6px;padding:5px 8px;grid-column:1/-1;">⚠️ AI가 선명을 인식하지 못했습니다. 저장 전 선명을 직접 확인하거나 수정 후 저장하세요.</div>`
@@ -681,11 +684,13 @@ function _sameItemsForCarry(a, b) {
 }
 
 function saveAll() {
-  let added = 0, updated = 0, returnAdded = 0;
+  let added = 0, updated = 0, returnAdded = 0, returnSkipped = 0;
   pendingOrders.forEach(newOrder => {
     delete newOrder._truncated; delete newOrder._pagesCut;
     // 반품서: 항상 신규 추가 (기존 발주서 덮어쓰기 금지)
     if (newOrder.isReturn) {
+      // v3.3.95: 같은 반품서를 다시 올린 경우 이중 차감 방지를 위해 건너뜀
+      if (_findDupReturn(newOrder)) { returnSkipped++; return; }
       orders.push({ ...newOrder, updatedAt: Date.now() });
       returnAdded++;
       return;
@@ -754,6 +759,7 @@ function saveAll() {
     added       ? `✅ ${added}건 신규 추가`    : '',
     updated     ? `🔄 ${updated}건 업데이트`   : '',
     returnAdded ? `↩️ ${returnAdded}건 반품 등록` : '',
+    returnSkipped ? `⏭️ 중복 반품서 ${returnSkipped}건 건너뜀` : '',
   ].filter(Boolean).join(' · ');
   toast(msg || '저장 완료');
   renderAll();

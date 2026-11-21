@@ -131,7 +131,7 @@ function renderAll() {
 
   const deliveredAmt = delivered.reduce((s, o) => s + (o.total || 0), 0);
   // 반품서(isReturn): total이 이미 음수이므로 Math.abs 사용; 수동반품: returnAmount는 양수
-  const returnedAmt  = returned.reduce((s, o) => s + (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount ?? Math.abs(o.total) ?? 0)), 0);
+  const returnedAmt  = returned.reduce((s, o) => s + calcReturnAmount(o), 0);
   const pendingAllAmt = pendingAll.reduce((s, o) => s + (o.total || 0), 0);
   const netAmt       = deliveredAmt - returnedAmt;
 
@@ -531,7 +531,7 @@ function renderStats() {
       const mRet     = mOrders.filter(o => o.deliveryStatus === 'returned');
       const mDelAmt  = mDel.reduce((s,o) => s+(o.total||0), 0)
                       + mPartial.reduce((s,o) => s+calcPartialDeliveredAmount(o), 0);
-      const mRetAmt  = mRet.reduce((s,o) => s+(o.isReturn ? Math.abs(o.total||0) : (o.returnAmount??Math.abs(o.total)??0)), 0);
+      const mRetAmt  = mRet.reduce((s,o) => s+calcReturnAmount(o), 0);
       const mNet     = mDelAmt - mRetAmt;
       const mBoxes   = mDel.reduce((s,o) => s + calcOrderBoxes(o), 0)
                       + mPartial.reduce((s,o) => s + calcOrderDeliveredBoxes(o), 0);
@@ -632,7 +632,7 @@ function renderStats() {
   const cancelled = scopeOrders.filter(o => o.deliveryStatus === 'cancelled'); // 집계 제외, 건수만 참고
 
   const deliveredAmt = delivered.reduce((s, o) => s + (o.total || 0), 0);
-  const returnedAmt  = returned.reduce((s, o) => s + (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount ?? Math.abs(o.total) ?? 0)), 0);
+  const returnedAmt  = returned.reduce((s, o) => s + calcReturnAmount(o), 0);
   const partialDeliveredAmt = partial.reduce((s, o) => s + calcPartialDeliveredAmount(o), 0);
   // v3.3.32: "납품완료+부분납품(배송분)+반품(차감)"을 calcNetDelivery 한 기준으로 합산.
   // 기존엔 deliveredAmt - returnedAmt만 써서 부분납품 배송분이 실 납품금액에서 통째로
@@ -683,7 +683,7 @@ function renderStats() {
     // 오히려 더해져 선박별 박스 수가 부풀려지던 문제 수정
     byShip[key].boxes   += calcOrderImpactBoxes(o);
     if (o.deliveryStatus === 'returned')
-      byShip[key].returned += (o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount ?? Math.abs(o.total) ?? 0));
+      byShip[key].returned += calcReturnAmount(o);
   });
   const ships = Object.values(byShip).sort((a, b) => b.net - a.net);
 
@@ -782,7 +782,7 @@ function renderStats() {
     <div class="sdiv">반품 내역 (${returned.length}건)</div>
     ${returned.map(o => `
       <div class="order-card status-returned" onclick="openModal('${o.id}')">
-        <div class="oc-top"><div class="oc-ship">${escapeHtml(o.ship)}</div><div class="oc-amount" style="color:var(--danger);">-${fmt(o.isReturn ? Math.abs(o.total || 0) : (o.returnAmount ?? Math.abs(o.total) ?? 0))}</div></div>
+        <div class="oc-top"><div class="oc-ship">${escapeHtml(o.ship)}</div><div class="oc-amount" style="color:var(--danger);">-${fmt(calcReturnAmount(o))}</div></div>
         <div class="oc-meta"><span class="oc-doc">${escapeHtml(o.docNo)}</span>${o.isReturn ? '<span class="badge b-returned">↩️ 반품서</span>' : statusBadge('returned')}</div>
         <div class="oc-bottom"><div class="oc-item">${escapeHtml(o.deliveryNote) || '-'}</div><div class="oc-dates">${escapeHtml(o.date)}</div></div>
       </div>
@@ -1305,7 +1305,7 @@ function renderDeliveryStatus() {
                       const qtyCol = ((item.qty||0) < 0 || isManualReturn) ? 'color:#dc2626;' : '';
                       return `<div style="font-size:10px;color:var(--muted);margin-top:3px;display:flex;gap:4px;align-items:center;">
                         <span style="color:var(--navy);font-weight:600;">${desc}</span>
-                        <span style="${qtyCol}">${item.qty}${displayUnit(item.unit)}${boxStr ? ' · '+boxStr : ''}</span>
+                        <span style="${qtyCol}">${escapeHtml(item.qty)}${escapeHtml(displayUnit(item.unit))}${boxStr ? ' · '+boxStr : ''}</span>
                       </div>`;
                     }).join('')}
                 </div>
@@ -1372,6 +1372,7 @@ function renderDeliveryStatus() {
 // 납품현황 날짜별 목표 박스 입력
 // ══════════════════════════════════════════════════════
 function openDelivGoal(dateStr, eggAutoOpen, quailAutoOpen, brineAutoOpen) {
+  dateStr = String(dateStr || '').replace(/[^0-9A-Za-z\-\/.: ]/g, '');   // v3.3.95: 아래 onclick 문자열에 그대로 들어가므로 방어
   let goal = null;
   try { goal = JSON.parse(localStorage.getItem('delivGoal_' + dateStr) || 'null'); } catch(e) {}
   goal = goal || { egg: 0, quail: 0, brine: 0, eggDmg: 0, quailDmg: 0, brineDmg: 0 };
@@ -1826,7 +1827,7 @@ function renderDashByDate() {
                 ${(o.items||[]).map(i => {
                   const qtyCol = ((i.qty||0) < 0 || isManualReturn) ? 'color:#dc2626;' : '';
                   const boxStr = formatItemBoxStr(i);
-                  return `<div style="font-size:11px;color:#555;margin-top:3px;${qtyCol}">${escapeHtml((i.desc||'').slice(0,22))} · ${i.qty}${displayUnit(i.unit)}${boxStr ? ' · '+boxStr : ''}</div>`;
+                  return `<div style="font-size:11px;color:#555;margin-top:3px;${qtyCol}">${escapeHtml((i.desc||'').slice(0,22))} · ${escapeHtml(i.qty)}${escapeHtml(displayUnit(i.unit))}${boxStr ? ' · '+boxStr : ''}</div>`;
                 }).join('')}
               </div>
               <div style="text-align:right;flex-shrink:0;margin-left:8px;">

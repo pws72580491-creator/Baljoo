@@ -108,7 +108,7 @@ function exportExcel() {
         '단가':          item.price  || 0,
         '품목금액':       item.amount || 0,
         '발주총액':       idx === 0 ? (o.total        || 0) : '',
-        '반품금액':       idx === 0 ? (o.returnAmount  || 0) : '',
+        '반품금액':       idx === 0 ? (o.deliveryStatus === 'returned' ? calcReturnAmount(o) : (o.returnAmount || 0)) : '',
         '실납품금액':     idx === 0 ? calcNetDelivery(o)    : '',
         '비고':          idx === 0 ? (o.deliveryNote  || '') : ''
       });
@@ -133,7 +133,7 @@ function exportExcel() {
     { 항목: '부분납품건수',  값: partial.length },
     { 항목: '부분납품 배송분 금액', 값: partial.reduce((s, o) => s + calcPartialDeliveredAmount(o), 0) },
     { 항목: '반품건수',     값: returned.length },
-    { 항목: '반품금액',     값: returned.reduce((s, o) => s + (o.returnAmount ?? o.total ?? 0), 0) },
+    { 항목: '반품금액',     값: returned.reduce((s, o) => s + calcReturnAmount(o), 0) },
     { 항목: '발주취소건수',  값: cancelled.length },
     { 항목: '미납품건수',   값: pending.length },
     { 항목: '실납품금액합계', 값: orders.reduce((s, o) => s + calcNetDelivery(o), 0) },
@@ -158,7 +158,7 @@ function exportExcel() {
       const mCancel   = mOrders.filter(o => o.deliveryStatus === 'cancelled');
       const mPend     = mOrders.filter(o => !o.deliveryStatus || o.deliveryStatus === 'pending');
       const mDelAmt   = mDel.reduce((s,o) => s+(o.total||0), 0);
-      const mRetAmt   = mRet.reduce((s,o) => s+(o.isReturn ? Math.abs(o.total||0) : (o.returnAmount??Math.abs(o.total)??0)), 0);
+      const mRetAmt   = mRet.reduce((s,o) => s+calcReturnAmount(o), 0);
       const mNet      = mDelAmt - mRetAmt;
       // 박스수도 금액(mNet)과 동일하게 반품분을 차감하고, 부분납품은 배송된 만큼만 포함
       // (부호 보정, phantom 반품은 0 처리)
@@ -390,10 +390,14 @@ function bulkDeliver() {
   const note = prompt(`납품 비고 (선택사항)\n선택 ${bulkSelected.size}건 전체에 적용됩니다`, '');
   if (note === null) return; // 취소
 
-  let count = 0;
+  let count = 0, skipped = 0;
   bulkSelected.forEach(id => {
     const o = orders.find(x => x.id === id);
     if (!o) return;
+    // v3.3.95: 선택 후 상태가 바뀌었을 수 있으므로 bulkSelectAll()과 같은 기준으로 한 번 더 확인 —
+    // 반품서·반품·발주취소·이미 납품완료·보관 건은 일괄 납품 처리 대상이 아님
+    if (o.isReturn || o.deliveryStatus === 'delivered' || o.deliveryStatus === 'returned'
+        || o.deliveryStatus === 'cancelled' || o.archived) { skipped++; return; }
     // v3.3.33: 부분납품 중이었다면 "이번에 새로 채워진 만큼"을 선택한 날짜로 이력 기록
     const prevBoxes = (o.items || []).map(i => calcItemDeliveredBoxes(i));
     const nextBoxes = (o.items || []).map(i => calcItemBoxCount(i));
@@ -410,7 +414,7 @@ function bulkDeliver() {
   save();
   bulkSelected.clear();
   toggleBulkMode('deliver'); // 모드 종료
-  toast(`✅ ${count}건 납품완료 처리되었습니다.`);
+  toast(`✅ ${count}건 납품완료 처리되었습니다.` + (skipped ? ` (대상 아님 ${skipped}건 제외)` : ''));
 }
 
 function bulkArchive() {
@@ -723,7 +727,8 @@ window.addEventListener('popstate', e => {
   const editOv = document.getElementById('editModalOv');
   if (editOv && editOv.classList.contains('open')) {
     editOv.classList.remove('open');
-    if (typeof _editId !== 'undefined') window._editId = null;
+    // v3.3.95: _editId는 modal.js의 최상위 let 변수라 window._editId 에 대입해도 바뀌지 않았다(뒤로가기 후 이전 편집 id가 남음)
+    if (typeof _editId !== 'undefined') _editId = null;
     return;
   }
   // 상세 모달이 열려있으면 닫기

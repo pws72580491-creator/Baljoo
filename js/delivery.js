@@ -34,27 +34,42 @@ function _delDaysAgoStr(n) {
 // 의존하지 않고 코드에서도 한 번 더 보장한다.
 function normalizeDeliveryMatches(result) {
   const byId = id => orders.find(o => o.id === id);
+  // v3.3.93: AI 응답 모양 방어 — matched가 배열이 아니거나 unmatched에 문자열 아닌 값이 섞여도 분석 전체가 죽지 않게 한다
+  const aiMatched = Array.isArray(result.matched) ? result.matched.filter(m => m && typeof m === 'object') : [];
+  const rawUn = Array.isArray(result.unmatched) ? result.unmatched : (typeof result.unmatched === 'string' ? [result.unmatched] : []);
+  result.unmatched = rawUn.map(u => (typeof u === 'string' ? u : (u && typeof u === 'object' ? (u.ship || u.name || '') : ''))).filter(u => typeof u === 'string' && u.trim());
   // v3.3.91: AI가 돌려준 id가 실제 발주 id와 달라도 조용히 버리지 않는다.
-  //  ① 대소문자·기호만 다른 id는 보정  ② 그래도 없으면 그 선명을 unmatched로 넘겨 선명 대조(보완 매칭/이미 납품완료/미매칭)에 태운다
+  //  ① 대소문자·기호만 다른 id는 보정  ② 서류번호·발주번호를 적은 경우 보정  ③ 선명으로 지정  ④ 그래도 없으면 선명을 unmatched로 넘겨 선명 대조(보완 매칭/이미 납품완료/미매칭)에 태운다
   const idKey = s => String(s || '').toUpperCase().replace(/[^A-Z0-9가-힣]/g, '');
   const dropped = [], badIds = [];
-  const taken = new Set((result.matched || []).filter(m => m && m.id && byId(m.id)).map(m => m.id));   // 이미 유효한 id로 선택된 발주
-  const fixed = (result.matched || []).filter(m => m && typeof m === 'object').map(m => {
+  const taken = new Set(aiMatched.filter(m => m.id && byId(m.id)).map(m => m.id));   // 이미 유효한 id로 선택된 발주
+  const seenBad = new Set();   // v3.3.93: 같은 (잘못된 id + 선명) 항목이 반복되면 두 번째부터는 자동 지정하지 않고 보완 매칭(확인 필요)으로 넘긴다
+  const fixed = aiMatched.map(m => {
     if (m.id && byId(m.id)) return m;
     badIds.push({ id: String(m.id || '').slice(0, 60), ship: String(m.ship || '').slice(0, 40) });   // 진단용: AI가 실제로 어떤 id를 줬는지
-    const k = idKey(m.id);
-    // ① 표기만 다른 id → 보정  ② 서류번호·발주번호를 id 자리에 적은 경우 → 그 미납품 발주
-    let hit = k ? orders.find(o => idKey(o.id) === k) : null;
-    if (!hit && k) hit = orders.find(o => _delIsPending(o.deliveryStatus) && !taken.has(o.id) && (idKey(o.docNo) === k || idKey(o.poNo) === k));
-    let why = hit ? '(ID 표기 보정)' : '';
-    // ③ 그래도 없으면 선명으로: AI가 이 배를 매칭하려던 것이므로 같은 선명의 미납품 발주 중 가장 오래된 건을 지정(AI 지시와 동일)
-    if (!hit && m.ship) {
-      const nk = _delNameKey(m.ship);
-      hit = nk ? orders.filter(o => _delIsPending(o.deliveryStatus) && !taken.has(o.id) && _delNameKey(o.ship) === nk)
-                      .sort((a, b) => (a.date || '').localeCompare(b.date || ''))[0] : null;
-      if (hit) why = '(AI가 준 ID가 달라 선명으로 매칭)';
+    const k = idKey(m.id), nk = _delNameKey(m.ship);
+    const badKey = k + '|' + nk;
+    const dup = seenBad.has(badKey);
+    seenBad.add(badKey);
+    let hit = null, why = '', auto = false;
+    if (!dup) {
+      // ① 표기만 다른 id → 보정 (id 자체가 일치하므로 선명 표기가 달라도 신뢰)
+      if (k) hit = orders.find(o => idKey(o.id) === k) || null;
+      if (hit) why = '(ID 표기 보정)';
+      // ② 서류번호·발주번호를 id 자리에 적은 경우 → 선명이 있으면 같은 선명만, 선명이 없으면 후보가 딱 1건일 때만
+      if (!hit && k) {
+        const cand = orders.filter(o => _delIsPending(o.deliveryStatus) && !taken.has(o.id) && (idKey(o.docNo) === k || idKey(o.poNo) === k)
+                                       && (!nk || _delNameKey(o.ship) === nk));
+        if (cand.length === 1 || (cand.length > 1 && nk)) { hit = cand.sort((a, b) => (a.date || '').localeCompare(b.date || ''))[0]; why = '(서류·발주번호로 보정)'; }
+      }
+      // ③ 그래도 없으면 선명으로: 같은 선명의 미납품 발주 중 가장 오래된 건 지정(AI 지시와 동일)
+      if (!hit && nk) {
+        hit = orders.filter(o => _delIsPending(o.deliveryStatus) && !taken.has(o.id) && _delNameKey(o.ship) === nk)
+                    .sort((a, b) => (a.date || '').localeCompare(b.date || ''))[0] || null;
+        if (hit) { why = '(AI가 준 ID가 달라 선명으로 매칭)'; auto = true; }
+      }
     }
-    if (hit) { taken.add(hit.id); return { ...m, id: hit.id, reason: (m.reason ? m.reason + ' ' : '') + why }; }
+    if (hit) { taken.add(hit.id); return { ...m, id: hit.id, autoByName: auto || undefined, reason: (m.reason ? m.reason + ' ' : '') + why }; }
     if (m.ship) dropped.push(String(m.ship));
     return null;
   }).filter(Boolean);
@@ -83,8 +98,9 @@ function normalizeDeliveryMatches(result) {
     out.push({ ...m, id, reason });
   }
   if (dropped.length) {
-    const have = (result.unmatched || []).map(u => _delNameKey(u));
-    result.unmatched = [...(result.unmatched || []), ...dropped.filter(d => !have.includes(_delNameKey(d)))];
+    // AI가 이미 unmatched에 적은 선명은 중복 추가하지 않는다. (dropped끼리 같은 선명이 반복되면 개수만큼 유지 → 선명 대조에서 서로 다른 발주로 보완)
+    const have = result.unmatched.map(u => _delNameKey(u));
+    result.unmatched = [...result.unmatched, ...dropped.filter(d => !have.includes(_delNameKey(d)))];
   }
   return out;
 }
@@ -161,11 +177,12 @@ async function handleDeliveryFiles(files) {
 
   // 백그라운드 처리 유지 시작
   await BG.start();
-  AppLog.newRun();   // v3.3.92: 납품 리스트 분석도 로그에 기록(앱 전환·네트워크 끊김 포함)
   const _tDel = performance.now();
-  AppLog.add('del_start', Object.assign({ files: Array.from(files).map(f => ({ name: f.name, type: f.type, kb: Math.round(f.size / 1024) })) }, AppLog.env()));
 
   try {
+    // v3.3.92: 납품 리스트 분석도 로그에 기록(앱 전환·네트워크 끊김 포함). v3.3.93: 로그 시작에서 예외가 나도 catch에서 BG.end()가 호출되도록 try 안으로 이동
+    AppLog.newRun();
+    AppLog.add('del_start', Object.assign({ files: Array.from(files).map(f => ({ name: f.name, type: f.type, kb: Math.round(f.size / 1024) })) }, AppLog.env()));
     // v3.3.66: 납품 리스트는 발주서 사진(보통 품목 1~3줄)과 달리 여러 척이
     // 한 화면에 줄줄이 나열된 "긴 목록" 문서라, 발주서용 해상도(IMAGE_MAX_PX=1024)로
     // 줄이면 아래쪽 줄일수록 글자가 작아져 인식이 끊기기 쉽다(예: 위쪽 몇 척만
@@ -212,7 +229,7 @@ ${orderSummary}
 
     window._geminiLastFinish = '';
     // v3.3.68: 4000 → 8000 (gemini-2.5-flash는 생각 토큰도 출력 한도에 포함돼 긴 리스트에서 응답이 잘릴 수 있음)
-    let txt = await callGeminiHedged(parts, 8000);
+    let txt = await callGeminiHedged(parts, 8000, { kind: 'del' });   // v3.3.94: 납품 리스트는 대기 15초·즉시 동시 모드 없음·발주서와 상태 분리
     const truncated = window._geminiLastFinish === 'MAX_TOKENS';
 
     // 1단계: 코드블록 제거 (```json ... ``` 또는 ``` ... ```)
@@ -260,7 +277,7 @@ ${orderSummary}
     try {   // v3.3.91: 매칭 결과 진단 로그 — 같은 선명 발주가 있는지/상태가 무엇인지까지 기록
       const nm = n => { const k = _delNameKey(n); const os = orders.filter(o => _delNameKey(o.ship) === k); return { name: n, ordersWithSameName: os.length, statuses: os.slice(0, 4).map(o => (o.deliveryStatus || '') + ':' + (o.deliveredDate || o.date || '')) }; };
       const pend = orders.filter(o => _delIsPending(o.deliveryStatus)).length;
-      AppLog.add('del_match', { aiTotal: result.totalCount, aiMatched: _aiMatched, kept: result.matched.length, idMismatchShips: result._dropped || [], badIds: result._badIds || [], autoByName: result.matched.filter(m => /선명으로 매칭/.test(m.reason || '')).length, rescued: result.matched.filter(m => m.rescued).length, alreadyDelivered: result.alreadyDelivered.length, unmatched: result.unmatched.map(nm), pendingTotal: pend, sentToAI: Math.min(60, pend) });
+      AppLog.add('del_match', { aiTotal: result.totalCount, aiMatched: _aiMatched, kept: result.matched.length, idMismatchShips: result._dropped || [], badIds: result._badIds || [], autoByName: result.matched.filter(m => m.autoByName).length, rescued: result.matched.filter(m => m.rescued).length, alreadyDelivered: result.alreadyDelivered.length, unmatched: result.unmatched.map(nm), pendingTotal: pend, sentToAI: Math.min(60, pend) });
     } catch (e) {}
     renderDeliveryResult(result);
     setDelProgress(100);
@@ -375,7 +392,7 @@ function renderDeliveryResult(result) {
               <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
                 <span style="font-size:13px;font-weight:800;color:var(--navy);">${escapeHtml(m.order.ship)}</span>
                 <span style="font-size:10px;font-weight:700;color:#15803d;background:#dcfce7;border-radius:4px;padding:1px 6px;">
-                  ${m.order.deliveryStatus === 'delivered' ? '이미 납품완료' + (m.order.deliveredDate ? ' · ' + m.order.deliveredDate.slice(5).replace('-', '/') : '')
+                  ${m.order.deliveryStatus === 'delivered' ? '이미 납품완료' + (m.order.deliveredDate ? ' · ' + escapeHtml(m.order.deliveredDate.slice(5).replace('-', '/')) : '')
                     : m.order.deliveryStatus === 'partial'   ? '🚚 부분납품 중'
                     : m.order.deliveryStatus === 'cancelled' ? '🚫 발주취소됨'
                     : m.order.deliveryStatus === 'returned'  ? '↩️ 반품처리됨'
@@ -383,6 +400,7 @@ function renderDeliveryResult(result) {
                 </span>
                 ${isAmbiguous ? `<span style="font-size:10px;font-weight:700;color:#b45309;background:#fef3c7;border-radius:4px;padding:1px 6px;">⚠️ 동일 선명 ${candidates.length}건</span>` : ''}
                 ${m.rescued ? `<span style="font-size:10px;font-weight:700;color:#1d4ed8;background:#dbeafe;border-radius:4px;padding:1px 6px;">🔎 선명 일치로 보완</span>` : ''}
+                ${m.autoByName ? `<span style="font-size:10px;font-weight:700;color:#1d4ed8;background:#dbeafe;border-radius:4px;padding:1px 6px;">🔎 선명으로 자동 지정 — 확인 필요</span>` : ''}
               </div>
               <div style="font-size:11px;color:var(--muted);margin-top:2px;">${escapeHtml(m.reason)}</div>
               ${isAmbiguous ? `
