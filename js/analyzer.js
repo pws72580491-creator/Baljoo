@@ -245,6 +245,7 @@ unit 선택 기준(중요):
 - 수량 단위가 CS·CTN·BOX·CASE·박스 → unit="ctn"
 - 수량 단위가 PCS·EA·낱개 → unit="pcs"
 - 수량 단위가 PKT·PKG·BAG·SACHET·POUCH·봉지·봉·팩 → unit="pkt"
+- 수량 단위가 TRAY·TRAYS·트레이 → unit="tray" (절대 pcs·ctn으로 바꾸지 말고, 12TRAY=1박스이므로 수량을 환산하지 말고 문서에 적힌 TRAY 수 그대로 qty에 적을 것)
 - 그 외: kg/l/btl 중 해당하는 것`;
 
     const parts = [textPart(prompt)];
@@ -349,6 +350,8 @@ unit 선택 기준(중요):
       parsed.deliveryStatus = 'pending';
       parsed.returnAmount   = 0;
     }
+    // v3.3.96: AI가 TRAY 단위를 TRAY/Trays/트레이 등으로 다르게 적어도 'tray' 하나로 통일 (박스 환산 12TRAY=1박스)
+    (parsed.items || []).forEach(i => { if (_isTrayUnit(i.unit)) i.unit = 'tray'; });
     parsed.source        = 'upload';
     if (pdfCut) parsed._pagesCut = pdfCut;
     parsed.fileName      = file.name;

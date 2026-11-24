@@ -554,7 +554,7 @@ let _editItemNextIdx = 0;
 // box로 바뀌면 수량이 그대로 박스수로 잡혀버려 재고 집계가 틀어짐.
 // → 기본 옵션 목록에 없는 단위는 원래 값 그대로 옵션을 하나 추가해 선택해 두어
 //   어떤 단위든 손대지 않으면 절대 값이 바뀌지 않도록 함.
-const _EDIT_UNIT_BASE = [['box','박스'],['ctn','ctn'],['pcs','pcs'],['doz','doz'],['pkt','봉지'],['kg','kg'],['l','L'],['btl','병']];
+const _EDIT_UNIT_BASE = [['box','박스'],['ctn','ctn'],['pcs','pcs'],['doz','doz'],['tray','TRAY'],['pkt','봉지'],['kg','kg'],['l','L'],['btl','병']];
 function _unitOptions(current) {
   const known = _EDIT_UNIT_BASE.some(([v]) => v === current);
   const list  = (known || !current) ? _EDIT_UNIT_BASE : [..._EDIT_UNIT_BASE, [current, current]];

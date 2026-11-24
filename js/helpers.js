@@ -103,8 +103,17 @@ const statusBadge = s => {
 };
 
 // ── 박스 계산 ──
+// v3.3.96: TRAY(트레이) 단위 — 12TRAY = 1박스. 예전엔 'tray'가 어떤 규칙에도 없어(getBoxDivisor가 null)
+// TRAY 단위 품목은 박스 수가 0으로 계산됐고, AI가 단위를 pcs/ctn 등 엉뚱한 값으로 바꿔 적으면 수량이 그대로
+// 박스(ctn) 또는 360분의 1(pcs)로 잘못 환산됐다.
+const TRAY_PER_BOX = 12;
+function _isTrayUnit(unit) {
+  const u = String(unit || '').toLowerCase().replace(/[\s.\-_]/g, '');
+  return u === 'tray' || u === 'trays' || u === '트레이';
+}
 function getBoxDivisor(unit) {
   if (!unit) return null;
+  if (_isTrayUnit(unit)) return TRAY_PER_BOX;   // 12TRAY = 1박스
   const u = String(unit).toLowerCase().trim().replace(/[^a-z]/g, '');
 
   // CTN / BOX / CASE / CARTON → qty = 박스 수 (1:1)
@@ -153,6 +162,10 @@ function calcItemBoxCount(item) {
                  || unitNorm === 'sachet' || unitNorm === 'pouch';
   if (isPktUnit) return (Number(item.qty) || 0) / 10;
 
+  // v3.3.96: TRAY 단위 — 12TRAY = 1박스 (생메추리 포함 모든 품목. 아래 메추리 pcs/doz 특례·desc 패턴보다 먼저 적용해야
+  // TRAY 수량이 480pcs·360EA 같은 낱개 기준으로 다시 나눠지지 않음. 반품서 음수 qty도 그대로 처리)
+  if (_isTrayUnit(item.unit)) return (Number(item.qty) || 0) / TRAY_PER_BOX;
+
   // 생메추리알 특별 처리: pcs → 480pcs=1박스 / doz → 40doz=1박스 (반품서 음수 qty도 처리)
   if (_isQuailEgg(item)) {
     const qty = Number(item.qty) || 0;
@@ -196,6 +209,15 @@ function calcItemBoxCount(item) {
 // AI가 원본 발주서 숫자를 잘못 읽었을 가능성(예: "30"→"300" 0 오인식)을
 // 저장 전 미리보기 단계에서 사용자에게 알리기 위함 — 값을 임의로 고치지는 않음.
 function _boxRatioWarning(item) {
+  // v3.3.96: TRAY 단위인데 품목설명에 "NN TRAY/BOX"가 12가 아닌 값으로 적혀 있으면 안내(값은 고치지 않음 — 앱 기준 12TRAY=1박스)
+  if (item && item.desc && _isTrayUnit(item.unit)) {
+    const mt = String(item.desc).match(/(\d[\d,]*)\s*TRAYS?[\s\/]*(?:BOX|CTN|CS|CASE)/i);
+    const n = mt ? Number(mt[1].replace(/,/g, '')) : 0;
+    if (n > 0 && n !== TRAY_PER_BOX) {
+      return `⚠️ 품목설명 "${mt[0]}" 인식 — 앱은 ${TRAY_PER_BOX}TRAY=1박스로 계산합니다. 원본 발주서의 박스당 TRAY 수를 확인해주세요.`;
+    }
+    return null;
+  }
   if (!item || !item.desc || _isQuailEgg(item)) return null;
   const unitNorm = String(item.unit || '').toLowerCase().replace(/[^a-z]/g, '');
   const isBoxUnit = unitNorm === 'box' || unitNorm === 'ctn' || unitNorm === 'case' || unitNorm === 'carton' || unitNorm === 'ct';
@@ -250,8 +272,25 @@ function _isPktUnit(unit) {
   return u === 'pkt' || u === 'pkg' || u === 'bag' || u === 'sachet' || u === 'pouch';
 }
 
-// 품목 박스 문자열 표시 (pkt 품목은 박스+봉지 혼합, 일반은 박스)
+// v3.3.96: tray 단위 표시 — 박스 + 나머지 TRAY. 예) 30TRAY → 2박스 6TRAY / 12TRAY → 1박스 / 5TRAY → 5TRAY
+function formatTrayCount(qty) {
+  const q = Number(qty) || 0;
+  if (q === 0) return '0TRAY';
+  const sign  = q < 0 ? '-' : '';
+  const abs   = Math.abs(q);
+  const boxes = Math.floor(abs / TRAY_PER_BOX + 1e-9);
+  const rem   = Math.round((abs - boxes * TRAY_PER_BOX) * 100) / 100;
+  if (boxes > 0 && rem > 0) return `${sign}${boxes}박스 ${rem}TRAY`;
+  if (boxes > 0)             return `${sign}${boxes}박스`;
+  return `${sign}${rem}TRAY`;
+}
+
+// 품목 박스 문자열 표시 (pkt 품목은 박스+봉지, tray 품목은 박스+TRAY 혼합, 일반은 박스)
 function formatItemBoxStr(item) {
+  if (_isTrayUnit(item.unit)) {
+    const q = Number(item.qty) || 0;
+    return q ? formatTrayCount(q) : '';
+  }
   if (_isPktUnit(item.unit)) {
     const q = Number(item.qty) || 0;
     return q ? formatPktCount(q) : '';
@@ -275,6 +314,7 @@ function displayUnit(unit) {
   const u = String(unit).toLowerCase().replace(/[^a-z]/g, '');
   if (u === 'ctn' || u === 'case' || u === 'carton' || u === 'ct') return 'box';
   if (u === 'pkt' || u === 'pkg' || u === 'bag' || u === 'sachet' || u === 'pouch') return '봉지';
+  if (_isTrayUnit(unit)) return 'TRAY';   // v3.3.96: tray/trays/트레이 표기 통일
   return unit; // pcs, doz 등은 그대로
 }
 
